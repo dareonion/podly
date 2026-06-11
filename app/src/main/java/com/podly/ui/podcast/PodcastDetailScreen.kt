@@ -13,6 +13,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,7 +32,9 @@ import com.podly.data.db.EpisodeEntity
 import com.podly.ui.EpisodeActions
 import com.podly.ui.appViewModel
 import com.podly.ui.components.AddToPlaylistDialog
+import com.podly.ui.components.DescriptionDialog
 import com.podly.ui.components.EpisodeRow
+import com.podly.ui.util.plainDescription
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -62,6 +65,8 @@ fun PodcastDetailScreen(podcastId: String) {
     val episodes by viewModel.episodes.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     var episodeForPlaylist by remember { mutableStateOf<EpisodeEntity?>(null) }
+    var episodeForDescription by remember { mutableStateOf<EpisodeEntity?>(null) }
+    var showFullPodcastDescription by remember(podcast?.id) { mutableStateOf(false) }
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
@@ -93,18 +98,25 @@ fun PodcastDetailScreen(podcastId: String) {
                 }
             }
         }
-        podcast?.description?.let { description ->
+        plainDescription(podcast?.description)?.let { description ->
             item {
-                Text(
-                    description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                )
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    Text(
+                        description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = if (showFullPodcastDescription) Int.MAX_VALUE else 4,
+                        overflow = if (showFullPodcastDescription) TextOverflow.Clip else TextOverflow.Ellipsis,
+                    )
+                    if (description.length > 240 || description.count { it == '\n' } >= 4) {
+                        TextButton(
+                            onClick = { showFullPodcastDescription = !showFullPodcastDescription },
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) {
+                            Text(if (showFullPodcastDescription) "Show less" else "Show full description")
+                        }
+                    }
+                }
             }
         }
         item {
@@ -122,6 +134,7 @@ fun PodcastDetailScreen(podcastId: String) {
                 onDownload = { viewModel.actions.download(episode) },
                 onRemoveDownload = { viewModel.actions.removeDownload(episode) },
                 onAddToPlaylist = { episodeForPlaylist = episode },
+                onShowDescription = { episodeForDescription = episode },
             )
         }
     }
@@ -139,5 +152,15 @@ fun PodcastDetailScreen(podcastId: String) {
             },
             onDismiss = { episodeForPlaylist = null },
         )
+    }
+
+    episodeForDescription?.let { episode ->
+        plainDescription(episode.description)?.let { description ->
+            DescriptionDialog(
+                title = episode.title,
+                description = description,
+                onDismiss = { episodeForDescription = null },
+            )
+        }
     }
 }

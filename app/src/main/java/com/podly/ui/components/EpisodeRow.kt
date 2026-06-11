@@ -8,15 +8,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Downloading
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -38,6 +39,7 @@ import com.podly.data.db.DownloadStatus
 import com.podly.data.db.EpisodeEntity
 import com.podly.ui.util.formatDate
 import com.podly.ui.util.formatDuration
+import com.podly.ui.util.plainDescription
 
 @Composable
 fun EpisodeRow(
@@ -48,9 +50,11 @@ fun EpisodeRow(
     onRemoveDownload: () -> Unit,
     onAddToPlaylist: () -> Unit,
     onRemoveFromPlaylist: (() -> Unit)? = null,
+    onShowDescription: (() -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    val hasDescription = plainDescription(episode.description) != null
 
     Row(
         modifier = Modifier
@@ -134,9 +138,16 @@ fun EpisodeRow(
                 }
                 DropdownMenuItem(
                     text = { Text("Add to playlist") },
-                    leadingIcon = { Icon(Icons.Filled.PlaylistAdd, null) },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null) },
                     onClick = { menuOpen = false; onAddToPlaylist() },
                 )
+                if (hasDescription && onShowDescription != null) {
+                    DropdownMenuItem(
+                        text = { Text("Description") },
+                        leadingIcon = { Icon(Icons.Filled.Description, null) },
+                        onClick = { menuOpen = false; onShowDescription() },
+                    )
+                }
                 if (onRemoveFromPlaylist != null) {
                     DropdownMenuItem(
                         text = { Text("Remove from this playlist") },

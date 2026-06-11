@@ -23,8 +23,10 @@ import com.podly.data.db.EpisodeEntity
 import com.podly.ui.EpisodeActions
 import com.podly.ui.appViewModel
 import com.podly.ui.components.AddToPlaylistDialog
+import com.podly.ui.components.DescriptionDialog
 import com.podly.ui.components.EpisodeRow
 import com.podly.ui.components.PodcastCard
+import com.podly.ui.util.plainDescription
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 
@@ -45,6 +47,7 @@ fun LibraryScreen(onOpenPodcast: (String) -> Unit) {
     val episodes by viewModel.episodes.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     var episodeForPlaylist by remember { mutableStateOf<EpisodeEntity?>(null) }
+    var episodeForDescription by remember { mutableStateOf<EpisodeEntity?>(null) }
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
@@ -85,6 +88,7 @@ fun LibraryScreen(onOpenPodcast: (String) -> Unit) {
                 onDownload = { viewModel.actions.download(episode) },
                 onRemoveDownload = { viewModel.actions.removeDownload(episode) },
                 onAddToPlaylist = { episodeForPlaylist = episode },
+                onShowDescription = { episodeForDescription = episode },
             )
         }
     }
@@ -102,5 +106,15 @@ fun LibraryScreen(onOpenPodcast: (String) -> Unit) {
             },
             onDismiss = { episodeForPlaylist = null },
         )
+    }
+
+    episodeForDescription?.let { episode ->
+        plainDescription(episode.description)?.let { description ->
+            DescriptionDialog(
+                title = episode.title,
+                description = description,
+                onDismiss = { episodeForDescription = null },
+            )
+        }
     }
 }

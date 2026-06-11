@@ -37,7 +37,9 @@ import com.podly.data.db.SortMode
 import com.podly.ui.EpisodeActions
 import com.podly.ui.appViewModel
 import com.podly.ui.components.AddToPlaylistDialog
+import com.podly.ui.components.DescriptionDialog
 import com.podly.ui.components.EpisodeRow
+import com.podly.ui.util.plainDescription
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -82,6 +84,7 @@ fun PlaylistDetailScreen(playlistId: Long) {
     val episodes by viewModel.episodes.collectAsStateWithLifecycle()
     val allPlaylists by viewModel.allPlaylists.collectAsStateWithLifecycle()
     var episodeForPlaylist by remember { mutableStateOf<EpisodeEntity?>(null) }
+    var episodeForDescription by remember { mutableStateOf<EpisodeEntity?>(null) }
     var sortMenuOpen by remember { mutableStateOf(false) }
 
     // Local copy that mutates live during a drag; resyncs whenever the DB emits.
@@ -157,6 +160,7 @@ fun PlaylistDetailScreen(playlistId: Long) {
                         onRemoveDownload = { viewModel.actions.removeDownload(episode) },
                         onAddToPlaylist = { episodeForPlaylist = episode },
                         onRemoveFromPlaylist = { viewModel.remove(episode.id) },
+                        onShowDescription = { episodeForDescription = episode },
                         trailingContent = if (isManual) {
                             {
                                 IconButton(
@@ -190,5 +194,15 @@ fun PlaylistDetailScreen(playlistId: Long) {
             },
             onDismiss = { episodeForPlaylist = null },
         )
+    }
+
+    episodeForDescription?.let { episode ->
+        plainDescription(episode.description)?.let { description ->
+            DescriptionDialog(
+                title = episode.title,
+                description = description,
+                onDismiss = { episodeForDescription = null },
+            )
+        }
     }
 }
