@@ -9,6 +9,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -48,7 +49,13 @@ class PlaybackService : MediaLibraryService() {
         val settings = runBlocking { graph.settings.current() }
 
         val httpDataSourceFactory = OkHttpDataSource.Factory(Http.client)
-        val dataSourceFactory = DefaultDataSource.Factory(this, httpDataSourceFactory)
+        // Streamed audio goes through the LRU cache; file:// URIs (downloads) bypass it
+        // because DefaultDataSource only delegates http(s) to this factory.
+        val cacheDataSourceFactory = CacheDataSource.Factory()
+            .setCache(MediaCache.get(this))
+            .setUpstreamDataSourceFactory(httpDataSourceFactory)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        val dataSourceFactory = DefaultDataSource.Factory(this, cacheDataSourceFactory)
 
         val exoPlayer = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
