@@ -2,6 +2,7 @@ package com.podly.ui.discover
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -180,114 +181,36 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit) {
     val viewModel = appViewModel { DiscoverViewModel(it) }
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        item {
-            OutlinedTextField(
-                value = state.query,
-                onValueChange = viewModel::setQuery,
-                label = { Text("Search podcasts") },
-                singleLine = true,
-                trailingIcon = {
-                    IconButton(onClick = viewModel::search) {
-                        Icon(Icons.Filled.Search, "Search")
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-            )
-        }
-
-        state.error?.let { error ->
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
             item {
-                Text(
-                    error,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-            }
-        }
-
-        if (state.searching || state.opening) {
-            item {
-                Row(
+                OutlinedTextField(
+                    value = state.query,
+                    onValueChange = viewModel::setQuery,
+                    label = { Text("Search podcasts") },
+                    singleLine = true,
+                    trailingIcon = {
+                        IconButton(onClick = viewModel::search) {
+                            Icon(Icons.Filled.Search, "Search")
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    horizontalArrangement = Arrangement.Center,
-                ) { CircularProgressIndicator() }
+                )
             }
-        }
 
-        val results = state.searchResults
-        if (results != null) {
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Results", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "Clear",
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable { viewModel.clearSearch() },
-                    )
-                }
-            }
-            items(results, key = { it.id }) { podcast ->
-                PodcastListRow(
-                    title = podcast.title,
-                    subtitle = podcast.author,
-                    artworkUrl = podcast.artworkUrl,
-                    onClick = { viewModel.openPodcast(podcast) { id -> onOpenPodcast(id) } },
-                )
-            }
-        } else {
-            item {
-                Text(
-                    "Popular podcasts",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
-            item {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    FilterChip(
-                        selected = state.trendingPeriod == TrendingPeriod.NOW,
-                        onClick = { viewModel.loadTrending(TrendingPeriod.NOW) },
-                        label = { Text("Now") },
-                    )
-                    FilterChip(
-                        selected = state.trendingPeriod == TrendingPeriod.WEEK,
-                        onClick = { viewModel.loadTrending(TrendingPeriod.WEEK) },
-                        label = { Text("Week") },
-                        enabled = state.hasPodcastIndexCreds,
-                    )
-                    FilterChip(
-                        selected = state.trendingPeriod == TrendingPeriod.MONTH,
-                        onClick = { viewModel.loadTrending(TrendingPeriod.MONTH) },
-                        label = { Text("Month") },
-                        enabled = state.hasPodcastIndexCreds,
-                    )
-                }
-            }
-            if (!state.hasPodcastIndexCreds) {
+            state.error?.let { error ->
                 item {
                     Text(
-                        "Add free PodcastIndex API keys in Settings to unlock Week/Month trending.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        error,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp),
                     )
                 }
             }
-            if (state.trendingLoading) {
+
+            if (state.searching) {
                 item {
                     Row(
                         modifier = Modifier
@@ -297,55 +220,139 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit) {
                     ) { CircularProgressIndicator() }
                 }
             }
-            itemsIndexed(state.trending) { index, item ->
-                PodcastListRow(
-                    title = "${index + 1}. ${item.title}",
-                    subtitle = item.author,
-                    artworkUrl = item.artworkUrl,
-                    onClick = { viewModel.openTrending(item) { id -> onOpenPodcast(id) } },
-                )
-            }
 
-            item {
-                Button(
-                    onClick = viewModel::loadRecommendations,
-                    enabled = !state.recsLoading,
-                    modifier = Modifier.padding(16.dp),
-                ) {
-                    Icon(Icons.Filled.AutoAwesome, null)
-                    Text("  Ask AI for picks")
-                }
-            }
-            if (state.recsLoading) {
+            val results = state.searchResults
+            if (results != null) {
                 item {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.Center,
-                    ) { CircularProgressIndicator() }
-                }
-            }
-            state.recommendations?.let { recs ->
-                items(recs) { rec ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { viewModel.searchRecommendation(rec) }
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        Text("Results", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            rec.title + (rec.author?.let { " — $it" } ?: ""),
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                        Text(
-                            rec.reason,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            "Clear",
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clickable { viewModel.clearSearch() },
                         )
                     }
                 }
+                items(results, key = { it.id }) { podcast ->
+                    PodcastListRow(
+                        title = podcast.title,
+                        subtitle = podcast.author,
+                        artworkUrl = podcast.artworkUrl,
+                        onClick = { viewModel.openPodcast(podcast) { id -> onOpenPodcast(id) } },
+                    )
+                }
+            } else {
+                item {
+                    Text(
+                        "Popular podcasts",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+                item {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        FilterChip(
+                            selected = state.trendingPeriod == TrendingPeriod.NOW,
+                            onClick = { viewModel.loadTrending(TrendingPeriod.NOW) },
+                            label = { Text("Now") },
+                        )
+                        FilterChip(
+                            selected = state.trendingPeriod == TrendingPeriod.WEEK,
+                            onClick = { viewModel.loadTrending(TrendingPeriod.WEEK) },
+                            label = { Text("Week") },
+                            enabled = state.hasPodcastIndexCreds,
+                        )
+                        FilterChip(
+                            selected = state.trendingPeriod == TrendingPeriod.MONTH,
+                            onClick = { viewModel.loadTrending(TrendingPeriod.MONTH) },
+                            label = { Text("Month") },
+                            enabled = state.hasPodcastIndexCreds,
+                        )
+                    }
+                }
+                if (!state.hasPodcastIndexCreds) {
+                    item {
+                        Text(
+                            "Add free PodcastIndex API keys in Settings to unlock Week/Month trending.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+                if (state.trendingLoading) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.Center,
+                        ) { CircularProgressIndicator() }
+                    }
+                }
+                itemsIndexed(state.trending) { index, item ->
+                    PodcastListRow(
+                        title = "${index + 1}. ${item.title}",
+                        subtitle = item.author,
+                        artworkUrl = item.artworkUrl,
+                        onClick = { viewModel.openTrending(item) { id -> onOpenPodcast(id) } },
+                    )
+                }
+
+                item {
+                    Button(
+                        onClick = viewModel::loadRecommendations,
+                        enabled = !state.recsLoading,
+                        modifier = Modifier.padding(16.dp),
+                    ) {
+                        Icon(Icons.Filled.AutoAwesome, null)
+                        Text("  Ask AI for picks")
+                    }
+                }
+                if (state.recsLoading) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.Center,
+                        ) { CircularProgressIndicator() }
+                    }
+                }
+                state.recommendations?.let { recs ->
+                    items(recs) { rec ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { viewModel.searchRecommendation(rec) }
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            Text(
+                                rec.title + (rec.author?.let { " — $it" } ?: ""),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                rec.reason,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
             }
+        }
+
+        if (state.opening) {
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
     }
 }
