@@ -1,6 +1,7 @@
 package com.podly
 
 import android.content.Context
+import com.podly.data.PlaybackStateStore
 import com.podly.data.PlaylistRepository
 import com.podly.data.PodcastRepository
 import com.podly.data.SettingsRepository
@@ -17,6 +18,7 @@ import com.podly.playback.PlayerConnection
 class AppGraph(private val context: Context) {
     val database: PodlyDatabase = PodlyDatabase.build(context)
     val settings: SettingsRepository = SettingsRepository(context)
+    val playbackState: PlaybackStateStore = PlaybackStateStore(context)
     val podcasts: PodcastRepository =
         PodcastRepository(database.podcastDao(), database.episodeDao())
     val playlists: PlaylistRepository = PlaylistRepository(database.playlistDao())

@@ -134,6 +134,7 @@ fun PodcastDetailScreen(podcastId: String) {
                 onDownload = { viewModel.actions.download(episode) },
                 onRemoveDownload = { viewModel.actions.removeDownload(episode) },
                 onAddToPlaylist = { episodeForPlaylist = episode },
+                onTogglePlayed = { viewModel.actions.togglePlayed(episode) },
                 onShowDescription = { episodeForDescription = episode },
             )
         }

@@ -131,7 +131,25 @@ class PlaybackService : MediaLibraryService() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (!isPlaying) scope.launch { saveProgress(player) }
             }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                scope.launch { snapshotQueue(player) }
+            }
+
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                scope.launch { snapshotQueue(player) }
+            }
         })
+    }
+
+    /** Remembers the queue so onPlaybackResumption can restore it after process death. */
+    private suspend fun snapshotQueue(player: Player) {
+        val ids = (0 until player.mediaItemCount).mapNotNull { index ->
+            MediaIds.episodeIdOrNull(player.getMediaItemAt(index).mediaId)
+        }
+        if (ids.isNotEmpty()) {
+            appGraph.playbackState.save(ids, player.currentMediaItemIndex)
+        }
     }
 
     private suspend fun saveProgress(player: Player) {
@@ -142,7 +160,7 @@ class PlaybackService : MediaLibraryService() {
         val duration = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L
         val completed = duration > 0 && position >= duration - 10_000
         val dao = appGraph.database.episodeDao()
-        dao.updateProgress(episodeId, if (completed) 0 else position, completed)
+        dao.updateProgress(episodeId, if (completed) 0 else position, completed, System.currentTimeMillis())
         if (duration > 0) dao.updateDuration(episodeId, duration)
     }
 
@@ -171,10 +189,14 @@ class PlaybackService : MediaLibraryService() {
             val graph = appGraph
             val children: List<MediaItem> = when {
                 parentId == MediaIds.ROOT -> listOf(
+                    MediaItemFactory.folder(MediaIds.NODE_CONTINUE, "Continue"),
                     MediaItemFactory.folder(MediaIds.NODE_PLAYLISTS, "Playlists", childrenAreEpisodes = false),
                     MediaItemFactory.folder(MediaIds.NODE_LIBRARY, "Library"),
                     MediaItemFactory.folder(MediaIds.NODE_DOWNLOADS, "Downloads"),
                 )
+                parentId == MediaIds.NODE_CONTINUE ->
+                    graph.database.episodeDao().continueListeningOnce(MAX_BROWSE_CHILDREN)
+                        .map(MediaItemFactory::browsableEpisode)
                 parentId == MediaIds.NODE_PLAYLISTS ->
                     graph.database.playlistDao().playlistsOnce().map { playlist ->
                         MediaItemFactory.folder(MediaIds.playlist(playlist.id), playlist.name)
@@ -243,6 +265,39 @@ class PlaybackService : MediaLibraryService() {
             val episodeId = MediaIds.episodeIdOrNull(item.mediaId) ?: return null
             val episode: EpisodeEntity = appGraph.podcasts.episodeById(episodeId) ?: return null
             return MediaItemFactory.playable(episode)
+        }
+
+        /**
+         * Android Auto / system "resume" entry point after process death: restore the
+         * last queue and position, falling back to the most recent in-progress episode.
+         */
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future {
+            val graph = appGraph
+            val saved = graph.playbackState.load()
+            val episodes: List<EpisodeEntity>
+            val startIndex: Int
+            if (saved != null) {
+                val byId = saved.episodeIds
+                    .mapNotNull { graph.podcasts.episodeById(it) }
+                    .associateBy { it.id }
+                episodes = saved.episodeIds.mapNotNull(byId::get)
+                val savedEpisodeId = saved.episodeIds.getOrNull(saved.currentIndex)
+                startIndex = episodes.indexOfFirst { it.id == savedEpisodeId }.coerceAtLeast(0)
+            } else {
+                episodes = graph.database.episodeDao().continueListeningOnce(1)
+                startIndex = 0
+            }
+            check(episodes.isNotEmpty()) { "Nothing to resume" }
+            val current = episodes[startIndex]
+            val resumePosition = current.playbackPositionMs.takeIf { !current.completed } ?: 0L
+            MediaSession.MediaItemsWithStartPosition(
+                episodes.map(MediaItemFactory::playable),
+                startIndex,
+                resumePosition,
+            )
         }
     }
 

@@ -36,6 +36,8 @@ class LibraryViewModel(graph: AppGraph) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val episodes = graph.podcasts.libraryEpisodes()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val continueListening = graph.podcasts.continueListening()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val playlists = graph.playlists.playlists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 }
@@ -45,11 +47,35 @@ fun LibraryScreen(onOpenPodcast: (String) -> Unit) {
     val viewModel = appViewModel { LibraryViewModel(it) }
     val podcasts by viewModel.podcasts.collectAsStateWithLifecycle()
     val episodes by viewModel.episodes.collectAsStateWithLifecycle()
+    val continueListening by viewModel.continueListening.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     var episodeForPlaylist by remember { mutableStateOf<EpisodeEntity?>(null) }
     var episodeForDescription by remember { mutableStateOf<EpisodeEntity?>(null) }
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
+        if (continueListening.isNotEmpty()) {
+            item {
+                Text(
+                    "Continue listening",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
+            items(continueListening, key = { "continue_${it.id}" }) { episode ->
+                EpisodeRow(
+                    episode = episode,
+                    onPlay = {
+                        viewModel.actions.play(continueListening, continueListening.indexOf(episode))
+                    },
+                    onToggleLibrary = { viewModel.actions.toggleLibrary(episode) },
+                    onDownload = { viewModel.actions.download(episode) },
+                    onRemoveDownload = { viewModel.actions.removeDownload(episode) },
+                    onAddToPlaylist = { episodeForPlaylist = episode },
+                    onTogglePlayed = { viewModel.actions.togglePlayed(episode) },
+                    onShowDescription = { episodeForDescription = episode },
+                )
+            }
+        }
         item {
             Text(
                 "Podcasts",
@@ -88,6 +114,7 @@ fun LibraryScreen(onOpenPodcast: (String) -> Unit) {
                 onDownload = { viewModel.actions.download(episode) },
                 onRemoveDownload = { viewModel.actions.removeDownload(episode) },
                 onAddToPlaylist = { episodeForPlaylist = episode },
+                onTogglePlayed = { viewModel.actions.togglePlayed(episode) },
                 onShowDescription = { episodeForDescription = episode },
             )
         }

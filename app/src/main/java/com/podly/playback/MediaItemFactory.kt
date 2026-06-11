@@ -10,6 +10,7 @@ import java.io.File
 
 object MediaIds {
     const val ROOT = "root"
+    const val NODE_CONTINUE = "node/continue"
     const val NODE_PLAYLISTS = "node/playlists"
     const val NODE_LIBRARY = "node/library"
     const val NODE_DOWNLOADS = "node/downloads"

@@ -48,6 +48,7 @@ data class EpisodeEntity(
     val localFilePath: String? = null,
     val playbackPositionMs: Long = 0,
     val completed: Boolean = false,
+    val lastPlayedAt: Long = 0,
 )
 
 @Entity(tableName = "playlists")

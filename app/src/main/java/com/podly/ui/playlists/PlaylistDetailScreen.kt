@@ -159,6 +159,7 @@ fun PlaylistDetailScreen(playlistId: Long) {
                         onDownload = { viewModel.actions.download(episode) },
                         onRemoveDownload = { viewModel.actions.removeDownload(episode) },
                         onAddToPlaylist = { episodeForPlaylist = episode },
+                        onTogglePlayed = { viewModel.actions.togglePlayed(episode) },
                         onRemoveFromPlaylist = { viewModel.remove(episode.id) },
                         onShowDescription = { episodeForDescription = episode },
                         trailingContent = if (isManual) {

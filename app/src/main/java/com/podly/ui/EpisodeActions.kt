@@ -17,6 +17,10 @@ class EpisodeActions(private val graph: AppGraph, private val scope: CoroutineSc
         graph.podcasts.setEpisodeInLibrary(episode.id, !episode.inLibrary)
     }
 
+    fun togglePlayed(episode: EpisodeEntity) = scope.launch {
+        graph.podcasts.setEpisodePlayed(episode.id, !episode.completed)
+    }
+
     fun download(episode: EpisodeEntity) = scope.launch {
         graph.downloader.enqueue(episode.id)
     }

@@ -46,10 +46,19 @@ import com.podly.network.TrendingPeriod
 import com.podly.network.TrendingPodcast
 import com.podly.network.ai.AiRecommendation
 import com.podly.ui.appViewModel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/** An AI pick, matched against the iTunes directory when a match was found. */
+data class ResolvedRecommendation(
+    val rec: AiRecommendation,
+    val podcast: PodcastEntity?,
+)
 
 data class DiscoverUiState(
     val query: String = "",
@@ -59,7 +68,7 @@ data class DiscoverUiState(
     val trending: List<TrendingPodcast> = emptyList(),
     val trendingLoading: Boolean = false,
     val hasPodcastIndexCreds: Boolean = false,
-    val recommendations: List<AiRecommendation>? = null,
+    val recommendations: List<ResolvedRecommendation>? = null,
     val recsLoading: Boolean = false,
     val error: String? = null,
     val opening: Boolean = false,
@@ -123,11 +132,26 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
     fun loadRecommendations() {
         viewModelScope.launch {
             _state.update { it.copy(recsLoading = true, error = null) }
-            runCatching { graph.aiRecommender.recommend() }
+            runCatching {
+                val recs = graph.aiRecommender.recommend()
+                // Match each pick against the directory in parallel so rows get
+                // real artwork and open the podcast directly.
+                coroutineScope {
+                    recs.map { rec ->
+                        async { ResolvedRecommendation(rec, resolveAgainstDirectory(rec)) }
+                    }.awaitAll()
+                }
+            }
                 .onSuccess { recs -> _state.update { it.copy(recommendations = recs, recsLoading = false) } }
                 .onFailure { e -> _state.update { it.copy(error = e.message, recsLoading = false) } }
         }
     }
+
+    private suspend fun resolveAgainstDirectory(rec: AiRecommendation): PodcastEntity? =
+        runCatching { graph.podcasts.search(rec.title) }.getOrNull()?.let { results ->
+            results.firstOrNull { it.title.equals(rec.title, ignoreCase = true) }
+                ?: results.firstOrNull()
+        }
 
     /** Inserts the podcast locally, pulls its feed, then hands back the id for navigation. */
     fun openPodcast(podcast: PodcastEntity, onOpened: (String) -> Unit) {
@@ -329,22 +353,43 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit) {
                     }
                 }
                 state.recommendations?.let { recs ->
-                    items(recs) { rec ->
-                        Column(
+                    items(recs) { resolved ->
+                        val podcast = resolved.podcast
+                        val rec = resolved.rec
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { viewModel.searchRecommendation(rec) }
+                                .clickable {
+                                    if (podcast != null) {
+                                        viewModel.openPodcast(podcast) { id -> onOpenPodcast(id) }
+                                    } else {
+                                        viewModel.searchRecommendation(rec)
+                                    }
+                                }
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
-                                rec.title + (rec.author?.let { " — $it" } ?: ""),
-                                style = MaterialTheme.typography.bodyLarge,
+                            AsyncImage(
+                                model = podcast?.artworkUrl,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
                             )
-                            Text(
-                                rec.reason,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            Column(modifier = Modifier.padding(start = 12.dp)) {
+                                Text(
+                                    (podcast?.title ?: rec.title) +
+                                        ((podcast?.author ?: rec.author)?.let { " — $it" } ?: ""),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    rec.reason,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }

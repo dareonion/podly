@@ -82,8 +82,14 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE id = :id")
     fun byIdFlow(id: String): Flow<EpisodeEntity?>
 
-    @Query("SELECT * FROM episodes WHERE playbackPositionMs > 0 AND completed = 0 ORDER BY pubDateMs DESC LIMIT :limit")
+    @Query("SELECT * FROM episodes WHERE lastPlayedAt > 0 ORDER BY lastPlayedAt DESC LIMIT :limit")
     suspend fun recentlyPlayed(limit: Int): List<EpisodeEntity>
+
+    @Query("SELECT * FROM episodes WHERE playbackPositionMs > 0 AND completed = 0 ORDER BY lastPlayedAt DESC LIMIT :limit")
+    fun continueListening(limit: Int): Flow<List<EpisodeEntity>>
+
+    @Query("SELECT * FROM episodes WHERE playbackPositionMs > 0 AND completed = 0 ORDER BY lastPlayedAt DESC LIMIT :limit")
+    suspend fun continueListeningOnce(limit: Int): List<EpisodeEntity>
 
     /** Refresh inserts must never clobber library/download/progress state. */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -95,8 +101,14 @@ interface EpisodeDao {
     @Query("UPDATE episodes SET inLibrary = :inLibrary WHERE id = :id")
     suspend fun setInLibrary(id: String, inLibrary: Boolean)
 
-    @Query("UPDATE episodes SET playbackPositionMs = :positionMs, completed = :completed WHERE id = :id")
-    suspend fun updateProgress(id: String, positionMs: Long, completed: Boolean)
+    @Query(
+        """UPDATE episodes SET playbackPositionMs = :positionMs, completed = :completed,
+           lastPlayedAt = :lastPlayedAt WHERE id = :id"""
+    )
+    suspend fun updateProgress(id: String, positionMs: Long, completed: Boolean, lastPlayedAt: Long)
+
+    @Query("UPDATE episodes SET completed = :played, playbackPositionMs = 0 WHERE id = :id")
+    suspend fun setPlayed(id: String, played: Boolean)
 
     @Query("UPDATE episodes SET downloadStatus = :status, localFilePath = :localFilePath WHERE id = :id")
     suspend fun updateDownload(id: String, status: DownloadStatus, localFilePath: String?)

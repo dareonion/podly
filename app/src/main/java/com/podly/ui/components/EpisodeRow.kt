@@ -11,6 +11,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
@@ -18,10 +20,12 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Downloading
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,6 +53,7 @@ fun EpisodeRow(
     onDownload: () -> Unit,
     onRemoveDownload: () -> Unit,
     onAddToPlaylist: () -> Unit,
+    onTogglePlayed: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
     onShowDescription: (() -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
@@ -92,6 +97,25 @@ fun EpisodeRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+            )
+            val duration = episode.durationMs ?: 0
+            if (!episode.completed && episode.playbackPositionMs > 0 && duration > 0) {
+                LinearProgressIndicator(
+                    progress = {
+                        (episode.playbackPositionMs.toFloat() / duration).coerceIn(0f, 1f)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp)
+                        .height(3.dp),
+                )
+            }
+        }
+        if (episode.completed) {
+            Icon(
+                Icons.Filled.CheckCircle, "Played",
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.primary,
             )
         }
         when (episode.downloadStatus) {
@@ -141,6 +165,13 @@ fun EpisodeRow(
                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null) },
                     onClick = { menuOpen = false; onAddToPlaylist() },
                 )
+                if (onTogglePlayed != null) {
+                    DropdownMenuItem(
+                        text = { Text(if (episode.completed) "Mark as unplayed" else "Mark as played") },
+                        leadingIcon = { Icon(Icons.Filled.Check, null) },
+                        onClick = { menuOpen = false; onTogglePlayed() },
+                    )
+                }
                 if (hasDescription && onShowDescription != null) {
                     DropdownMenuItem(
                         text = { Text("Description") },

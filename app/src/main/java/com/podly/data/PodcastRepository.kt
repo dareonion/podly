@@ -65,5 +65,11 @@ class PodcastRepository(
     suspend fun setEpisodeInLibrary(episodeId: String, inLibrary: Boolean) =
         episodeDao.setInLibrary(episodeId, inLibrary)
 
+    fun continueListening(limit: Int = 20): Flow<List<EpisodeEntity>> =
+        episodeDao.continueListening(limit)
+
+    suspend fun setEpisodePlayed(episodeId: String, played: Boolean) =
+        episodeDao.setPlayed(episodeId, played)
+
     suspend fun episodeById(id: String): EpisodeEntity? = episodeDao.byId(id)
 }
