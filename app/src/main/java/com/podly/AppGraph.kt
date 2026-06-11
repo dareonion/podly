@@ -1,0 +1,34 @@
+package com.podly
+
+import android.content.Context
+import com.podly.data.PlaylistRepository
+import com.podly.data.PodcastRepository
+import com.podly.data.SettingsRepository
+import com.podly.data.db.PodlyDatabase
+import com.podly.downloads.Downloader
+import com.podly.network.AppleChartsApi
+import com.podly.network.PodcastIndexApi
+import com.podly.network.ai.AiRecommender
+import com.podly.playback.PlayerConnection
+
+/**
+ * Hand-rolled dependency graph; one instance lives on [PodlyApp].
+ */
+class AppGraph(private val context: Context) {
+    val database: PodlyDatabase = PodlyDatabase.build(context)
+    val settings: SettingsRepository = SettingsRepository(context)
+    val podcasts: PodcastRepository =
+        PodcastRepository(database.podcastDao(), database.episodeDao())
+    val playlists: PlaylistRepository = PlaylistRepository(database.playlistDao())
+    val downloader: Downloader = Downloader(context, database.episodeDao())
+    val appleCharts: AppleChartsApi = AppleChartsApi()
+    val podcastIndex: PodcastIndexApi = PodcastIndexApi()
+    val aiRecommender: AiRecommender =
+        AiRecommender(settings, database.podcastDao(), database.episodeDao())
+
+    /** Lazy so the controller (and thus the service) only spins up when the UI needs it. */
+    val player: PlayerConnection by lazy { PlayerConnection(context) }
+}
+
+val Context.appGraph: AppGraph
+    get() = (applicationContext as PodlyApp).graph
