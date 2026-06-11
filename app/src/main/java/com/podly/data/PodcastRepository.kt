@@ -41,6 +41,13 @@ class PodcastRepository(
     suspend fun refreshEpisodes(podcast: PodcastEntity) {
         val xml = Http.get(podcast.feedUrl)
         val feed = rssParser.parse(StringReader(xml))
+        podcastDao.updateMetadata(
+            id = podcast.id,
+            title = feed.title ?: podcast.title,
+            author = feed.author ?: podcast.author,
+            artworkUrl = feed.imageUrl ?: podcast.artworkUrl,
+            description = feed.description ?: podcast.description,
+        )
         episodeDao.insertIgnore(feed.toEpisodeEntities(podcast))
     }
 

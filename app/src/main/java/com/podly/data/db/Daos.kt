@@ -26,6 +26,22 @@ interface PodcastDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnore(podcast: PodcastEntity)
 
+    @Query(
+        """UPDATE podcasts
+           SET title = :title,
+               author = :author,
+               artworkUrl = :artworkUrl,
+               description = :description
+           WHERE id = :id"""
+    )
+    suspend fun updateMetadata(
+        id: String,
+        title: String,
+        author: String,
+        artworkUrl: String?,
+        description: String?,
+    )
+
     @Query("UPDATE podcasts SET subscribed = :subscribed WHERE id = :id")
     suspend fun setSubscribed(id: String, subscribed: Boolean)
 
