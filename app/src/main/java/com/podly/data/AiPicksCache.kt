@@ -1,0 +1,75 @@
+package com.podly.data
+
+import android.content.Context
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import com.podly.data.db.PodcastEntity
+import com.podly.network.Http
+import com.podly.network.ai.AiAcclaimedPick
+import kotlinx.coroutines.flow.first
+import kotlinx.serialization.Serializable
+
+/** A resolved acclaimed pick flattened into a JSON-friendly shape. */
+@Serializable
+data class CachedAcclaimedPick(
+    val pick: AiAcclaimedPick,
+    val podcastId: String? = null,
+    val podcastTitle: String? = null,
+    val podcastAuthor: String? = null,
+    val feedUrl: String? = null,
+    val artworkUrl: String? = null,
+    val podcastDescription: String? = null,
+) {
+    fun toPodcastOrNull(): PodcastEntity? =
+        if (podcastId != null && podcastTitle != null && podcastAuthor != null && feedUrl != null) {
+            PodcastEntity(
+                id = podcastId,
+                title = podcastTitle,
+                author = podcastAuthor,
+                feedUrl = feedUrl,
+                artworkUrl = artworkUrl,
+                description = podcastDescription,
+            )
+        } else {
+            null
+        }
+
+    companion object {
+        fun of(pick: AiAcclaimedPick, podcast: PodcastEntity?) = CachedAcclaimedPick(
+            pick = pick,
+            podcastId = podcast?.id,
+            podcastTitle = podcast?.title,
+            podcastAuthor = podcast?.author,
+            feedUrl = podcast?.feedUrl,
+            artworkUrl = podcast?.artworkUrl,
+            podcastDescription = podcast?.description,
+        )
+    }
+}
+
+@Serializable
+data class CachedAcclaimed(
+    val picks: List<CachedAcclaimedPick>,
+    val fetchedAtMs: Long,
+)
+
+private val Context.aiPicksDataStore by preferencesDataStore(name = "ai_picks_cache")
+
+/** Persists the last "acclaimed" AI result so reopening Discover doesn't re-query the API. */
+class AiPicksCache(private val context: Context) {
+
+    private object Keys {
+        val ACCLAIMED_JSON = stringPreferencesKey("acclaimed_json")
+    }
+
+    suspend fun loadAcclaimed(): CachedAcclaimed? =
+        context.aiPicksDataStore.data.first()[Keys.ACCLAIMED_JSON]?.let { json ->
+            runCatching { Http.json.decodeFromString<CachedAcclaimed>(json) }.getOrNull()
+        }
+
+    suspend fun saveAcclaimed(cache: CachedAcclaimed) {
+        val json = Http.json.encodeToString(CachedAcclaimed.serializer(), cache)
+        context.aiPicksDataStore.edit { it[Keys.ACCLAIMED_JSON] = json }
+    }
+}

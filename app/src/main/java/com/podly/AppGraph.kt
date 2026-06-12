@@ -1,6 +1,7 @@
 package com.podly
 
 import android.content.Context
+import com.podly.data.AiPicksCache
 import com.podly.data.PlaybackStateStore
 import com.podly.data.PlaylistRepository
 import com.podly.data.PodcastRepository
@@ -27,6 +28,7 @@ class AppGraph(private val context: Context) {
     val podcastIndex: PodcastIndexApi = PodcastIndexApi()
     val aiRecommender: AiRecommender =
         AiRecommender(settings, database.podcastDao(), database.episodeDao())
+    val aiPicksCache: AiPicksCache = AiPicksCache(context)
 
     /** Lazy so the controller (and thus the service) only spins up when the UI needs it. */
     val player: PlayerConnection by lazy { PlayerConnection(context) }

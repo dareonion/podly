@@ -32,6 +32,20 @@ class AiRecommenderParseTest {
     }
 
     @Test
+    fun `parses acclaimed picks with and without episode titles`() {
+        val picks = AiRecommender.parseAcclaimed(
+            """[
+                {"podcastTitle": "Show C", "episodeTitle": null, "author": "Carol", "accolade": "Won a 2026 Ambie."},
+                {"podcastTitle": "Show D", "episodeTitle": "The Big One", "author": "Dave", "accolade": "2025 Peabody nominee."}
+            ]"""
+        )
+        assertEquals(2, picks.size)
+        assertEquals(null, picks[0].episodeTitle)
+        assertEquals("The Big One", picks[1].episodeTitle)
+        assertEquals("Won a 2026 Ambie.", picks[0].accolade)
+    }
+
+    @Test
     fun `fails clearly when no array present`() {
         assertThrows(IOException::class.java) {
             AiRecommender.parseRecommendations("Sorry, I cannot help with that.")
