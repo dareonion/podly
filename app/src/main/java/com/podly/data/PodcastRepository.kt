@@ -5,6 +5,7 @@ import com.podly.data.db.EpisodeHistorySummary
 import com.podly.data.db.EpisodeDao
 import com.podly.data.db.ListeningSegmentEntity
 import com.podly.data.db.PodcastDao
+import com.podly.data.db.PodcastEpisodeSortOrder
 import com.podly.data.db.PodcastEntity
 import com.podly.data.db.stableId
 import com.podly.network.Http
@@ -116,6 +117,9 @@ class PodcastRepository(
         podcastDao.setSubscribed(podcastId, subscribed)
         if (!subscribed) podcastDao.pruneOrphans()
     }
+
+    suspend fun setEpisodeSortOrder(podcastId: String, sortOrder: PodcastEpisodeSortOrder) =
+        podcastDao.setEpisodeSortOrder(podcastId, sortOrder)
 
     suspend fun setEpisodeInLibrary(episodeId: String, inLibrary: Boolean) =
         episodeDao.setInLibrary(episodeId, inLibrary)

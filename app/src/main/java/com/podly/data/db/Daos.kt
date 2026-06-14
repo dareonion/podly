@@ -45,6 +45,9 @@ interface PodcastDao {
     @Query("UPDATE podcasts SET subscribed = :subscribed WHERE id = :id")
     suspend fun setSubscribed(id: String, subscribed: Boolean)
 
+    @Query("UPDATE podcasts SET episodeSortOrder = :sortOrder WHERE id = :id")
+    suspend fun setEpisodeSortOrder(id: String, sortOrder: PodcastEpisodeSortOrder)
+
     @Query(
         """DELETE FROM podcasts WHERE subscribed = 0
            AND id NOT IN (SELECT DISTINCT podcastId FROM episodes
@@ -55,7 +58,15 @@ interface PodcastDao {
 
 @Dao
 interface EpisodeDao {
-    @Query("SELECT * FROM episodes WHERE podcastId = :podcastId ORDER BY pubDateMs DESC")
+    @Query(
+        """SELECT e.* FROM episodes e
+           JOIN podcasts p ON p.id = e.podcastId
+           WHERE e.podcastId = :podcastId
+           ORDER BY
+               CASE WHEN p.episodeSortOrder = 'OLDEST_FIRST' THEN e.pubDateMs END ASC,
+               CASE WHEN p.episodeSortOrder = 'NEWEST_FIRST' THEN e.pubDateMs END DESC,
+               e.id"""
+    )
     fun episodesForPodcast(podcastId: String): Flow<List<EpisodeEntity>>
 
     @Query(

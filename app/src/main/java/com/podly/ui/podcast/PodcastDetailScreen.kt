@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -39,6 +40,7 @@ import coil.compose.AsyncImage
 import com.podly.AppGraph
 import com.podly.data.CachedEpisodePicks
 import com.podly.data.db.EpisodeEntity
+import com.podly.data.db.PodcastEpisodeSortOrder
 import com.podly.network.ai.AiEpisodePick
 import com.podly.ui.EpisodeActions
 import com.podly.ui.appViewModel
@@ -103,6 +105,10 @@ class PodcastDetailViewModel(
 
     fun toggleSubscribed() = viewModelScope.launch {
         podcast.value?.let { graph.podcasts.setSubscribed(it.id, !it.subscribed) }
+    }
+
+    fun setEpisodeSortOrder(sortOrder: PodcastEpisodeSortOrder) = viewModelScope.launch {
+        graph.podcasts.setEpisodeSortOrder(podcastId, sortOrder)
     }
 
     fun loadStarters(force: Boolean = false) {
@@ -300,11 +306,32 @@ fun PodcastDetailScreen(podcastId: String) {
             }
         }
         item {
-            Text(
-                "${episodes.size} episodes",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(16.dp),
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "${episodes.size} episodes",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                val sortOrder = podcast?.episodeSortOrder ?: PodcastEpisodeSortOrder.NEWEST_FIRST
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = sortOrder == PodcastEpisodeSortOrder.NEWEST_FIRST,
+                        onClick = { viewModel.setEpisodeSortOrder(PodcastEpisodeSortOrder.NEWEST_FIRST) },
+                        label = { Text("Newest") },
+                    )
+                    FilterChip(
+                        selected = sortOrder == PodcastEpisodeSortOrder.OLDEST_FIRST,
+                        onClick = { viewModel.setEpisodeSortOrder(PodcastEpisodeSortOrder.OLDEST_FIRST) },
+                        label = { Text("Oldest") },
+                    )
+                }
+            }
         }
         items(episodes, key = { it.id }) { episode ->
             EpisodeRow(

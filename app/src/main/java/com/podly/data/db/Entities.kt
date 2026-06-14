@@ -9,6 +9,8 @@ enum class DownloadStatus { NONE, QUEUED, DOWNLOADING, DONE, FAILED }
 
 enum class SortMode { MANUAL, CHRONO_ASC, CHRONO_DESC }
 
+enum class PodcastEpisodeSortOrder { NEWEST_FIRST, OLDEST_FIRST }
+
 /** Stable, filesystem/mediaId-safe identifier derived from a feed URL or episode guid. */
 fun stableId(raw: String): String =
     MessageDigest.getInstance("SHA-256")
@@ -26,6 +28,7 @@ data class PodcastEntity(
     val description: String?,
     val subscribed: Boolean = false,
     val addedAt: Long = System.currentTimeMillis(),
+    val episodeSortOrder: PodcastEpisodeSortOrder = PodcastEpisodeSortOrder.NEWEST_FIRST,
 )
 
 @Entity(
