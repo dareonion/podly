@@ -4,11 +4,13 @@ import com.podly.data.db.EpisodeEntity
 import com.podly.data.db.EpisodeDao
 import com.podly.data.db.PodcastDao
 import com.podly.data.db.PodcastEntity
+import com.podly.data.db.stableId
 import com.podly.network.Http
 import com.podly.network.ItunesApi
 import com.podly.network.RssParser
 import com.podly.network.toEpisodeEntities
 import kotlinx.coroutines.flow.Flow
+import java.io.Reader
 import java.io.StringReader
 
 class PodcastRepository(
@@ -16,6 +18,7 @@ class PodcastRepository(
     private val episodeDao: EpisodeDao,
     private val itunesApi: ItunesApi = ItunesApi(),
     private val rssParser: RssParser = RssParser(),
+    private val opmlParser: OpmlParser = OpmlParser(),
 ) {
     fun subscribedPodcasts(): Flow<List<PodcastEntity>> = podcastDao.subscribedPodcasts()
     fun podcast(id: String): Flow<PodcastEntity?> = podcastDao.byIdFlow(id)
@@ -56,6 +59,54 @@ class PodcastRepository(
             runCatching { refreshEpisodes(podcast) }
         }
     }
+
+    suspend fun importOpml(reader: Reader): OpmlImportResult {
+        val outlines = opmlParser.parse(reader)
+        var added = 0
+        var alreadySubscribed = 0
+        var refreshed = 0
+        var failedRefreshes = 0
+
+        outlines.forEach { outline ->
+            val podcastId = stableId(outline.feedUrl)
+            val existing = podcastDao.byId(podcastId)
+            if (existing == null) {
+                added += 1
+                podcastDao.insertIgnore(
+                    PodcastEntity(
+                        id = podcastId,
+                        title = outline.title,
+                        author = "",
+                        feedUrl = outline.feedUrl,
+                        artworkUrl = null,
+                        description = null,
+                        subscribed = true,
+                    )
+                )
+            } else {
+                if (existing.subscribed) alreadySubscribed += 1
+                podcastDao.setSubscribed(podcastId, true)
+            }
+
+            val podcast = podcastDao.byId(podcastId) ?: return@forEach
+            if (runCatching { refreshEpisodes(podcast) }.isSuccess) {
+                refreshed += 1
+            } else {
+                failedRefreshes += 1
+            }
+        }
+
+        return OpmlImportResult(
+            total = outlines.size,
+            added = added,
+            alreadySubscribed = alreadySubscribed,
+            refreshed = refreshed,
+            failedRefreshes = failedRefreshes,
+        )
+    }
+
+    suspend fun exportOpml(): String =
+        OpmlExporter.export(podcastDao.subscribedPodcastsOnce())
 
     suspend fun setSubscribed(podcastId: String, subscribed: Boolean) {
         podcastDao.setSubscribed(podcastId, subscribed)

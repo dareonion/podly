@@ -1,5 +1,7 @@
 package com.podly.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,19 +21,26 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.podly.AppGraph
 import com.podly.data.AiProvider
+import com.podly.data.OpmlImportResult
 import com.podly.data.Settings
 import com.podly.ui.appViewModel
+import java.io.StringReader
+import java.nio.charset.StandardCharsets
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
     val settings = graph.settings.settings
@@ -44,10 +53,18 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
         viewModelScope.launch { graph.settings.setPodcastIndexCreds(key, secret) }
     fun setSeekIncrements(back: Int, forward: Int) =
         viewModelScope.launch { graph.settings.setSeekIncrements(back, forward) }
+
+    suspend fun importOpml(text: String): OpmlImportResult =
+        graph.podcasts.importOpml(StringReader(text))
+
+    suspend fun exportOpml(): String =
+        graph.podcasts.exportOpml()
 }
 
 @Composable
 fun SettingsScreen() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val viewModel = appViewModel { SettingsViewModel(it) }
     val settings by viewModel.settings.collectAsStateWithLifecycle()
 
@@ -55,6 +72,54 @@ fun SettingsScreen() {
     var openAiKey by remember { mutableStateOf("") }
     var piKey by remember { mutableStateOf("") }
     var piSecret by remember { mutableStateOf("") }
+    var opmlStatus by remember { mutableStateOf<String?>(null) }
+    var pendingOpmlExport by remember { mutableStateOf<String?>(null) }
+    val exportOpmlLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/x-opml"),
+    ) { uri ->
+        val opml = pendingOpmlExport ?: return@rememberLauncherForActivityResult
+        pendingOpmlExport = null
+        if (uri == null) {
+            opmlStatus = "Export canceled"
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { output ->
+                        output.write(opml.toByteArray(StandardCharsets.UTF_8))
+                    } ?: error("Could not open export file")
+                }
+            }.onSuccess {
+                opmlStatus = "Exported OPML"
+            }.onFailure {
+                opmlStatus = "Export failed: ${it.message ?: "unknown error"}"
+            }
+        }
+    }
+    val importOpmlLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) {
+            opmlStatus = "Import canceled"
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            opmlStatus = "Importing OPML..."
+            runCatching {
+                val text = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                        ?: error("Could not open OPML file")
+                }
+                withContext(Dispatchers.IO) { viewModel.importOpml(text) }
+            }.onSuccess { result ->
+                opmlStatus = "Imported ${result.added} new, refreshed ${result.refreshed}/${result.total}" +
+                    if (result.failedRefreshes > 0) ", ${result.failedRefreshes} refresh failed" else ""
+            }.onFailure {
+                opmlStatus = "Import failed: ${it.message ?: "unknown error"}"
+            }
+        }
+    }
     LaunchedEffect(settings) {
         anthropicKey = settings.anthropicApiKey
         openAiKey = settings.openAiApiKey
@@ -127,6 +192,42 @@ fun SettingsScreen() {
         )
         Button(onClick = { viewModel.setPodcastIndexCreds(piKey, piSecret) }) {
             Text("Save PodcastIndex keys")
+        }
+
+        HorizontalDivider()
+
+        Text("Subscriptions", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Import or export subscribed podcast feeds as OPML.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { importOpmlLauncher.launch(arrayOf("text/*", "application/xml", "*/*")) }) {
+                Text("Import OPML")
+            }
+            Button(onClick = {
+                scope.launch {
+                    opmlStatus = "Preparing OPML..."
+                    runCatching { withContext(Dispatchers.IO) { viewModel.exportOpml() } }
+                        .onSuccess { opml ->
+                            pendingOpmlExport = opml
+                            exportOpmlLauncher.launch("podly-subscriptions.opml")
+                        }
+                        .onFailure {
+                            opmlStatus = "Export failed: ${it.message ?: "unknown error"}"
+                        }
+                }
+            }) {
+                Text("Export OPML")
+            }
+        }
+        opmlStatus?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         HorizontalDivider()
