@@ -1,3 +1,26 @@
+import java.util.Properties
+
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use(::load)
+    }
+}
+
+fun localProperty(name: String): String? =
+    localProperties.getProperty(name)?.takeIf { it.isNotBlank() }
+
+val podlyReleaseStoreFile = localProperty("PODLY_RELEASE_STORE_FILE")
+val podlyReleaseKeyAlias = localProperty("PODLY_RELEASE_KEY_ALIAS")
+val podlyReleaseStorePassword = localProperty("PODLY_RELEASE_STORE_PASSWORD")
+val podlyReleaseKeyPassword = localProperty("PODLY_RELEASE_KEY_PASSWORD")
+val hasPodlyReleaseSigning = listOf(
+    podlyReleaseStoreFile,
+    podlyReleaseKeyAlias,
+    podlyReleaseStorePassword,
+    podlyReleaseKeyPassword,
+).all { it != null }
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -18,9 +41,23 @@ android {
         versionName = "1.0"
     }
 
+    signingConfigs {
+        if (hasPodlyReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(podlyReleaseStoreFile!!)
+                keyAlias = podlyReleaseKeyAlias
+                storePassword = podlyReleaseStorePassword
+                keyPassword = podlyReleaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasPodlyReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
