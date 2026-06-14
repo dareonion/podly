@@ -7,6 +7,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.podly.data.db.PodcastEntity
 import com.podly.network.Http
 import com.podly.network.ai.AiAcclaimedPick
+import com.podly.network.ai.AiEpisodePick
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
 
@@ -54,6 +55,13 @@ data class CachedAcclaimed(
     val fetchedAtMs: Long,
 )
 
+/** "Where to start" picks for one podcast; episodes are re-matched against the feed on load. */
+@Serializable
+data class CachedEpisodePicks(
+    val picks: List<AiEpisodePick>,
+    val fetchedAtMs: Long,
+)
+
 private val Context.aiPicksDataStore by preferencesDataStore(name = "ai_picks_cache")
 
 /** Persists the last "acclaimed" AI result so reopening Discover doesn't re-query the API. */
@@ -72,4 +80,16 @@ class AiPicksCache(private val context: Context) {
         val json = Http.json.encodeToString(CachedAcclaimed.serializer(), cache)
         context.aiPicksDataStore.edit { it[Keys.ACCLAIMED_JSON] = json }
     }
+
+    suspend fun loadStarters(podcastId: String): CachedEpisodePicks? =
+        context.aiPicksDataStore.data.first()[startersKey(podcastId)]?.let { json ->
+            runCatching { Http.json.decodeFromString<CachedEpisodePicks>(json) }.getOrNull()
+        }
+
+    suspend fun saveStarters(podcastId: String, cache: CachedEpisodePicks) {
+        val json = Http.json.encodeToString(CachedEpisodePicks.serializer(), cache)
+        context.aiPicksDataStore.edit { it[startersKey(podcastId)] = json }
+    }
+
+    private fun startersKey(podcastId: String) = stringPreferencesKey("starters_$podcastId")
 }

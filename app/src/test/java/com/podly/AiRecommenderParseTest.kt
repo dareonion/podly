@@ -46,6 +46,16 @@ class AiRecommenderParseTest {
     }
 
     @Test
+    fun `parses episode picks`() {
+        val picks = AiRecommender.parseEpisodePicks(
+            """[{"episodeTitle": "The Origin Story", "reason": "The classic entry point."}]"""
+        )
+        assertEquals(1, picks.size)
+        assertEquals("The Origin Story", picks[0].episodeTitle)
+        assertEquals("The classic entry point.", picks[0].reason)
+    }
+
+    @Test
     fun `fails clearly when no array present`() {
         assertThrows(IOException::class.java) {
             AiRecommender.parseRecommendations("Sorry, I cannot help with that.")

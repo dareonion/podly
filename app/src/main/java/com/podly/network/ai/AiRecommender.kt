@@ -44,6 +44,13 @@ data class AiAcclaimedPick(
     val accolade: String,
 )
 
+/** A recommended entry-point episode within a single podcast. */
+@Serializable
+data class AiEpisodePick(
+    val episodeTitle: String,
+    val reason: String,
+)
+
 /**
  * Builds a profile of the user's listening from the local DB and asks the
  * configured provider (Claude or OpenAI) for podcast recommendations.
@@ -61,6 +68,13 @@ class AiRecommender(
     suspend fun recommend(): List<AiRecommendation> = parseRecommendations(ask(buildPrompt()))
 
     suspend fun acclaimed(): List<AiAcclaimedPick> = parseAcclaimed(ask(buildAcclaimedPrompt()))
+
+    suspend fun whereToStart(
+        podcastTitle: String,
+        author: String?,
+        episodeTitles: List<String>,
+    ): List<AiEpisodePick> =
+        parseEpisodePicks(ask(buildWhereToStartPrompt(podcastTitle, author, episodeTitles)))
 
     private suspend fun ask(prompt: String): String {
         val settings = settingsRepository.current()
@@ -141,6 +155,38 @@ class AiRecommender(
         )
     }
 
+    private fun buildWhereToStartPrompt(
+        podcastTitle: String,
+        author: String?,
+        episodeTitles: List<String>,
+    ): String = buildString {
+        appendLine("You are a podcast expert. Today's date is ${LocalDate.now()}.")
+        appendLine(
+            "A listener wants to get into the podcast \"$podcastTitle\"" +
+                (author?.takeIf { it.isNotBlank() }?.let { " by $it" } ?: "") +
+                " and wants to know which episodes to start with."
+        )
+        val titles = episodeTitles.take(MAX_TITLES_IN_PROMPT)
+        if (titles.isNotEmpty()) {
+            appendLine("The show has ${episodeTitles.size} episodes. Episode titles, newest first:")
+            titles.forEach { appendLine("- $it") }
+            if (episodeTitles.size > titles.size) {
+                appendLine("(the ${episodeTitles.size - titles.size} oldest episodes are omitted)")
+            }
+        }
+        appendLine()
+        appendLine(
+            "Recommend the 8 best entry-point episodes (fewer if the show has fewer): the most " +
+                "acclaimed, most recommended, and most beloved episodes that work without prior " +
+                "context. If the show is serialized and best experienced from the beginning, " +
+                "start the list with the first episode and say so. " +
+                "Respond with ONLY a JSON array, no prose and no code fences, where each element " +
+                "is {\"episodeTitle\": string, \"reason\": string}. " +
+                "Copy each episodeTitle exactly as it appears in the list above. " +
+                "Keep each reason to one sentence."
+        )
+    }
+
     private suspend fun askClaude(apiKey: String, prompt: String): String =
         withContext(Dispatchers.IO) {
             val client = AnthropicOkHttpClient.builder().apiKey(apiKey).build()
@@ -205,6 +251,10 @@ class AiRecommender(
         fun parseRecommendations(raw: String): List<AiRecommendation> = decodeArray(raw)
 
         fun parseAcclaimed(raw: String): List<AiAcclaimedPick> = decodeArray(raw)
+
+        fun parseEpisodePicks(raw: String): List<AiEpisodePick> = decodeArray(raw)
+
+        private const val MAX_TITLES_IN_PROMPT = 1000
 
         private inline fun <reified T> decodeArray(raw: String): List<T> {
             val start = raw.indexOf('[')
