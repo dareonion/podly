@@ -8,6 +8,8 @@ import com.podly.data.db.PodcastEntity
 import com.podly.network.Http
 import com.podly.network.ai.AiAcclaimedPick
 import com.podly.network.ai.AiEpisodePick
+import com.podly.network.ai.AiRecentEpisodePick
+import com.podly.network.ai.RecentEpisodeWindow
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
 
@@ -62,6 +64,49 @@ data class CachedEpisodePicks(
     val fetchedAtMs: Long,
 )
 
+@Serializable
+data class CachedRecentEpisodePick(
+    val pick: AiRecentEpisodePick,
+    val podcastId: String? = null,
+    val podcastTitle: String? = null,
+    val podcastAuthor: String? = null,
+    val feedUrl: String? = null,
+    val artworkUrl: String? = null,
+    val podcastDescription: String? = null,
+) {
+    fun toPodcastOrNull(): PodcastEntity? =
+        if (podcastId != null && podcastTitle != null && podcastAuthor != null && feedUrl != null) {
+            PodcastEntity(
+                id = podcastId,
+                title = podcastTitle,
+                author = podcastAuthor,
+                feedUrl = feedUrl,
+                artworkUrl = artworkUrl,
+                description = podcastDescription,
+            )
+        } else {
+            null
+        }
+
+    companion object {
+        fun of(pick: AiRecentEpisodePick, podcast: PodcastEntity?) = CachedRecentEpisodePick(
+            pick = pick,
+            podcastId = podcast?.id,
+            podcastTitle = podcast?.title,
+            podcastAuthor = podcast?.author,
+            feedUrl = podcast?.feedUrl,
+            artworkUrl = podcast?.artworkUrl,
+            podcastDescription = podcast?.description,
+        )
+    }
+}
+
+@Serializable
+data class CachedRecentEpisodes(
+    val picks: List<CachedRecentEpisodePick>,
+    val fetchedAtMs: Long,
+)
+
 private val Context.aiPicksDataStore by preferencesDataStore(name = "ai_picks_cache")
 
 /** Persists the last "acclaimed" AI result so reopening Discover doesn't re-query the API. */
@@ -91,5 +136,18 @@ class AiPicksCache(private val context: Context) {
         context.aiPicksDataStore.edit { it[startersKey(podcastId)] = json }
     }
 
+    suspend fun loadRecentEpisodes(window: RecentEpisodeWindow): CachedRecentEpisodes? =
+        context.aiPicksDataStore.data.first()[recentEpisodesKey(window)]?.let { json ->
+            runCatching { Http.json.decodeFromString<CachedRecentEpisodes>(json) }.getOrNull()
+        }
+
+    suspend fun saveRecentEpisodes(window: RecentEpisodeWindow, cache: CachedRecentEpisodes) {
+        val json = Http.json.encodeToString(CachedRecentEpisodes.serializer(), cache)
+        context.aiPicksDataStore.edit { it[recentEpisodesKey(window)] = json }
+    }
+
     private fun startersKey(podcastId: String) = stringPreferencesKey("starters_$podcastId")
+
+    private fun recentEpisodesKey(window: RecentEpisodeWindow) =
+        stringPreferencesKey("recent_episodes_${window.name}")
 }

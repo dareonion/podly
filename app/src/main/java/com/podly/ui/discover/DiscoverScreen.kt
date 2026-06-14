@@ -44,12 +44,16 @@ import coil.compose.AsyncImage
 import com.podly.AppGraph
 import com.podly.data.CachedAcclaimed
 import com.podly.data.CachedAcclaimedPick
+import com.podly.data.CachedRecentEpisodePick
+import com.podly.data.CachedRecentEpisodes
 import com.podly.data.db.PodcastEntity
 import com.podly.data.db.stableId
 import com.podly.network.TrendingPeriod
 import com.podly.network.TrendingPodcast
 import com.podly.network.ai.AiAcclaimedPick
+import com.podly.network.ai.AiRecentEpisodePick
 import com.podly.network.ai.AiRecommendation
+import com.podly.network.ai.RecentEpisodeWindow
 import com.podly.ui.appViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -71,6 +75,12 @@ data class ResolvedAcclaimed(
     val podcast: PodcastEntity?,
 )
 
+/** A recent episode pick, matched against the directory at podcast level. */
+data class ResolvedRecentEpisode(
+    val pick: AiRecentEpisodePick,
+    val podcast: PodcastEntity?,
+)
+
 data class DiscoverUiState(
     val query: String = "",
     val searching: Boolean = false,
@@ -83,6 +93,9 @@ data class DiscoverUiState(
     val recsLoading: Boolean = false,
     val acclaimed: List<ResolvedAcclaimed>? = null,
     val acclaimedLoading: Boolean = false,
+    val recentEpisodeWindow: RecentEpisodeWindow = RecentEpisodeWindow.MONTH,
+    val recentEpisodes: List<ResolvedRecentEpisode>? = null,
+    val recentEpisodesLoading: Boolean = false,
     val error: String? = null,
     val opening: Boolean = false,
 )
@@ -92,6 +105,7 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
     val state: StateFlow<DiscoverUiState> = _state
 
     private var acclaimedFetchedAtMs = 0L
+    private val recentEpisodeFetchedAtMs = mutableMapOf<RecentEpisodeWindow, Long>()
 
     init {
         viewModelScope.launch {
@@ -110,6 +124,23 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                 _state.update { s ->
                     if (s.acclaimed == null) {
                         s.copy(acclaimed = cached.picks.map { ResolvedAcclaimed(it.pick, it.toPodcastOrNull()) })
+                    } else {
+                        s
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            graph.aiPicksCache.loadRecentEpisodes(RecentEpisodeWindow.MONTH)?.let { cached ->
+                recentEpisodeFetchedAtMs[RecentEpisodeWindow.MONTH] = cached.fetchedAtMs
+                _state.update { s ->
+                    if (s.recentEpisodes == null) {
+                        s.copy(
+                            recentEpisodeWindow = RecentEpisodeWindow.MONTH,
+                            recentEpisodes = cached.picks.map {
+                                ResolvedRecentEpisode(it.pick, it.toPodcastOrNull())
+                            },
+                        )
                     } else {
                         s
                     }
@@ -209,6 +240,60 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
         }
     }
 
+    fun loadRecentEpisodes(window: RecentEpisodeWindow = _state.value.recentEpisodeWindow, force: Boolean = false) {
+        val fetchedAt = recentEpisodeFetchedAtMs[window] ?: 0L
+        val cacheFresh = System.currentTimeMillis() - fetchedAt < RECENT_EPISODES_MAX_AGE_MS
+        val sameWindow = _state.value.recentEpisodeWindow == window
+        if (!force && sameWindow && cacheFresh && _state.value.recentEpisodes != null) return
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    recentEpisodeWindow = window,
+                    recentEpisodesLoading = true,
+                    recentEpisodes = if (sameWindow) it.recentEpisodes else null,
+                    error = null,
+                )
+            }
+            runCatching {
+                val cached = if (!force) graph.aiPicksCache.loadRecentEpisodes(window) else null
+                if (cached != null && System.currentTimeMillis() - cached.fetchedAtMs < RECENT_EPISODES_MAX_AGE_MS) {
+                    recentEpisodeFetchedAtMs[window] = cached.fetchedAtMs
+                    cached.picks.map { ResolvedRecentEpisode(it.pick, it.toPodcastOrNull()) }
+                } else {
+                    val picks = graph.aiRecommender.recentEpisodes(window)
+                    coroutineScope {
+                        picks.map { pick ->
+                            async { ResolvedRecentEpisode(pick, resolveAgainstDirectory(pick.podcastTitle)) }
+                        }.awaitAll()
+                    }.also { resolved ->
+                        val fetchedAtNow = System.currentTimeMillis()
+                        recentEpisodeFetchedAtMs[window] = fetchedAtNow
+                        graph.aiPicksCache.saveRecentEpisodes(
+                            window,
+                            CachedRecentEpisodes(
+                                picks = resolved.map { CachedRecentEpisodePick.of(it.pick, it.podcast) },
+                                fetchedAtMs = fetchedAtNow,
+                            )
+                        )
+                    }
+                }
+            }
+                .onSuccess { picks ->
+                    _state.update {
+                        it.copy(
+                            recentEpisodeWindow = window,
+                            recentEpisodes = picks,
+                            recentEpisodesLoading = false,
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    Log.e(TAG, "Recent episode picks failed", e)
+                    _state.update { it.copy(error = describe(e), recentEpisodesLoading = false) }
+                }
+        }
+    }
+
     private suspend fun resolveAgainstDirectory(title: String): PodcastEntity? =
         runCatching { graph.podcasts.search(title) }.getOrNull()?.let { results ->
             results.firstOrNull { it.title.equals(title, ignoreCase = true) }
@@ -268,6 +353,7 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
     private companion object {
         const val TAG = "DiscoverViewModel"
         const val ACCLAIMED_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
+        const val RECENT_EPISODES_MAX_AGE_MS = 24L * 60 * 60 * 1000
     }
 }
 
@@ -404,27 +490,36 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit) {
                 }
 
                 item {
-                    Row(
+                    Column(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Button(
-                            onClick = viewModel::loadRecommendations,
-                            enabled = !state.recsLoading,
-                        ) {
-                            Icon(Icons.Filled.AutoAwesome, null)
-                            Text("  AI picks")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = viewModel::loadRecommendations,
+                                enabled = !state.recsLoading,
+                            ) {
+                                Icon(Icons.Filled.AutoAwesome, null)
+                                Text("  AI picks")
+                            }
+                            Button(
+                                onClick = viewModel::loadAcclaimed,
+                                enabled = !state.acclaimedLoading,
+                            ) {
+                                Icon(Icons.Filled.EmojiEvents, null)
+                                Text("  Acclaimed")
+                            }
                         }
                         Button(
-                            onClick = viewModel::loadAcclaimed,
-                            enabled = !state.acclaimedLoading,
+                            onClick = { viewModel.loadRecentEpisodes() },
+                            enabled = !state.recentEpisodesLoading,
                         ) {
-                            Icon(Icons.Filled.EmojiEvents, null)
-                            Text("  Acclaimed")
+                            Icon(Icons.Filled.AutoAwesome, null)
+                            Text("  Best recent episodes")
                         }
                     }
                 }
-                if (state.recsLoading || state.acclaimedLoading) {
+                if (state.recsLoading || state.acclaimedLoading || state.recentEpisodesLoading) {
                     item {
                         Row(
                             modifier = Modifier
@@ -432,6 +527,59 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit) {
                                 .padding(16.dp),
                             horizontalArrangement = Arrangement.Center,
                         ) { CircularProgressIndicator() }
+                    }
+                }
+                item {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text(
+                            "Best individual episodes",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            RecentEpisodeWindow.entries.forEach { window ->
+                                FilterChip(
+                                    selected = state.recentEpisodeWindow == window,
+                                    onClick = { viewModel.loadRecentEpisodes(window) },
+                                    label = { Text(window.label) },
+                                )
+                            }
+                        }
+                    }
+                }
+                state.recentEpisodes?.let { picks ->
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Worthwhile episodes from the past ${state.recentEpisodeWindow.label.lowercase()}",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                "Refresh",
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.clickable {
+                                    viewModel.loadRecentEpisodes(state.recentEpisodeWindow, force = true)
+                                },
+                            )
+                        }
+                    }
+                    items(picks) { resolved ->
+                        val pick = resolved.pick
+                        AiPickRow(
+                            podcast = resolved.podcast,
+                            title = pick.episodeTitle,
+                            subtitle = resolved.podcast?.title ?: pick.podcastTitle,
+                            detail = pick.reason + (pick.publishedApprox?.let { " Published around $it." } ?: ""),
+                            fallbackQuery = pick.podcastTitle,
+                            viewModel = viewModel,
+                            onOpenPodcast = onOpenPodcast,
+                        )
                     }
                 }
                 state.acclaimed?.let { picks ->

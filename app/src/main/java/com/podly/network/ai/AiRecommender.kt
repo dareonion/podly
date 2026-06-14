@@ -51,6 +51,22 @@ data class AiEpisodePick(
     val reason: String,
 )
 
+enum class RecentEpisodeWindow(val label: String) {
+    TWO_WEEKS("2 weeks"),
+    MONTH("Month"),
+    THREE_MONTHS("3 months"),
+}
+
+/** A high-signal recent individual episode across all podcasts. */
+@Serializable
+data class AiRecentEpisodePick(
+    val podcastTitle: String,
+    val episodeTitle: String,
+    val author: String? = null,
+    val reason: String,
+    val publishedApprox: String? = null,
+)
+
 /**
  * Builds a profile of the user's listening from the local DB and asks the
  * configured provider (Claude or OpenAI) for podcast recommendations.
@@ -75,6 +91,9 @@ class AiRecommender(
         episodeTitles: List<String>,
     ): List<AiEpisodePick> =
         parseEpisodePicks(ask(buildWhereToStartPrompt(podcastTitle, author, episodeTitles)))
+
+    suspend fun recentEpisodes(window: RecentEpisodeWindow): List<AiRecentEpisodePick> =
+        parseRecentEpisodePicks(ask(buildRecentEpisodesPrompt(window)))
 
     private suspend fun ask(prompt: String): String {
         val settings = settingsRepository.current()
@@ -187,6 +206,33 @@ class AiRecommender(
         )
     }
 
+    private fun buildRecentEpisodesPrompt(window: RecentEpisodeWindow): String {
+        val dateRange = when (window) {
+            RecentEpisodeWindow.TWO_WEEKS -> "the past 2 weeks"
+            RecentEpisodeWindow.MONTH -> "the past month"
+            RecentEpisodeWindow.THREE_MONTHS -> "the past 3 months"
+        }
+        return buildString {
+            appendLine("You are an expert podcast critic and curator. Today's date is ${LocalDate.now()}.")
+            appendLine(
+                "Find the most worthwhile individual podcast episodes released in $dateRange. " +
+                    "Prioritize episodes that were widely discussed, critically praised, deeply reported, " +
+                    "exceptionally useful, unusually moving, or culturally important."
+            )
+            appendLine(
+                "Include a variety of genres such as news, interviews, narrative, science, business, culture, " +
+                    "history, technology, and personal essays. Only include real episodes you are confident exist."
+            )
+            appendLine()
+            appendLine(
+                "Recommend exactly 12 episodes. Respond with ONLY a JSON array, no prose and no code fences, " +
+                    "where each element is {\"podcastTitle\": string, \"episodeTitle\": string, " +
+                    "\"author\": string or null, \"reason\": string, \"publishedApprox\": string or null}. " +
+                    "Keep each reason to one sentence explaining why the episode is worth listening to."
+            )
+        }
+    }
+
     private suspend fun askClaude(apiKey: String, prompt: String): String =
         withContext(Dispatchers.IO) {
             val client = AnthropicOkHttpClient.builder().apiKey(apiKey).build()
@@ -253,6 +299,8 @@ class AiRecommender(
         fun parseAcclaimed(raw: String): List<AiAcclaimedPick> = decodeArray(raw)
 
         fun parseEpisodePicks(raw: String): List<AiEpisodePick> = decodeArray(raw)
+
+        fun parseRecentEpisodePicks(raw: String): List<AiRecentEpisodePick> = decodeArray(raw)
 
         private const val MAX_TITLES_IN_PROMPT = 1000
 
