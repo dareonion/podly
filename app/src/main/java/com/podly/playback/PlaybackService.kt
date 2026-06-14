@@ -1,5 +1,6 @@
 package com.podly.playback
 
+import android.app.PendingIntent
 import android.content.Intent
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -7,6 +8,7 @@ import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.Player.PositionInfo
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
@@ -20,7 +22,9 @@ import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.ListenableFuture
 import com.podly.appGraph
 import com.podly.data.db.EpisodeEntity
+import com.podly.data.db.ListeningSegmentEntity
 import com.podly.network.Http
+import com.podly.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -42,6 +46,7 @@ class PlaybackService : MediaLibraryService() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var session: MediaLibrarySession? = null
+    private var activeListenSegment: ActiveListenSegment? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -73,6 +78,7 @@ class PlaybackService : MediaLibraryService() {
 
         val player = NudgingPlayer(exoPlayer)
         session = MediaLibrarySession.Builder(this, player, LibraryCallback())
+            .setSessionActivity(mainActivityIntent())
             .build()
 
         startProgressPersistence(player)
@@ -89,6 +95,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        runBlocking { flushListeningSegment() }
         scope.cancel()
         session?.run {
             player.release()
@@ -97,6 +104,16 @@ class PlaybackService : MediaLibraryService() {
         session = null
         super.onDestroy()
     }
+
+    private fun mainActivityIntent(): PendingIntent =
+        PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
 
     /** Remaps next/previous (car & headset buttons) to in-episode nudges. */
     private class NudgingPlayer(player: Player) : ForwardingPlayer(player) {
@@ -131,16 +148,40 @@ class PlaybackService : MediaLibraryService() {
         scope.launch {
             while (isActive) {
                 delay(5_000)
+                recordListeningProgress(player)
                 saveProgress(player)
             }
         }
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (!isPlaying) scope.launch { saveProgress(player) }
+                scope.launch {
+                    if (isPlaying) {
+                        beginListeningSegment(player)
+                    } else {
+                        recordListeningProgress(player)
+                        flushListeningSegment()
+                        saveProgress(player)
+                    }
+                }
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                scope.launch { snapshotQueue(player) }
+                scope.launch {
+                    flushListeningSegment()
+                    if (player.isPlaying) beginListeningSegment(player)
+                    snapshotQueue(player)
+                }
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: PositionInfo,
+                newPosition: PositionInfo,
+                reason: Int,
+            ) {
+                scope.launch {
+                    flushListeningSegment()
+                    if (player.isPlaying) beginListeningSegment(player)
+                }
             }
 
             override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
@@ -148,6 +189,60 @@ class PlaybackService : MediaLibraryService() {
             }
         })
     }
+
+    private fun beginListeningSegment(player: Player) {
+        val episodeId = player.currentEpisodeIdOrNull() ?: return
+        val position = player.currentPosition.coerceAtLeast(0)
+        val now = System.currentTimeMillis()
+        activeListenSegment = ActiveListenSegment(
+            episodeId = episodeId,
+            startPositionMs = position,
+            endPositionMs = position,
+            startedAt = now,
+            endedAt = now,
+        )
+    }
+
+    private suspend fun recordListeningProgress(player: Player) {
+        if (!player.isPlaying) return
+        val episodeId = player.currentEpisodeIdOrNull() ?: return
+        val position = player.currentPosition.coerceAtLeast(0)
+        val now = System.currentTimeMillis()
+        val active = activeListenSegment
+        if (active == null || active.episodeId != episodeId || !active.canContinueTo(position)) {
+            flushListeningSegment()
+            activeListenSegment = ActiveListenSegment(
+                episodeId = episodeId,
+                startPositionMs = position,
+                endPositionMs = position,
+                startedAt = now,
+                endedAt = now,
+            )
+        } else {
+            activeListenSegment = active.copy(
+                endPositionMs = position.coerceAtLeast(active.endPositionMs),
+                endedAt = now,
+            )
+        }
+    }
+
+    private suspend fun flushListeningSegment() {
+        val active = activeListenSegment ?: return
+        activeListenSegment = null
+        if (active.endPositionMs - active.startPositionMs < MIN_LISTEN_SEGMENT_MS) return
+        appGraph.database.episodeDao().insertListeningSegment(
+            ListeningSegmentEntity(
+                episodeId = active.episodeId,
+                startPositionMs = active.startPositionMs,
+                endPositionMs = active.endPositionMs,
+                startedAt = active.startedAt,
+                endedAt = active.endedAt,
+            )
+        )
+    }
+
+    private fun Player.currentEpisodeIdOrNull(): String? =
+        currentMediaItem?.mediaId?.let(MediaIds::episodeIdOrNull)
 
     /** Remembers the queue so onPlaybackResumption can restore it after process death. */
     private suspend fun snapshotQueue(player: Player) {
@@ -295,9 +390,12 @@ class PlaybackService : MediaLibraryService() {
                 startIndex = episodes.indexOfFirst { it.id == savedEpisodeId }.coerceAtLeast(0)
             } else {
                 episodes = graph.database.episodeDao().continueListeningOnce(1)
+                    .ifEmpty { graph.database.episodeDao().libraryEpisodesOnce().take(1) }
                 startIndex = 0
             }
-            check(episodes.isNotEmpty()) { "Nothing to resume" }
+            if (episodes.isEmpty()) {
+                return@future MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L)
+            }
             val current = episodes[startIndex]
             val resumePosition = current.playbackPositionMs.takeIf { !current.completed } ?: 0L
             MediaSession.MediaItemsWithStartPosition(
@@ -310,5 +408,19 @@ class PlaybackService : MediaLibraryService() {
 
     companion object {
         private const val MAX_BROWSE_CHILDREN = 100
+        private const val MIN_LISTEN_SEGMENT_MS = 1_000L
+        private const val CONTINUOUS_POSITION_TOLERANCE_MS = 12_000L
+    }
+
+    private data class ActiveListenSegment(
+        val episodeId: String,
+        val startPositionMs: Long,
+        val endPositionMs: Long,
+        val startedAt: Long,
+        val endedAt: Long,
+    ) {
+        fun canContinueTo(positionMs: Long): Boolean =
+            positionMs >= endPositionMs &&
+                positionMs - endPositionMs <= CONTINUOUS_POSITION_TOLERANCE_MS
     }
 }

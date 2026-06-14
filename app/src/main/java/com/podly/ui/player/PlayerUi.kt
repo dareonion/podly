@@ -15,9 +15,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -41,12 +44,43 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
 import coil.compose.AsyncImage
+import com.podly.AppGraph
 import com.podly.appGraph
+import com.podly.ui.appViewModel
+import com.podly.ui.components.EpisodeNoteDialog
 import com.podly.ui.util.formatPosition
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 private val SPEEDS = listOf(0.8f, 1.0f, 1.2f, 1.5f, 1.8f, 2.0f)
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class PlayerNotesViewModel(private val graph: AppGraph) : ViewModel() {
+    private val episodeId = MutableStateFlow<String?>(null)
+    val episode = episodeId.flatMapLatest { id ->
+        if (id == null) flowOf(null) else graph.podcasts.episode(id)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun setEpisodeId(id: String?) {
+        episodeId.value = id
+    }
+
+    fun updateNoteAndRating(id: String, note: String?, rating: Int?) {
+        viewModelScope.launch {
+            graph.podcasts.updateEpisodeNoteAndRating(id, note, rating)
+        }
+    }
+}
 
 @Composable
 fun MiniPlayer(onOpenPlayer: () -> Unit) {
@@ -111,10 +145,17 @@ fun MiniPlayer(onOpenPlayer: () -> Unit) {
 @Composable
 fun PlayerScreen() {
     val player = LocalContext.current.appGraph.player
+    val notesViewModel = appViewModel { PlayerNotesViewModel(it) }
     val state by player.state.collectAsState()
+    val episode by notesViewModel.episode.collectAsStateWithLifecycle()
     var position by remember { mutableLongStateOf(0L) }
     var scrubbing by remember { mutableStateOf(false) }
     var speedMenuOpen by remember { mutableStateOf(false) }
+    var noteDialogOpen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.episodeId) {
+        notesViewModel.setEpisodeId(state.episodeId)
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -204,6 +245,33 @@ fun PlayerScreen() {
                     )
                 }
             }
+        }
+        episode?.let { currentEpisode ->
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = { noteDialogOpen = true }) {
+                Icon(Icons.Filled.EditNote, null)
+                Text(" Notes")
+                currentEpisode.userRating?.let { rating ->
+                    Text("  ")
+                    Icon(Icons.Filled.Star, null, modifier = Modifier.size(18.dp))
+                    Text(" $rating/5")
+                }
+            }
+        }
+    }
+
+    if (noteDialogOpen) {
+        episode?.let { currentEpisode ->
+            EpisodeNoteDialog(
+                title = currentEpisode.title,
+                initialNote = currentEpisode.userNote,
+                initialRating = currentEpisode.userRating,
+                onSave = { note, rating ->
+                    notesViewModel.updateNoteAndRating(currentEpisode.id, note, rating)
+                    noteDialogOpen = false
+                },
+                onDismiss = { noteDialogOpen = false },
+            )
         }
     }
 }

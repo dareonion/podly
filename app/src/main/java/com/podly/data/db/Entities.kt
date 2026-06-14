@@ -49,6 +49,36 @@ data class EpisodeEntity(
     val playbackPositionMs: Long = 0,
     val completed: Boolean = false,
     val lastPlayedAt: Long = 0,
+    val userNote: String? = null,
+    val userRating: Int? = null,
+)
+
+@Entity(
+    tableName = "listening_segments",
+    indices = [Index("episodeId"), Index("endedAt")],
+)
+data class ListeningSegmentEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val episodeId: String,
+    val startPositionMs: Long,
+    val endPositionMs: Long,
+    val startedAt: Long,
+    val endedAt: Long,
+)
+
+data class EpisodeHistorySummary(
+    val id: String,
+    val podcastTitle: String,
+    val title: String,
+    val artworkUrl: String?,
+    val durationMs: Long?,
+    val completed: Boolean,
+    val userNote: String?,
+    val userRating: Int?,
+    val segmentCount: Int,
+    val firstListenedAt: Long,
+    val lastListenedAt: Long,
+    val totalListenedMs: Long,
 )
 
 @Entity(tableName = "playlists")

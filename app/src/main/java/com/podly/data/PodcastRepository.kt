@@ -1,7 +1,9 @@
 package com.podly.data
 
 import com.podly.data.db.EpisodeEntity
+import com.podly.data.db.EpisodeHistorySummary
 import com.podly.data.db.EpisodeDao
+import com.podly.data.db.ListeningSegmentEntity
 import com.podly.data.db.PodcastDao
 import com.podly.data.db.PodcastEntity
 import com.podly.data.db.stableId
@@ -28,6 +30,8 @@ class PodcastRepository(
     fun libraryEpisodes(): Flow<List<EpisodeEntity>> = episodeDao.libraryEpisodes()
     fun downloadedEpisodes(): Flow<List<EpisodeEntity>> = episodeDao.downloadedEpisodes()
     fun episode(id: String): Flow<EpisodeEntity?> = episodeDao.byIdFlow(id)
+    fun listeningHistory(): Flow<List<EpisodeHistorySummary>> = episodeDao.listeningHistory()
+    fun listeningSegments(): Flow<List<ListeningSegmentEntity>> = episodeDao.listeningSegments()
 
     suspend fun search(term: String): List<PodcastEntity> = itunesApi.searchPodcasts(term)
 
@@ -121,6 +125,13 @@ class PodcastRepository(
 
     suspend fun setEpisodePlayed(episodeId: String, played: Boolean) =
         episodeDao.setPlayed(episodeId, played)
+
+    suspend fun updateEpisodeNoteAndRating(episodeId: String, note: String?, rating: Int?) =
+        episodeDao.updateUserNoteAndRating(
+            episodeId,
+            note?.trim()?.takeIf { it.isNotEmpty() },
+            rating?.coerceIn(1, 5),
+        )
 
     suspend fun episodeById(id: String): EpisodeEntity? = episodeDao.byId(id)
 }

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -33,6 +34,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.podly.ui.discover.DiscoverScreen
+import com.podly.ui.history.HistoryScreen
 import com.podly.ui.library.LibraryScreen
 import com.podly.ui.player.MiniPlayer
 import com.podly.ui.player.PlayerScreen
@@ -46,6 +48,7 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 
 private val TABS = listOf(
     Tab("library", "Library", Icons.Filled.LibraryMusic),
+    Tab("history", "History", Icons.Filled.History),
     Tab("discover", "Discover", Icons.Filled.Explore),
     Tab("playlists", "Playlists", Icons.AutoMirrored.Filled.QueueMusic),
     Tab("settings", "Settings", Icons.Filled.Settings),
@@ -123,6 +126,7 @@ private fun PodlyApp() {
             composable("discover") {
                 DiscoverScreen(onOpenPodcast = { navController.navigate("podcast/$it") })
             }
+            composable("history") { HistoryScreen() }
             composable("playlists") {
                 PlaylistsScreen(onOpenPlaylist = { navController.navigate("playlist/$it") })
             }

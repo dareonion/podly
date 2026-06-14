@@ -82,6 +82,30 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE id = :id")
     fun byIdFlow(id: String): Flow<EpisodeEntity?>
 
+    @Query(
+        """SELECT e.id, e.podcastTitle, e.title, e.artworkUrl, e.durationMs, e.completed,
+                  e.userNote, e.userRating,
+                  COUNT(s.id) AS segmentCount,
+                  MIN(s.startedAt) AS firstListenedAt,
+                  MAX(s.endedAt) AS lastListenedAt,
+                  SUM(CASE
+                      WHEN s.endPositionMs > s.startPositionMs
+                      THEN s.endPositionMs - s.startPositionMs
+                      ELSE 0
+                  END) AS totalListenedMs
+           FROM episodes e
+           JOIN listening_segments s ON s.episodeId = e.id
+           GROUP BY e.id
+           ORDER BY lastListenedAt DESC"""
+    )
+    fun listeningHistory(): Flow<List<EpisodeHistorySummary>>
+
+    @Query("SELECT * FROM listening_segments ORDER BY endedAt DESC")
+    fun listeningSegments(): Flow<List<ListeningSegmentEntity>>
+
+    @Query("SELECT * FROM listening_segments WHERE episodeId = :episodeId ORDER BY endedAt DESC")
+    fun listeningSegmentsForEpisode(episodeId: String): Flow<List<ListeningSegmentEntity>>
+
     @Query("SELECT * FROM episodes WHERE lastPlayedAt > 0 ORDER BY lastPlayedAt DESC LIMIT :limit")
     suspend fun recentlyPlayed(limit: Int): List<EpisodeEntity>
 
@@ -115,6 +139,12 @@ interface EpisodeDao {
 
     @Query("UPDATE episodes SET durationMs = :durationMs WHERE id = :id")
     suspend fun updateDuration(id: String, durationMs: Long)
+
+    @Query("UPDATE episodes SET userNote = :note, userRating = :rating WHERE id = :id")
+    suspend fun updateUserNoteAndRating(id: String, note: String?, rating: Int?)
+
+    @Insert
+    suspend fun insertListeningSegment(segment: ListeningSegmentEntity)
 }
 
 @Dao

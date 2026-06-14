@@ -17,6 +17,11 @@ fun formatDate(epochMs: Long): String? {
     return DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(epochMs))
 }
 
+fun formatDateTime(epochMs: Long): String? {
+    if (epochMs <= 0) return null
+    return DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(epochMs))
+}
+
 fun formatPosition(positionMs: Long): String {
     val totalSeconds = (positionMs / 1000).coerceAtLeast(0)
     val hours = totalSeconds / 3600
