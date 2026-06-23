@@ -27,6 +27,8 @@ class PodcastRepository(
     fun podcast(id: String): Flow<PodcastEntity?> = podcastDao.byIdFlow(id)
     fun episodesForPodcast(podcastId: String): Flow<List<EpisodeEntity>> =
         episodeDao.episodesForPodcast(podcastId)
+    suspend fun episodesForPodcastOnce(podcastId: String): List<EpisodeEntity> =
+        episodeDao.episodesForPodcastOnce(podcastId)
 
     fun libraryEpisodes(): Flow<List<EpisodeEntity>> = episodeDao.libraryEpisodes()
     fun downloadedEpisodes(): Flow<List<EpisodeEntity>> = episodeDao.downloadedEpisodes()

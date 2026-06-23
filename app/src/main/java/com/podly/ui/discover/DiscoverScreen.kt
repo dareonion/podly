@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Search
@@ -52,6 +53,7 @@ import com.podly.network.TrendingPodcast
 import com.podly.network.ai.AiAcclaimedPick
 import com.podly.network.ai.AiRecentEpisodePick
 import com.podly.network.ai.AiRecommendation
+import com.podly.network.ai.RecentEpisodeMatcher
 import com.podly.network.ai.RecentEpisodeWindow
 import com.podly.ui.appViewModel
 import com.podly.work.RecentEpisodesWorker
@@ -97,6 +99,7 @@ data class DiscoverUiState(
     val recentEpisodeWindow: RecentEpisodeWindow = RecentEpisodeWindow.MONTH,
     val recentEpisodes: List<ResolvedRecentEpisode>? = null,
     val recentEpisodesLoading: Boolean = false,
+    val savingPlaylist: Boolean = false,
     val error: String? = null,
     val opening: Boolean = false,
 )
@@ -274,12 +277,17 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                 RecentEpisodesWorker.workInfoFlow(graph.appContext, window).collect { infos ->
                     if (_state.value.recentEpisodeWindow != window) return@collect
                     val running = infos.any { !it.state.isFinished }
-                    val failed = !running && infos.any { it.state == WorkInfo.State.FAILED }
+                    val failedInfo = infos.firstOrNull { it.state == WorkInfo.State.FAILED }
+                        .takeIf { !running }
                     _state.update { s ->
                         s.copy(
                             recentEpisodesLoading = running,
-                            error = if (failed && s.recentEpisodes == null) {
-                                "Couldn't load recent episodes. Tap Refresh to try again."
+                            error = if (failedInfo != null && s.recentEpisodes == null) {
+                                val reason = failedInfo.outputData
+                                    .getString(RecentEpisodesWorker.KEY_ERROR)
+                                    ?.takeIf { it.isNotBlank() }
+                                reason?.let { "Couldn't load recent episodes: $it" }
+                                    ?: "Couldn't load recent episodes. Tap Refresh to try again."
                             } else {
                                 s.error
                             },
@@ -288,6 +296,56 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                 }
             }
         }
+    }
+
+    /**
+     * Turns the recommended episodes into a real, playable playlist: loads each
+     * podcast's feed, matches the recommended episode by title, then creates a
+     * playlist from the matches. Picks whose episode can't be found are skipped.
+     * Hands the new playlist's id back via [onCreated].
+     */
+    fun saveRecentEpisodesAsPlaylist(onCreated: (Long) -> Unit) {
+        val picks = _state.value.recentEpisodes
+        if (picks.isNullOrEmpty() || _state.value.savingPlaylist) return
+        val window = _state.value.recentEpisodeWindow
+        viewModelScope.launch {
+            _state.update { it.copy(savingPlaylist = true, error = null) }
+            runCatching {
+                val episodeIds = coroutineScope {
+                    picks.map { async { resolveEpisodeId(it) } }.awaitAll()
+                }.filterNotNull().distinct()
+                require(episodeIds.isNotEmpty()) {
+                    "Couldn't match any of these episodes to a podcast feed."
+                }
+                val playlistId = graph.playlists.create("Recent picks · ${window.label}")
+                episodeIds.forEach { graph.playlists.addEpisode(playlistId, it) }
+                playlistId
+            }.onSuccess { id ->
+                _state.update { it.copy(savingPlaylist = false) }
+                onCreated(id)
+            }.onFailure { e ->
+                _state.update { it.copy(savingPlaylist = false, error = describe(e)) }
+            }
+        }
+    }
+
+    /**
+     * Resolves one pick to a local episode id: load the podcast feed, then match the
+     * recommended (often paraphrased) title + date against the feed via
+     * [RecentEpisodeMatcher].
+     */
+    private suspend fun resolveEpisodeId(resolved: ResolvedRecentEpisode): String? {
+        val podcast = resolved.podcast
+            ?: resolveAgainstDirectory(resolved.pick.podcastTitle)
+            ?: return null
+        val loaded = runCatching { graph.podcasts.openPodcast(podcast) }.getOrNull() ?: return null
+        val episodes = graph.podcasts.episodesForPodcastOnce(loaded.id)
+        val idx = RecentEpisodeMatcher.bestMatch(
+            title = resolved.pick.episodeTitle,
+            publishedApprox = resolved.pick.publishedApprox,
+            candidates = episodes.map { RecentEpisodeMatcher.Candidate(it.title, it.pubDateMs) },
+        )
+        return idx?.let { episodes[it].id }
     }
 
     private suspend fun resolveAgainstDirectory(title: String): PodcastEntity? =
@@ -354,7 +412,7 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
 }
 
 @Composable
-fun DiscoverScreen(onOpenPodcast: (String) -> Unit) {
+fun DiscoverScreen(onOpenPodcast: (String) -> Unit, onOpenPlaylist: (Long) -> Unit) {
     val viewModel = appViewModel { DiscoverViewModel(it) }
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -563,6 +621,24 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit) {
                                     viewModel.loadRecentEpisodes(state.recentEpisodeWindow, force = true)
                                 },
                             )
+                        }
+                    }
+                    item {
+                        Button(
+                            onClick = { viewModel.saveRecentEpisodesAsPlaylist(onOpenPlaylist) },
+                            enabled = !state.savingPlaylist,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        ) {
+                            if (state.savingPlaylist) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                                Text("  Saving playlist…")
+                            } else {
+                                Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null)
+                                Text("  Save as playlist")
+                            }
                         }
                     }
                     items(picks) { resolved ->

@@ -1,5 +1,6 @@
 package com.podly.network.ai
 
+import android.util.Log
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.errors.AnthropicIoException
 import com.anthropic.errors.SseException
@@ -96,8 +97,16 @@ class AiRecommender(
 
     // Episodes this recent are past the model's training cutoff, so it needs
     // web search to find real ones — without it the model returns an empty list.
-    suspend fun recentEpisodes(window: RecentEpisodeWindow): List<AiRecentEpisodePick> =
-        parseRecentEpisodePicks(ask(buildRecentEpisodesPrompt(window), webSearch = true))
+    suspend fun recentEpisodes(window: RecentEpisodeWindow): List<AiRecentEpisodePick> {
+        val raw = ask(buildRecentEpisodesPrompt(window), webSearch = true)
+        Log.i(TAG, "recentEpisodes($window) raw length=${raw.length}, tail=${raw.takeLast(300)}")
+        return try {
+            parseRecentEpisodePicks(raw).also { Log.i(TAG, "recentEpisodes parsed ${it.size} picks") }
+        } catch (e: Exception) {
+            Log.e(TAG, "recentEpisodes parse failed; head=${raw.take(300)}", e)
+            throw e
+        }
+    }
 
     private suspend fun ask(prompt: String, webSearch: Boolean = false): String {
         val settings = settingsRepository.current()
@@ -234,11 +243,12 @@ class AiRecommender(
                     "culturally important, or (for the comedy and casual category) genuinely funny or fun to " +
                     "listen to. Only include an episode when the search results give you its " +
                     "real, specific title: never invent a placeholder like \"recent episode\", and never " +
-                    "list a whole show or limited series as if it were a single episode. Return at least 10 " +
-                    "episodes (aim for 12-15), and make sure at least one of them is a lighter comedic or " +
-                    "casual pick rather than a serious one. Every episode must be real and verifiable from " +
-                    "your searches — if one area is thin, run another roundup search to reach the minimum " +
-                    "rather than padding with invented titles. Do not re-search to verify titles."
+                    "list a whole show or limited series as if it were a single episode. Your final list " +
+                    "must contain at least 10 episodes (ideally 12-15): take the two strongest from each of " +
+                    "the seven areas — that alone is about 14 — and include at least one lighter comedic or " +
+                    "casual pick rather than only serious ones. Every episode must be real and verifiable " +
+                    "from your searches — never invent titles to reach the count; if one area is thin, take " +
+                    "more from a stronger area or run another roundup search. Do not re-search to verify titles."
             )
             appendLine()
             appendLine(
@@ -247,7 +257,9 @@ class AiRecommender(
                     "element is " +
                     "{\"podcastTitle\": string, \"episodeTitle\": string, " +
                     "\"author\": string or null, \"reason\": string, \"publishedApprox\": string or null}. " +
-                    "Keep each reason to one sentence explaining why the episode is worth listening to."
+                    "Use the episode's exact published title when the search results show it (not a " +
+                    "paraphrase), and set publishedApprox to its release date as YYYY-MM-DD whenever you " +
+                    "can determine it. Keep each reason to one sentence explaining why the episode is worth listening to."
             )
         }
     }
@@ -260,7 +272,10 @@ class AiRecommender(
                     .model("claude-opus-4-8")
                     // Web-search calls also pull tool results into context and reason
                     // over them, so give the response room beyond the JSON itself.
-                    .maxTokens(if (webSearch) 24000L else 16000L)
+                    // The budget covers summarized thinking + tool turns + the final
+                    // JSON; too low truncates before the JSON and the parse fails
+                    // (which then re-runs the whole multi-minute call).
+                    .maxTokens(if (webSearch) 32000L else 16000L)
                     // Summarized display makes thinking stream as deltas; the default
                     // ("omitted") keeps the stream silent for the whole thinking phase,
                     // long enough for phone radios to abort the idle socket.
@@ -330,6 +345,8 @@ class AiRecommender(
         }
 
     companion object {
+        private const val TAG = "AiRecommender"
+
         /** Tolerates code fences or stray prose around the JSON array. */
         fun parseRecommendations(raw: String): List<AiRecommendation> = decodeArray(raw)
 

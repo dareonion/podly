@@ -70,6 +70,17 @@ interface EpisodeDao {
     fun episodesForPodcast(podcastId: String): Flow<List<EpisodeEntity>>
 
     @Query(
+        """SELECT e.* FROM episodes e
+           JOIN podcasts p ON p.id = e.podcastId
+           WHERE e.podcastId = :podcastId
+           ORDER BY
+               CASE WHEN p.episodeSortOrder = 'OLDEST_FIRST' THEN e.pubDateMs END ASC,
+               CASE WHEN p.episodeSortOrder = 'NEWEST_FIRST' THEN e.pubDateMs END DESC,
+               e.id"""
+    )
+    suspend fun episodesForPodcastOnce(podcastId: String): List<EpisodeEntity>
+
+    @Query(
         """SELECT e.* FROM episodes e JOIN podcasts p ON e.podcastId = p.id
            WHERE e.inLibrary = 1 OR p.subscribed = 1 ORDER BY e.pubDateMs DESC"""
     )
