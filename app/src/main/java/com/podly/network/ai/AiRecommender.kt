@@ -225,17 +225,20 @@ class AiRecommender(
                     "$WEB_SEARCH_MAX_USES searches running ONE focused search for standout recent episodes " +
                     "in each of these areas: (1) news and politics; (2) narrative and investigative " +
                     "storytelling; (3) interviews and conversations; (4) science, technology, and health; " +
-                    "(5) business, economics, and money; (6) culture, society, and history. Use any " +
-                    "remaining searches for a broad best-of-the-period roundup."
+                    "(5) business, economics, and money; (6) culture, society, and history; (7) comedy and " +
+                    "casual chat shows. Use any remaining searches for a broad best-of-the-period roundup."
             )
             appendLine(
-                "From each search's results take the 1-2 strongest episodes — ones that were widely " +
+                "From each search's results take the 2-3 strongest episodes — ones that were widely " +
                     "discussed, critically praised, deeply reported, exceptionally useful, unusually moving, " +
-                    "or culturally important. Only include an episode when the search results give you its " +
+                    "culturally important, or (for the comedy and casual category) genuinely funny or fun to " +
+                    "listen to. Only include an episode when the search results give you its " +
                     "real, specific title: never invent a placeholder like \"recent episode\", and never " +
-                    "list a whole show or limited series as if it were a single episode. Quality matters " +
-                    "more than quantity — return up to 12 episodes, but a shorter list of genuine, " +
-                    "verifiable ones is far better than a padded list. Do not re-search to verify titles."
+                    "list a whole show or limited series as if it were a single episode. Return at least 10 " +
+                    "episodes (aim for 12-15), and make sure at least one of them is a lighter comedic or " +
+                    "casual pick rather than a serious one. Every episode must be real and verifiable from " +
+                    "your searches — if one area is thin, run another roundup search to reach the minimum " +
+                    "rather than padding with invented titles. Do not re-search to verify titles."
             )
             appendLine()
             appendLine(
@@ -339,12 +342,13 @@ class AiRecommender(
         private const val MAX_TITLES_IN_PROMPT = 1000
 
         /**
-         * Cap on server-side web searches per recent-episodes call. Keeps the
+         * Cap on server-side web searches per recent-episodes call. Covers one
+         * search for each of the seven topic areas plus a roundup. Keeps the
          * streaming request short enough to finish before a mobile radio drops the
          * connection, and under the server-side tool-loop limit (~10) that would
          * otherwise end the turn with `pause_turn` and no final JSON.
          */
-        private const val WEB_SEARCH_MAX_USES = 8L
+        private const val WEB_SEARCH_MAX_USES = 9L
 
         private inline fun <reified T> decodeArray(raw: String): List<T> {
             val start = raw.indexOf('[')
