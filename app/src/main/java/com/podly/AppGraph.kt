@@ -17,6 +17,8 @@ import com.podly.playback.PlayerConnection
  * Hand-rolled dependency graph; one instance lives on [PodlyApp].
  */
 class AppGraph(private val context: Context) {
+    /** Application context, for WorkManager enqueue/observe from ViewModels. */
+    val appContext: Context = context.applicationContext
     val database: PodlyDatabase = PodlyDatabase.build(context)
     val settings: SettingsRepository = SettingsRepository(context)
     val playbackState: PlaybackStateStore = PlaybackStateStore(context)

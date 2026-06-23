@@ -4,7 +4,9 @@ import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.errors.AnthropicIoException
 import com.anthropic.errors.SseException
 import com.anthropic.models.messages.MessageCreateParams
+import com.anthropic.models.messages.OutputConfig
 import com.anthropic.models.messages.ThinkingConfigAdaptive
+import com.anthropic.models.messages.WebSearchTool20260209
 import com.podly.data.AiProvider
 import com.podly.data.SettingsRepository
 import com.podly.data.db.EpisodeDao
@@ -92,16 +94,18 @@ class AiRecommender(
     ): List<AiEpisodePick> =
         parseEpisodePicks(ask(buildWhereToStartPrompt(podcastTitle, author, episodeTitles)))
 
+    // Episodes this recent are past the model's training cutoff, so it needs
+    // web search to find real ones — without it the model returns an empty list.
     suspend fun recentEpisodes(window: RecentEpisodeWindow): List<AiRecentEpisodePick> =
-        parseRecentEpisodePicks(ask(buildRecentEpisodesPrompt(window)))
+        parseRecentEpisodePicks(ask(buildRecentEpisodesPrompt(window), webSearch = true))
 
-    private suspend fun ask(prompt: String): String {
+    private suspend fun ask(prompt: String, webSearch: Boolean = false): String {
         val settings = settingsRepository.current()
         val call: suspend () -> String = when (settings.aiProvider) {
             AiProvider.CLAUDE -> {
                 val key = settings.anthropicApiKey
                 if (key.isBlank()) throw IllegalStateException("Add your Anthropic API key in Settings first.")
-                ({ askClaude(key, prompt) })
+                ({ askClaude(key, prompt, webSearch) })
             }
             AiProvider.OPENAI -> {
                 val key = settings.openAiApiKey
@@ -215,31 +219,45 @@ class AiRecommender(
         return buildString {
             appendLine("You are an expert podcast critic and curator. Today's date is ${LocalDate.now()}.")
             appendLine(
-                "Find the most worthwhile individual podcast episodes released in $dateRange. " +
-                    "Prioritize episodes that were widely discussed, critically praised, deeply reported, " +
-                    "exceptionally useful, unusually moving, or culturally important."
+                "Find the most worthwhile individual podcast episodes released in $dateRange. These " +
+                    "episodes are more recent than your training data, so you must use web search to find " +
+                    "real, specific ones — do not rely on memory. Spend your budget of up to " +
+                    "$WEB_SEARCH_MAX_USES searches running ONE focused search for standout recent episodes " +
+                    "in each of these areas: (1) news and politics; (2) narrative and investigative " +
+                    "storytelling; (3) interviews and conversations; (4) science, technology, and health; " +
+                    "(5) business, economics, and money; (6) culture, society, and history. Use any " +
+                    "remaining searches for a broad best-of-the-period roundup."
             )
             appendLine(
-                "Include a variety of genres such as news, interviews, narrative, science, business, culture, " +
-                    "history, technology, and personal essays. Only include real episodes you are confident exist."
+                "From each search's results take the 1-2 strongest episodes — ones that were widely " +
+                    "discussed, critically praised, deeply reported, exceptionally useful, unusually moving, " +
+                    "or culturally important. Only include an episode when the search results give you its " +
+                    "real, specific title: never invent a placeholder like \"recent episode\", and never " +
+                    "list a whole show or limited series as if it were a single episode. Quality matters " +
+                    "more than quantity — return up to 12 episodes, but a shorter list of genuine, " +
+                    "verifiable ones is far better than a padded list. Do not re-search to verify titles."
             )
             appendLine()
             appendLine(
-                "Recommend exactly 12 episodes. Respond with ONLY a JSON array, no prose and no code fences, " +
-                    "where each element is {\"podcastTitle\": string, \"episodeTitle\": string, " +
+                "When you are done searching, respond with ONLY a JSON array as your final message — no " +
+                    "prose, no code fences, and no citation markers or footnotes outside the array. Each " +
+                    "element is " +
+                    "{\"podcastTitle\": string, \"episodeTitle\": string, " +
                     "\"author\": string or null, \"reason\": string, \"publishedApprox\": string or null}. " +
                     "Keep each reason to one sentence explaining why the episode is worth listening to."
             )
         }
     }
 
-    private suspend fun askClaude(apiKey: String, prompt: String): String =
+    private suspend fun askClaude(apiKey: String, prompt: String, webSearch: Boolean): String =
         withContext(Dispatchers.IO) {
             val client = AnthropicOkHttpClient.builder().apiKey(apiKey).build()
             try {
-                val params = MessageCreateParams.builder()
+                val builder = MessageCreateParams.builder()
                     .model("claude-opus-4-8")
-                    .maxTokens(16000L)
+                    // Web-search calls also pull tool results into context and reason
+                    // over them, so give the response room beyond the JSON itself.
+                    .maxTokens(if (webSearch) 24000L else 16000L)
                     // Summarized display makes thinking stream as deltas; the default
                     // ("omitted") keeps the stream silent for the whole thinking phase,
                     // long enough for phone radios to abort the idle socket.
@@ -249,7 +267,23 @@ class AiRecommender(
                             .build()
                     )
                     .addUserMessage(prompt)
-                    .build()
+                // Server-side web search lets the model look up real episodes that
+                // are newer than its training cutoff. Cap the number of searches:
+                // uncapped, the model runs many sequential searches and the streaming
+                // request stretches to many minutes, long enough that a phone radio
+                // drops the connection mid-flight (surfaces as "Unable to resolve host").
+                if (webSearch) {
+                    builder.addTool(
+                        WebSearchTool20260209.builder().maxUses(WEB_SEARCH_MAX_USES).build()
+                    )
+                    // At the default (high) effort the model deliberates at length over
+                    // each search result, stretching the call past what a mobile network
+                    // tolerates. Medium effort keeps it to a couple of minutes.
+                    builder.outputConfig(
+                        OutputConfig.builder().effort(OutputConfig.Effort.MEDIUM).build()
+                    )
+                }
+                val params = builder.build()
                 // Stream so bytes keep flowing while the model thinks; mobile
                 // networks drop idle connections, which surfaced as "Request failed"
                 // on long non-streaming calls.
@@ -303,6 +337,14 @@ class AiRecommender(
         fun parseRecentEpisodePicks(raw: String): List<AiRecentEpisodePick> = decodeArray(raw)
 
         private const val MAX_TITLES_IN_PROMPT = 1000
+
+        /**
+         * Cap on server-side web searches per recent-episodes call. Keeps the
+         * streaming request short enough to finish before a mobile radio drops the
+         * connection, and under the server-side tool-loop limit (~10) that would
+         * otherwise end the turn with `pause_turn` and no final JSON.
+         */
+        private const val WEB_SEARCH_MAX_USES = 8L
 
         private inline fun <reified T> decodeArray(raw: String): List<T> {
             val start = raw.indexOf('[')

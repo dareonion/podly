@@ -40,12 +40,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
 import coil.compose.AsyncImage
 import com.podly.AppGraph
 import com.podly.data.CachedAcclaimed
 import com.podly.data.CachedAcclaimedPick
-import com.podly.data.CachedRecentEpisodePick
-import com.podly.data.CachedRecentEpisodes
 import com.podly.data.db.PodcastEntity
 import com.podly.data.db.stableId
 import com.podly.network.TrendingPeriod
@@ -55,6 +54,8 @@ import com.podly.network.ai.AiRecentEpisodePick
 import com.podly.network.ai.AiRecommendation
 import com.podly.network.ai.RecentEpisodeWindow
 import com.podly.ui.appViewModel
+import com.podly.work.RecentEpisodesWorker
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -105,7 +106,7 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
     val state: StateFlow<DiscoverUiState> = _state
 
     private var acclaimedFetchedAtMs = 0L
-    private val recentEpisodeFetchedAtMs = mutableMapOf<RecentEpisodeWindow, Long>()
+    private var recentEpisodesObserveJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -130,23 +131,9 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                 }
             }
         }
-        viewModelScope.launch {
-            graph.aiPicksCache.loadRecentEpisodes(RecentEpisodeWindow.MONTH)?.let { cached ->
-                recentEpisodeFetchedAtMs[RecentEpisodeWindow.MONTH] = cached.fetchedAtMs
-                _state.update { s ->
-                    if (s.recentEpisodes == null) {
-                        s.copy(
-                            recentEpisodeWindow = RecentEpisodeWindow.MONTH,
-                            recentEpisodes = cached.picks.map {
-                                ResolvedRecentEpisode(it.pick, it.toPodcastOrNull())
-                            },
-                        )
-                    } else {
-                        s
-                    }
-                }
-            }
-        }
+        // Surface the default window's cached picks and any in-flight background fetch
+        // (which may have been started in a previous session) without kicking off a new one.
+        observeRecentEpisodes(RecentEpisodeWindow.MONTH)
         loadTrending(TrendingPeriod.NOW)
     }
 
@@ -240,57 +227,66 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
         }
     }
 
+    /**
+     * Selects [window], surfaces its cached picks + any in-flight fetch, and — when the
+     * cache is stale or [force] is set — kicks off a background [RecentEpisodesWorker].
+     * The slow web-search call runs in that worker, so it survives the screen sleeping or
+     * the app backgrounding and retries on a dropped connection instead of stranding a
+     * spinner; the user gets a notification when it lands.
+     */
     fun loadRecentEpisodes(window: RecentEpisodeWindow = _state.value.recentEpisodeWindow, force: Boolean = false) {
-        val fetchedAt = recentEpisodeFetchedAtMs[window] ?: 0L
-        val cacheFresh = System.currentTimeMillis() - fetchedAt < RECENT_EPISODES_MAX_AGE_MS
         val sameWindow = _state.value.recentEpisodeWindow == window
-        if (!force && sameWindow && cacheFresh && _state.value.recentEpisodes != null) return
+        _state.update {
+            it.copy(
+                recentEpisodeWindow = window,
+                recentEpisodes = if (sameWindow) it.recentEpisodes else null,
+                error = null,
+            )
+        }
+        observeRecentEpisodes(window)
         viewModelScope.launch {
-            _state.update {
-                it.copy(
-                    recentEpisodeWindow = window,
-                    recentEpisodesLoading = true,
-                    recentEpisodes = if (sameWindow) it.recentEpisodes else null,
-                    error = null,
-                )
+            val cached = graph.aiPicksCache.loadRecentEpisodes(window)
+            val fresh = cached != null &&
+                System.currentTimeMillis() - cached.fetchedAtMs < RECENT_EPISODES_MAX_AGE_MS
+            if (force || !fresh) {
+                RecentEpisodesWorker.enqueue(graph.appContext, window, force)
             }
-            runCatching {
-                val cached = if (!force) graph.aiPicksCache.loadRecentEpisodes(window) else null
-                if (cached != null && System.currentTimeMillis() - cached.fetchedAtMs < RECENT_EPISODES_MAX_AGE_MS) {
-                    recentEpisodeFetchedAtMs[window] = cached.fetchedAtMs
-                    cached.picks.map { ResolvedRecentEpisode(it.pick, it.toPodcastOrNull()) }
-                } else {
-                    val picks = graph.aiRecommender.recentEpisodes(window)
-                    coroutineScope {
-                        picks.map { pick ->
-                            async { ResolvedRecentEpisode(pick, resolveAgainstDirectory(pick.podcastTitle)) }
-                        }.awaitAll()
-                    }.also { resolved ->
-                        val fetchedAtNow = System.currentTimeMillis()
-                        recentEpisodeFetchedAtMs[window] = fetchedAtNow
-                        graph.aiPicksCache.saveRecentEpisodes(
-                            window,
-                            CachedRecentEpisodes(
-                                picks = resolved.map { CachedRecentEpisodePick.of(it.pick, it.podcast) },
-                                fetchedAtMs = fetchedAtNow,
-                            )
-                        )
-                    }
-                }
-            }
-                .onSuccess { picks ->
+        }
+    }
+
+    /** Streams the cached picks and the worker's run state for [window] into UI state. */
+    private fun observeRecentEpisodes(window: RecentEpisodeWindow) {
+        recentEpisodesObserveJob?.cancel()
+        recentEpisodesObserveJob = viewModelScope.launch {
+            launch {
+                graph.aiPicksCache.recentEpisodesFlow(window).collect { cached ->
+                    if (_state.value.recentEpisodeWindow != window || cached == null) return@collect
                     _state.update {
                         it.copy(
-                            recentEpisodeWindow = window,
-                            recentEpisodes = picks,
-                            recentEpisodesLoading = false,
+                            recentEpisodes = cached.picks.map { p ->
+                                ResolvedRecentEpisode(p.pick, p.toPodcastOrNull())
+                            },
                         )
                     }
                 }
-                .onFailure { e ->
-                    Log.e(TAG, "Recent episode picks failed", e)
-                    _state.update { it.copy(error = describe(e), recentEpisodesLoading = false) }
+            }
+            launch {
+                RecentEpisodesWorker.workInfoFlow(graph.appContext, window).collect { infos ->
+                    if (_state.value.recentEpisodeWindow != window) return@collect
+                    val running = infos.any { !it.state.isFinished }
+                    val failed = !running && infos.any { it.state == WorkInfo.State.FAILED }
+                    _state.update { s ->
+                        s.copy(
+                            recentEpisodesLoading = running,
+                            error = if (failed && s.recentEpisodes == null) {
+                                "Couldn't load recent episodes. Tap Refresh to try again."
+                            } else {
+                                s.error
+                            },
+                        )
+                    }
                 }
+            }
         }
     }
 

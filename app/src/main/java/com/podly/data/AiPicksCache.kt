@@ -10,7 +10,9 @@ import com.podly.network.ai.AiAcclaimedPick
 import com.podly.network.ai.AiEpisodePick
 import com.podly.network.ai.AiRecentEpisodePick
 import com.podly.network.ai.RecentEpisodeWindow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 
 /** A resolved acclaimed pick flattened into a JSON-friendly shape. */
@@ -139,6 +141,14 @@ class AiPicksCache(private val context: Context) {
     suspend fun loadRecentEpisodes(window: RecentEpisodeWindow): CachedRecentEpisodes? =
         context.aiPicksDataStore.data.first()[recentEpisodesKey(window)]?.let { json ->
             runCatching { Http.json.decodeFromString<CachedRecentEpisodes>(json) }.getOrNull()
+        }
+
+    /** Emits whenever the cached result for [window] changes — drives the Discover UI. */
+    fun recentEpisodesFlow(window: RecentEpisodeWindow): Flow<CachedRecentEpisodes?> =
+        context.aiPicksDataStore.data.map { prefs ->
+            prefs[recentEpisodesKey(window)]?.let { json ->
+                runCatching { Http.json.decodeFromString<CachedRecentEpisodes>(json) }.getOrNull()
+            }
         }
 
     suspend fun saveRecentEpisodes(window: RecentEpisodeWindow, cache: CachedRecentEpisodes) {
