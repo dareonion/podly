@@ -43,7 +43,7 @@ class LibraryViewModel(graph: AppGraph) : ViewModel() {
 }
 
 @Composable
-fun LibraryScreen(onOpenPodcast: (String) -> Unit) {
+fun LibraryScreen(onOpenPodcast: (String) -> Unit, onOpenEpisode: (String) -> Unit) {
     val viewModel = appViewModel { LibraryViewModel(it) }
     val podcasts by viewModel.podcasts.collectAsStateWithLifecycle()
     val episodes by viewModel.episodes.collectAsStateWithLifecycle()
@@ -73,6 +73,7 @@ fun LibraryScreen(onOpenPodcast: (String) -> Unit) {
                     onAddToPlaylist = { episodeForPlaylist = episode },
                     onTogglePlayed = { viewModel.actions.togglePlayed(episode) },
                     onShowDescription = { episodeForDescription = episode },
+                    onOpenDetail = { onOpenEpisode(episode.id) },
                 )
             }
         }
@@ -116,6 +117,7 @@ fun LibraryScreen(onOpenPodcast: (String) -> Unit) {
                 onAddToPlaylist = { episodeForPlaylist = episode },
                 onTogglePlayed = { viewModel.actions.togglePlayed(episode) },
                 onShowDescription = { episodeForDescription = episode },
+                onOpenDetail = { onOpenEpisode(episode.id) },
             )
         }
     }

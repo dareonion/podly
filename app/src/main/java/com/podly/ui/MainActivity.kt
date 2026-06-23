@@ -34,6 +34,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.podly.ui.discover.DiscoverScreen
+import com.podly.ui.episode.EpisodeDetailScreen
 import com.podly.ui.history.HistoryScreen
 import com.podly.ui.library.LibraryScreen
 import com.podly.ui.player.MiniPlayer
@@ -121,7 +122,10 @@ private fun PodlyApp() {
             modifier = Modifier.padding(innerPadding),
         ) {
             composable("library") {
-                LibraryScreen(onOpenPodcast = { navController.navigate("podcast/$it") })
+                LibraryScreen(
+                    onOpenPodcast = { navController.navigate("podcast/$it") },
+                    onOpenEpisode = { navController.navigate("episode/$it") },
+                )
             }
             composable("discover") {
                 DiscoverScreen(onOpenPodcast = { navController.navigate("podcast/$it") })
@@ -133,12 +137,25 @@ private fun PodlyApp() {
             composable("settings") { SettingsScreen() }
             composable("podcast/{podcastId}") { entry ->
                 val podcastId = entry.arguments?.getString("podcastId") ?: return@composable
-                PodcastDetailScreen(podcastId)
+                PodcastDetailScreen(
+                    podcastId,
+                    onOpenEpisode = { navController.navigate("episode/$it") },
+                )
             }
             composable("playlist/{playlistId}") { entry ->
                 val playlistId =
                     entry.arguments?.getString("playlistId")?.toLongOrNull() ?: return@composable
-                PlaylistDetailScreen(playlistId)
+                PlaylistDetailScreen(
+                    playlistId,
+                    onOpenEpisode = { navController.navigate("episode/$it") },
+                )
+            }
+            composable("episode/{episodeId}") { entry ->
+                val episodeId = entry.arguments?.getString("episodeId") ?: return@composable
+                EpisodeDetailScreen(
+                    episodeId,
+                    onOpenPodcast = { navController.navigate("podcast/$it") },
+                )
             }
             composable("player") { PlayerScreen() }
         }

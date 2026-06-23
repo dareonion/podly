@@ -76,7 +76,7 @@ class PlaylistDetailViewModel(
 }
 
 @Composable
-fun PlaylistDetailScreen(playlistId: Long) {
+fun PlaylistDetailScreen(playlistId: Long, onOpenEpisode: (String) -> Unit) {
     val viewModel = appViewModel(key = "playlist_$playlistId") {
         PlaylistDetailViewModel(it, playlistId)
     }
@@ -162,6 +162,7 @@ fun PlaylistDetailScreen(playlistId: Long) {
                         onTogglePlayed = { viewModel.actions.togglePlayed(episode) },
                         onRemoveFromPlaylist = { viewModel.remove(episode.id) },
                         onShowDescription = { episodeForDescription = episode },
+                        onOpenDetail = { onOpenEpisode(episode.id) },
                         trailingContent = if (isManual) {
                             {
                                 IconButton(

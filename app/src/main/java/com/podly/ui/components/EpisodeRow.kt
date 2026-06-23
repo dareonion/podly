@@ -56,6 +56,7 @@ fun EpisodeRow(
     onTogglePlayed: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
     onShowDescription: (() -> Unit)? = null,
+    onOpenDetail: (() -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -64,7 +65,7 @@ fun EpisodeRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onPlay)
+            .clickable(onClick = onOpenDetail ?: onPlay)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

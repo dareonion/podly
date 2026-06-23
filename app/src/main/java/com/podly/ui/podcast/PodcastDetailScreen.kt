@@ -159,7 +159,7 @@ class PodcastDetailViewModel(
 }
 
 @Composable
-fun PodcastDetailScreen(podcastId: String) {
+fun PodcastDetailScreen(podcastId: String, onOpenEpisode: (String) -> Unit) {
     val viewModel = appViewModel(key = "podcast_$podcastId") {
         PodcastDetailViewModel(it, podcastId)
     }
@@ -293,6 +293,7 @@ fun PodcastDetailScreen(podcastId: String) {
                             onAddToPlaylist = { episodeForPlaylist = starter },
                             onTogglePlayed = { viewModel.actions.togglePlayed(starter) },
                             onShowDescription = { episodeForDescription = starter },
+                            onOpenDetail = { onOpenEpisode(starter.id) },
                         )
                     } else {
                         Text(
@@ -343,6 +344,7 @@ fun PodcastDetailScreen(podcastId: String) {
                 onAddToPlaylist = { episodeForPlaylist = episode },
                 onTogglePlayed = { viewModel.actions.togglePlayed(episode) },
                 onShowDescription = { episodeForDescription = episode },
+                onOpenDetail = { onOpenEpisode(episode.id) },
             )
         }
     }
