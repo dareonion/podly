@@ -273,7 +273,7 @@ class PlaybackService : MediaLibraryService() {
             browser: MediaSession.ControllerInfo,
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<MediaItem>> =
-            scope.future {
+            scope.future(Dispatchers.IO) {
                 LibraryResult.ofItem(
                     MediaItemFactory.folder(MediaIds.ROOT, "Podly", childrenAreEpisodes = false),
                     params,
@@ -287,7 +287,7 @@ class PlaybackService : MediaLibraryService() {
             page: Int,
             pageSize: Int,
             params: LibraryParams?,
-        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = scope.future {
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = scope.future(Dispatchers.IO) {
             val graph = appGraph
             val children: List<MediaItem> = when {
                 parentId == MediaIds.ROOT -> listOf(
@@ -322,7 +322,7 @@ class PlaybackService : MediaLibraryService() {
             session: MediaLibrarySession,
             browser: MediaSession.ControllerInfo,
             mediaId: String,
-        ): ListenableFuture<LibraryResult<MediaItem>> = scope.future {
+        ): ListenableFuture<LibraryResult<MediaItem>> = scope.future(Dispatchers.IO) {
             val episodeId = MediaIds.episodeIdOrNull(mediaId)
             val episode = episodeId?.let { appGraph.podcasts.episodeById(it) }
             if (episode != null) {
@@ -337,7 +337,7 @@ class PlaybackService : MediaLibraryService() {
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
             mediaItems: List<MediaItem>,
-        ): ListenableFuture<List<MediaItem>> = scope.future {
+        ): ListenableFuture<List<MediaItem>> = scope.future(Dispatchers.IO) {
             mediaItems.mapNotNull { item -> resolve(item) }
         }
 
@@ -347,7 +347,7 @@ class PlaybackService : MediaLibraryService() {
             mediaItems: List<MediaItem>,
             startIndex: Int,
             startPositionMs: Long,
-        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future {
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future(Dispatchers.IO) {
             val resolvedPairs = mediaItems.mapNotNull { item ->
                 val episodeId = MediaIds.episodeIdOrNull(item.mediaId)
                 val episode = episodeId?.let { appGraph.podcasts.episodeById(it) }
@@ -376,7 +376,7 @@ class PlaybackService : MediaLibraryService() {
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
-        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future {
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future(Dispatchers.IO) {
             val graph = appGraph
             val saved = graph.playbackState.load()
             val episodes: List<EpisodeEntity>
