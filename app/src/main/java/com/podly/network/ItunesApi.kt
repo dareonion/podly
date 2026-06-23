@@ -32,6 +32,8 @@ class ItunesApi {
                 artworkUrl = result.artworkUrl600 ?: result.artworkUrl100,
                 description = result.primaryGenreName,
             )
-        }
+        // Apple sometimes returns the same feed more than once; collapse to one
+        // entry per id so list keys stay unique (duplicate keys crash LazyColumn).
+        }.distinctBy { it.id }
     }
 }
