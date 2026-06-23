@@ -343,8 +343,13 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
         val idx = RecentEpisodeMatcher.bestMatch(
             title = resolved.pick.episodeTitle,
             publishedApprox = resolved.pick.publishedApprox,
-            candidates = episodes.map { RecentEpisodeMatcher.Candidate(it.title, it.pubDateMs) },
+            candidates = episodes.map {
+                RecentEpisodeMatcher.Candidate(it.title, it.description, it.pubDateMs)
+            },
         )
+        if (idx == null) {
+            Log.w(TAG, "No feed match for \"${resolved.pick.episodeTitle}\" in ${loaded.title}")
+        }
         return idx?.let { episodes[it].id }
     }
 

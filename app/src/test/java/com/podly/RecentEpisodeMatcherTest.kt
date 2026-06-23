@@ -19,8 +19,8 @@ class RecentEpisodeMatcherTest {
     @Test
     fun `exact title matches`() {
         val candidates = listOf(
-            Candidate("Some Other Episode", dayMs("2026-06-01")),
-            Candidate("Interview With \"Game Changer\" Host & Dropout CEO Sam Reich", dayMs("2026-06-22")),
+            Candidate("Some Other Episode", null, dayMs("2026-06-01")),
+            Candidate("Interview With \"Game Changer\" Host & Dropout CEO Sam Reich", null, dayMs("2026-06-22")),
         )
         val idx = RecentEpisodeMatcher.bestMatch(
             "Interview With \"Game Changer\" Host & Dropout CEO Sam Reich",
@@ -34,9 +34,9 @@ class RecentEpisodeMatcherTest {
     fun `paraphrased title matches on token overlap`() {
         // AI: "Community College as a Career-Change Hack" -> feed: "Community colleges are kind of underrated"
         val candidates = listOf(
-            Candidate("The SpaceX IPO drama explained", dayMs("2026-06-20")),
-            Candidate("Community colleges are kind of underrated", dayMs("2026-06-15")),
-            Candidate("Should we tax AI?", dayMs("2026-06-10")),
+            Candidate("The SpaceX IPO drama explained", null, dayMs("2026-06-20")),
+            Candidate("Community colleges are kind of underrated", null, dayMs("2026-06-15")),
+            Candidate("Should we tax AI?", null, dayMs("2026-06-10")),
         )
         val idx = RecentEpisodeMatcher.bestMatch(
             "Community College as a Career-Change Hack (June 15, 2026)",
@@ -50,9 +50,9 @@ class RecentEpisodeMatcherTest {
     fun `weak title overlap still matches via same-day publish date`() {
         // AI: "Trump and the Save America Act Voter ID Push" -> feed: "What's Trump's beef with Senate Republicans?"
         val candidates = listOf(
-            Candidate("Iran \"deal\": winners, losers, and regional impact", dayMs("2026-06-23")),
-            Candidate("What's Trump's beef with Senate Republicans?", dayMs("2026-06-22")),
-            Candidate("These swing voters are sour on Trump", dayMs("2026-06-20")),
+            Candidate("Iran \"deal\": winners, losers, and regional impact", null, dayMs("2026-06-23")),
+            Candidate("What's Trump's beef with Senate Republicans?", null, dayMs("2026-06-22")),
+            Candidate("These swing voters are sour on Trump", null, dayMs("2026-06-20")),
         )
         val idx = RecentEpisodeMatcher.bestMatch(
             "Trump and the Save America Act Voter ID Push (June 22, 2026)",
@@ -63,10 +63,33 @@ class RecentEpisodeMatcherTest {
     }
 
     @Test
+    fun `segment named in the show notes matches via description`() {
+        // AI named a segment: "Mary Moriarty on charging ICE agents and the new 'FAFO'
+        // prosecutors' coalition" -> real episode "The Malicious Incompetence of Trump's DOJ"
+        // whose show notes describe that interview.
+        val candidates = listOf(
+            Candidate("Affirmative Action for Mediocre Men", "A look at a recent ruling.", dayMs("2026-06-08")),
+            Candidate(
+                "The Malicious Incompetence of Trump's DOJ",
+                "Leah speaks with Mary Moriarty, Hennepin County Attorney, about the charges " +
+                    "her office filed against ICE agents and the new FAFO prosecutors' coalition.",
+                dayMs("2026-06-15"),
+            ),
+            Candidate("Why is SCOTUS Hoarding Opinions?", "On the Court's slow opinion season.", dayMs("2026-06-22")),
+        )
+        val idx = RecentEpisodeMatcher.bestMatch(
+            "Mary Moriarty on charging ICE agents and the new 'FAFO' prosecutors' coalition",
+            "2026-06",
+            candidates,
+        )
+        assertEquals(1, idx)
+    }
+
+    @Test
     fun `unrelated episodes far from the date are rejected`() {
         val candidates = listOf(
-            Candidate("A totally different show topic about gardening", dayMs("2026-01-01")),
-            Candidate("Another unrelated cooking episode", dayMs("2026-02-01")),
+            Candidate("A totally different show topic about gardening", null, dayMs("2026-01-01")),
+            Candidate("Another unrelated cooking episode", null, dayMs("2026-02-01")),
         )
         val idx = RecentEpisodeMatcher.bestMatch(
             "Does Forward Guidance Help or Hurt the Economy?",

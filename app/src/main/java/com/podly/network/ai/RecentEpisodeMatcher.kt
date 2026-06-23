@@ -20,7 +20,7 @@ import kotlin.math.abs
  */
 object RecentEpisodeMatcher {
 
-    data class Candidate(val title: String, val pubDateMs: Long)
+    data class Candidate(val title: String, val description: String?, val pubDateMs: Long)
 
     /** Index of the best feed match for the pick, or null if nothing scores high enough. */
     fun bestMatch(title: String, publishedApprox: String?, candidates: List<Candidate>): Int? {
@@ -38,7 +38,19 @@ object RecentEpisodeMatcher {
             val candNorm = normalize(c.title)
             val substring = wantedNorm.isNotEmpty() &&
                 (candNorm.contains(wantedNorm) || wantedNorm.contains(candNorm))
-            val titleScore = maxOf(if (substring) SUBSTRING_SCORE else 0.0, overlap(wantedTokens, tokens(c.title)))
+            // The model sometimes names a segment described in the show notes rather
+            // than the episode itself, so also match against the description — at a
+            // discount, since notes are long and noisier than the title.
+            val descOverlap = if (!c.description.isNullOrBlank()) {
+                overlap(wantedTokens, tokens(c.description)) * DESC_WEIGHT
+            } else {
+                0.0
+            }
+            val titleScore = maxOf(
+                if (substring) SUBSTRING_SCORE else 0.0,
+                overlap(wantedTokens, tokens(c.title)),
+                descOverlap,
+            )
             val score = titleScore + (approx?.let { dateScore(it, c.pubDateMs) } ?: 0.0)
             if (score > bestScore) {
                 bestScore = score
@@ -50,6 +62,7 @@ object RecentEpisodeMatcher {
 
     private const val ACCEPT_THRESHOLD = 0.45
     private const val SUBSTRING_SCORE = 0.6
+    private const val DESC_WEIGHT = 0.6
 
     private data class Approx(val epochDay: Long, val hasDay: Boolean)
 
