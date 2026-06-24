@@ -6,8 +6,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,6 +29,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -84,6 +87,14 @@ data class ResolvedRecentEpisode(
     val podcast: PodcastEntity?,
 )
 
+/** Outcome of "Save as playlist": how many picks resolved, and which didn't. */
+data class RecentPlaylistResult(
+    val playlistId: Long,
+    val saved: Int,
+    val total: Int,
+    val missed: List<String>,
+)
+
 data class DiscoverUiState(
     val query: String = "",
     val searching: Boolean = false,
@@ -100,6 +111,7 @@ data class DiscoverUiState(
     val recentEpisodes: List<ResolvedRecentEpisode>? = null,
     val recentEpisodesLoading: Boolean = false,
     val savingPlaylist: Boolean = false,
+    val recentPlaylistResult: RecentPlaylistResult? = null,
     val error: String? = null,
     val opening: Boolean = false,
 )
@@ -243,6 +255,7 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
             it.copy(
                 recentEpisodeWindow = window,
                 recentEpisodes = if (sameWindow) it.recentEpisodes else null,
+                recentPlaylistResult = null,
                 error = null,
             )
         }
@@ -304,25 +317,26 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
      * playlist from the matches. Picks whose episode can't be found are skipped.
      * Hands the new playlist's id back via [onCreated].
      */
-    fun saveRecentEpisodesAsPlaylist(onCreated: (Long) -> Unit) {
+    fun saveRecentEpisodesAsPlaylist() {
         val picks = _state.value.recentEpisodes
         if (picks.isNullOrEmpty() || _state.value.savingPlaylist) return
         val window = _state.value.recentEpisodeWindow
         viewModelScope.launch {
-            _state.update { it.copy(savingPlaylist = true, error = null) }
+            _state.update { it.copy(savingPlaylist = true, error = null, recentPlaylistResult = null) }
             runCatching {
-                val episodeIds = coroutineScope {
-                    picks.map { async { resolveEpisodeId(it) } }.awaitAll()
-                }.filterNotNull().distinct()
-                require(episodeIds.isNotEmpty()) {
+                val resolved = coroutineScope {
+                    picks.map { pick -> async { pick to resolveEpisodeId(pick) } }.awaitAll()
+                }
+                val matched = resolved.mapNotNull { (_, id) -> id }.distinct()
+                val missed = resolved.filter { (_, id) -> id == null }.map { (p, _) -> p.pick.episodeTitle }
+                require(matched.isNotEmpty()) {
                     "Couldn't match any of these episodes to a podcast feed."
                 }
                 val playlistId = graph.playlists.create("Recent picks · ${window.label}")
-                episodeIds.forEach { graph.playlists.addEpisode(playlistId, it) }
-                playlistId
-            }.onSuccess { id ->
-                _state.update { it.copy(savingPlaylist = false) }
-                onCreated(id)
+                matched.forEach { graph.playlists.addEpisode(playlistId, it) }
+                RecentPlaylistResult(playlistId, matched.size, picks.size, missed)
+            }.onSuccess { result ->
+                _state.update { it.copy(savingPlaylist = false, recentPlaylistResult = result) }
             }.onFailure { e ->
                 _state.update { it.copy(savingPlaylist = false, error = describe(e)) }
             }
@@ -629,20 +643,42 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit, onOpenPlaylist: (Long) -> Un
                         }
                     }
                     item {
-                        Button(
-                            onClick = { viewModel.saveRecentEpisodesAsPlaylist(onOpenPlaylist) },
-                            enabled = !state.savingPlaylist,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        ) {
-                            if (state.savingPlaylist) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
+                        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                            Button(
+                                onClick = { viewModel.saveRecentEpisodesAsPlaylist() },
+                                enabled = !state.savingPlaylist,
+                            ) {
+                                if (state.savingPlaylist) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                    Text("  Saving playlist…")
+                                } else {
+                                    Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null)
+                                    Text("  Save as playlist")
+                                }
+                            }
+                            state.recentPlaylistResult?.let { result ->
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "Saved ${result.saved} of ${result.total} to " +
+                                        "\"Recent picks · ${state.recentEpisodeWindow.label}\".",
+                                    style = MaterialTheme.typography.bodyMedium,
                                 )
-                                Text("  Saving playlist…")
-                            } else {
-                                Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null)
-                                Text("  Save as playlist")
+                                if (result.missed.isNotEmpty()) {
+                                    Text(
+                                        "Couldn't find in feeds: ${result.missed.joinToString("; ")}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                TextButton(
+                                    onClick = { onOpenPlaylist(result.playlistId) },
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                                ) {
+                                    Text("Open playlist")
+                                }
                             }
                         }
                     }
