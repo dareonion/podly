@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "generatedAtMs": 1750924800000,
+  "coverageLabel": "the last 12 months",
+  "picks": [
+    {
+      "pick": {
+        "podcastTitle": "Serial",
+        "author": "Serial Productions",
+        "accolade": "2025 Peabody Award winner."
+      },
+      "podcastId": "def456def456def456def456def45678",
+      "podcastTitle": "Serial",
+      "podcastAuthor": "Serial Productions",
+      "feedUrl": "https://feeds.simplecast.com/serial",
+      "artworkUrl": "https://example.com/serial.jpg",
+      "podcastDescription": "True Crime"
+    }
+  ]
+}

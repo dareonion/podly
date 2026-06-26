@@ -1,0 +1,54 @@
+name: Generate recommendations
+
+# Generates the static recent-episode + acclaimed recommendation JSON with Claude
+# and publishes it to GitHub Pages. The app fetches these files instead of calling
+# Claude on-device. Runs daily; trigger manually for the first publish.
+on:
+  schedule:
+    - cron: "0 8 * * *" # daily at 08:00 UTC — adjust cadence here
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Don't run two publishes at once; let an in-flight deploy finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate recommendation JSON
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OUTPUT_DIR: site
+        # --configure-on-demand skips the Android :app module (no SDK needed here);
+        # -Dorg.gradle.java.home overrides the Mac path baked into gradle.properties.
+        run: ./gradlew :generator:run --configure-on-demand --no-daemon -Dorg.gradle.java.home="$JAVA_HOME"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "generatedAtMs": 1750924800000,
+  "window": "MONTH",
+  "coverageStart": "2026-05-26",
+  "coverageEnd": "2026-06-26",
+  "picks": [
+    {
+      "pick": {
+        "podcastTitle": "The Daily",
+        "episodeTitle": "A Big Story",
+        "author": "The New York Times",
+        "reason": "A sharp explainer of a developing news story.",
+        "publishedApprox": "2026-06-20"
+      },
+      "podcastId": "abc123abc123abc123abc123abc12345",
+      "podcastTitle": "The Daily",
+      "podcastAuthor": "The New York Times",
+      "feedUrl": "https://feeds.simplecast.com/thedaily",
+      "artworkUrl": "https://example.com/art600.jpg",
+      "podcastDescription": "News"
+    },
+    {
+      "pick": {
+        "podcastTitle": "Unresolved Show",
+        "episodeTitle": "Mystery Pick",
+        "reason": "Worth a listen, but no iTunes match was found."
+      }
+    }
+  ]
+}

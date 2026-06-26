@@ -1,5 +1,6 @@
 package com.podly.ui.discover
 
+import android.text.format.DateUtils
 import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -44,11 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import androidx.work.WorkInfo
 import coil.compose.AsyncImage
 import com.podly.AppGraph
-import com.podly.data.CachedAcclaimed
-import com.podly.data.CachedAcclaimedPick
 import com.podly.data.db.PodcastEntity
 import com.podly.data.db.stableId
 import com.podly.network.TrendingPeriod
@@ -59,7 +57,6 @@ import com.podly.network.ai.AiRecommendation
 import com.podly.network.ai.RecentEpisodeMatcher
 import com.podly.network.ai.RecentEpisodeWindow
 import com.podly.ui.appViewModel
-import com.podly.work.RecentEpisodesWorker
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -68,6 +65,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /** An AI pick, matched against the iTunes directory when a match was found. */
 data class ResolvedRecommendation(
@@ -110,6 +110,10 @@ data class DiscoverUiState(
     val recentEpisodeWindow: RecentEpisodeWindow = RecentEpisodeWindow.MONTH,
     val recentEpisodes: List<ResolvedRecentEpisode>? = null,
     val recentEpisodesLoading: Boolean = false,
+    val recentCoverageStart: String? = null,
+    val recentCoverageEnd: String? = null,
+    val recentGeneratedAtMs: Long = 0,
+    val acclaimedGeneratedAtMs: Long = 0,
     val savingPlaylist: Boolean = false,
     val recentPlaylistResult: RecentPlaylistResult? = null,
     val error: String? = null,
@@ -139,15 +143,17 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                 acclaimedFetchedAtMs = cached.fetchedAtMs
                 _state.update { s ->
                     if (s.acclaimed == null) {
-                        s.copy(acclaimed = cached.picks.map { ResolvedAcclaimed(it.pick, it.toPodcastOrNull()) })
+                        s.copy(
+                            acclaimed = cached.picks.map { ResolvedAcclaimed(it.pick, it.toPodcastOrNull()) },
+                            acclaimedGeneratedAtMs = cached.generatedAtMs,
+                        )
                     } else {
                         s
                     }
                 }
             }
         }
-        // Surface the default window's cached picks and any in-flight background fetch
-        // (which may have been started in a previous session) without kicking off a new one.
+        // Surface the default window's cached picks without kicking off a fetch.
         observeRecentEpisodes(RecentEpisodeWindow.MONTH)
         loadTrending(TrendingPeriod.NOW)
     }
@@ -211,43 +217,43 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
     }
 
     fun loadAcclaimed(force: Boolean = false) {
-        // Awards and best-of lists barely move week to week — serve the cached
-        // result unless it's stale or the user explicitly refreshes.
+        // Awards and best-of lists barely move — serve the cached result unless it's
+        // stale or the user explicitly refreshes, then re-fetch the static file.
         val cacheFresh = System.currentTimeMillis() - acclaimedFetchedAtMs < ACCLAIMED_MAX_AGE_MS
         if (!force && cacheFresh && _state.value.acclaimed != null) return
         viewModelScope.launch {
             _state.update { it.copy(acclaimedLoading = true, error = null) }
-            runCatching {
-                val picks = graph.aiRecommender.acclaimed()
-                coroutineScope {
-                    picks.map { pick ->
-                        async { ResolvedAcclaimed(pick, resolveAgainstDirectory(pick.podcastTitle)) }
-                    }.awaitAll()
-                }
-            }
-                .onSuccess { picks ->
+            runCatching { graph.remoteRecs.acclaimed() }
+                .onSuccess { payload ->
                     acclaimedFetchedAtMs = System.currentTimeMillis()
-                    graph.aiPicksCache.saveAcclaimed(
-                        CachedAcclaimed(
-                            picks = picks.map { CachedAcclaimedPick.of(it.pick, it.podcast) },
-                            fetchedAtMs = acclaimedFetchedAtMs,
+                    val stamped = payload.copy(fetchedAtMs = acclaimedFetchedAtMs)
+                    graph.aiPicksCache.saveAcclaimed(stamped)
+                    _state.update {
+                        it.copy(
+                            acclaimed = stamped.picks.map { p -> ResolvedAcclaimed(p.pick, p.toPodcastOrNull()) },
+                            acclaimedGeneratedAtMs = stamped.generatedAtMs,
+                            acclaimedLoading = false,
                         )
-                    )
-                    _state.update { it.copy(acclaimed = picks, acclaimedLoading = false) }
+                    }
                 }
                 .onFailure { e ->
-                    Log.e(TAG, "Acclaimed picks failed", e)
-                    _state.update { it.copy(error = describe(e), acclaimedLoading = false) }
+                    Log.e(TAG, "Acclaimed fetch failed", e)
+                    _state.update {
+                        // Keep showing the cached list (if any) rather than replacing it with an error.
+                        it.copy(
+                            error = if (it.acclaimed == null) describe(e) else it.error,
+                            acclaimedLoading = false,
+                        )
+                    }
                 }
         }
     }
 
     /**
-     * Selects [window], surfaces its cached picks + any in-flight fetch, and — when the
-     * cache is stale or [force] is set — kicks off a background [RecentEpisodesWorker].
-     * The slow web-search call runs in that worker, so it survives the screen sleeping or
-     * the app backgrounding and retries on a dropped connection instead of stranding a
-     * spinner; the user gets a notification when it lands.
+     * Selects [window], surfaces its cached picks, and — when the cache is stale or
+     * [force] is set — fetches the pre-generated static file for [window] (produced
+     * server-side by the recommendations GitHub Action) and caches it. The slow
+     * web-search work now happens off-device, so this is just a quick download.
      */
     fun loadRecentEpisodes(window: RecentEpisodeWindow = _state.value.recentEpisodeWindow, force: Boolean = false) {
         val sameWindow = _state.value.recentEpisodeWindow == window
@@ -255,6 +261,9 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
             it.copy(
                 recentEpisodeWindow = window,
                 recentEpisodes = if (sameWindow) it.recentEpisodes else null,
+                recentCoverageStart = if (sameWindow) it.recentCoverageStart else null,
+                recentCoverageEnd = if (sameWindow) it.recentCoverageEnd else null,
+                recentGeneratedAtMs = if (sameWindow) it.recentGeneratedAtMs else 0,
                 recentPlaylistResult = null,
                 error = null,
             )
@@ -264,48 +273,44 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
             val cached = graph.aiPicksCache.loadRecentEpisodes(window)
             val fresh = cached != null &&
                 System.currentTimeMillis() - cached.fetchedAtMs < RECENT_EPISODES_MAX_AGE_MS
-            if (force || !fresh) {
-                RecentEpisodesWorker.enqueue(graph.appContext, window, force)
-            }
-        }
-    }
-
-    /** Streams the cached picks and the worker's run state for [window] into UI state. */
-    private fun observeRecentEpisodes(window: RecentEpisodeWindow) {
-        recentEpisodesObserveJob?.cancel()
-        recentEpisodesObserveJob = viewModelScope.launch {
-            launch {
-                graph.aiPicksCache.recentEpisodesFlow(window).collect { cached ->
-                    if (_state.value.recentEpisodeWindow != window || cached == null) return@collect
+            if (!force && fresh) return@launch
+            _state.update { it.copy(recentEpisodesLoading = true) }
+            runCatching { graph.remoteRecs.recentEpisodes(window) }
+                .onSuccess { payload ->
+                    // Persist; observeRecentEpisodes's flow pushes picks + coverage into UI state.
+                    graph.aiPicksCache.saveRecentEpisodes(
+                        window, payload.copy(fetchedAtMs = System.currentTimeMillis()),
+                    )
+                    _state.update { it.copy(recentEpisodesLoading = false) }
+                }
+                .onFailure { e ->
+                    Log.e(TAG, "Recent episodes fetch failed", e)
                     _state.update {
+                        // Keep showing the cached list (if any) rather than replacing it with an error.
                         it.copy(
-                            recentEpisodes = cached.picks.map { p ->
-                                ResolvedRecentEpisode(p.pick, p.toPodcastOrNull())
-                            },
+                            recentEpisodesLoading = false,
+                            error = if (it.recentEpisodes == null) describe(e) else it.error,
                         )
                     }
                 }
-            }
-            launch {
-                RecentEpisodesWorker.workInfoFlow(graph.appContext, window).collect { infos ->
-                    if (_state.value.recentEpisodeWindow != window) return@collect
-                    val running = infos.any { !it.state.isFinished }
-                    val failedInfo = infos.firstOrNull { it.state == WorkInfo.State.FAILED }
-                        .takeIf { !running }
-                    _state.update { s ->
-                        s.copy(
-                            recentEpisodesLoading = running,
-                            error = if (failedInfo != null && s.recentEpisodes == null) {
-                                val reason = failedInfo.outputData
-                                    .getString(RecentEpisodesWorker.KEY_ERROR)
-                                    ?.takeIf { it.isNotBlank() }
-                                reason?.let { "Couldn't load recent episodes: $it" }
-                                    ?: "Couldn't load recent episodes. Tap Refresh to try again."
-                            } else {
-                                s.error
-                            },
-                        )
-                    }
+        }
+    }
+
+    /** Streams the cached picks + coverage metadata for [window] into UI state. */
+    private fun observeRecentEpisodes(window: RecentEpisodeWindow) {
+        recentEpisodesObserveJob?.cancel()
+        recentEpisodesObserveJob = viewModelScope.launch {
+            graph.aiPicksCache.recentEpisodesFlow(window).collect { cached ->
+                if (_state.value.recentEpisodeWindow != window || cached == null) return@collect
+                _state.update {
+                    it.copy(
+                        recentEpisodes = cached.picks.map { p ->
+                            ResolvedRecentEpisode(p.pick, p.toPodcastOrNull())
+                        },
+                        recentCoverageStart = cached.coverageStart,
+                        recentCoverageEnd = cached.coverageEnd,
+                        recentGeneratedAtMs = cached.generatedAtMs,
+                    )
                 }
             }
         }
@@ -621,25 +626,36 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit, onOpenPlaylist: (Long) -> Un
                 }
                 state.recentEpisodes?.let { picks ->
                     item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "Worthwhile episodes from the past ${state.recentEpisodeWindow.label.lowercase()}",
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                "Refresh",
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.clickable {
-                                    viewModel.loadRecentEpisodes(state.recentEpisodeWindow, force = true)
-                                },
-                            )
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "Worthwhile episodes from the past ${state.recentEpisodeWindow.label.lowercase()}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    "Refresh",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.clickable {
+                                        viewModel.loadRecentEpisodes(state.recentEpisodeWindow, force = true)
+                                    },
+                                )
+                            }
+                            recentCoverageCaption(
+                                state.recentCoverageStart,
+                                state.recentCoverageEnd,
+                                state.recentGeneratedAtMs,
+                            )?.let { caption ->
+                                Text(
+                                    caption,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                     item {
@@ -697,23 +713,30 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit, onOpenPlaylist: (Long) -> Un
                 }
                 state.acclaimed?.let { picks ->
                     item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "Award winners & critics' picks from the last year",
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                "Refresh",
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.clickable { viewModel.loadAcclaimed(force = true) },
-                            )
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "Award winners & critics' picks from the last year",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    "Refresh",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.clickable { viewModel.loadAcclaimed(force = true) },
+                                )
+                            }
+                            updatedText(state.acclaimedGeneratedAtMs)?.let { caption ->
+                                Text(
+                                    caption,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                     items(picks) { resolved ->
@@ -846,3 +869,30 @@ private fun PodcastListRow(
         }
     }
 }
+
+/** e.g. "Best of May 26 – Jun 26 · updated 2 days ago", or null when nothing to show. */
+private fun recentCoverageCaption(start: String?, end: String?, generatedAtMs: Long): String? =
+    listOfNotNull(spanText(start, end), updatedText(generatedAtMs))
+        .joinToString(" · ")
+        .ifBlank { null }
+
+/** Formats the ISO coverage span as "Best of May 26 – Jun 26", or null if unset/unparseable. */
+private fun spanText(start: String?, end: String?): String? {
+    if (start.isNullOrBlank() || end.isNullOrBlank()) return null
+    return runCatching {
+        val fmt = DateTimeFormatter.ofPattern("MMM d", Locale.US)
+        "Best of ${LocalDate.parse(start).format(fmt)} – ${LocalDate.parse(end).format(fmt)}"
+    }.getOrNull()
+}
+
+/** "updated 2 days ago" from the server-side generation time, or null if unknown. */
+private fun updatedText(generatedAtMs: Long): String? =
+    if (generatedAtMs <= 0L) {
+        null
+    } else {
+        "updated " + DateUtils.getRelativeTimeSpanString(
+            generatedAtMs,
+            System.currentTimeMillis(),
+            DateUtils.MINUTE_IN_MILLIS,
+        )
+    }

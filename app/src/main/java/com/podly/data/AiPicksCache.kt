@@ -56,7 +56,12 @@ data class CachedAcclaimedPick(
 @Serializable
 data class CachedAcclaimed(
     val picks: List<CachedAcclaimedPick>,
-    val fetchedAtMs: Long,
+    // When the app last fetched the file (for staleness); set after download.
+    val fetchedAtMs: Long = 0,
+    val version: Int = 1,
+    // When the GitHub Action generated the list, and the span it covers.
+    val generatedAtMs: Long = 0,
+    val coverageLabel: String? = null,
 )
 
 /** "Where to start" picks for one podcast; episodes are re-matched against the feed on load. */
@@ -106,7 +111,14 @@ data class CachedRecentEpisodePick(
 @Serializable
 data class CachedRecentEpisodes(
     val picks: List<CachedRecentEpisodePick>,
-    val fetchedAtMs: Long,
+    // When the app last fetched the file (for staleness); set after download.
+    val fetchedAtMs: Long = 0,
+    val version: Int = 1,
+    // When the GitHub Action generated the list, and the span it covers.
+    val generatedAtMs: Long = 0,
+    val window: String? = null,
+    val coverageStart: String? = null,
+    val coverageEnd: String? = null,
 )
 
 private val Context.aiPicksDataStore by preferencesDataStore(name = "ai_picks_cache")

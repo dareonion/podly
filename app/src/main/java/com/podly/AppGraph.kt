@@ -10,6 +10,7 @@ import com.podly.data.db.PodlyDatabase
 import com.podly.downloads.Downloader
 import com.podly.network.AppleChartsApi
 import com.podly.network.PodcastIndexApi
+import com.podly.network.RemoteRecsApi
 import com.podly.network.ai.AiRecommender
 import com.podly.playback.PlayerConnection
 
@@ -30,6 +31,8 @@ class AppGraph(private val context: Context) {
     val podcastIndex: PodcastIndexApi = PodcastIndexApi()
     val aiRecommender: AiRecommender =
         AiRecommender(settings, database.podcastDao(), database.episodeDao())
+    // Recent-episode + acclaimed lists are pre-generated server-side and fetched as static JSON.
+    val remoteRecs: RemoteRecsApi = RemoteRecsApi()
     val aiPicksCache: AiPicksCache = AiPicksCache(context)
 
     /** Lazy so the controller (and thus the service) only spins up when the UI needs it. */
