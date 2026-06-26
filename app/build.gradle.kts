@@ -32,7 +32,7 @@ plugins {
 
 android {
     namespace = "com.podly"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.podly"
