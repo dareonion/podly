@@ -23,7 +23,8 @@ val hasPodlyReleaseSigning = listOf(
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    // AGP 9+ has built-in Kotlin, so kotlin-android is no longer applied here.
+    // The Compose/serialization plugins inherit the Kotlin version from AGP.
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
@@ -64,9 +65,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+    // With AGP built-in Kotlin, Kotlin's jvmTarget is synced from compileOptions above.
     buildFeatures {
         compose = true
     }
