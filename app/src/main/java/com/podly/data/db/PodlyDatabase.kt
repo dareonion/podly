@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaylistEntity::class,
         PlaylistItemEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class PodlyDatabase : RoomDatabase() {
@@ -61,9 +61,20 @@ abstract class PodlyDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE podcasts ADD COLUMN etag TEXT")
+                db.execSQL("ALTER TABLE podcasts ADD COLUMN lastModified TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_podcasts_subscribed ON podcasts(subscribed)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_episodes_inLibrary ON episodes(inLibrary)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_episodes_downloadStatus ON episodes(downloadStatus)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_episodes_lastPlayedAt ON episodes(lastPlayedAt)")
+            }
+        }
+
         fun build(context: Context): PodlyDatabase =
             Room.databaseBuilder(context, PodlyDatabase::class.java, "podly.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
     }
 }

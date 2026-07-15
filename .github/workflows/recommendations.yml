@@ -35,9 +35,8 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OUTPUT_DIR: site
-        # --configure-on-demand skips the Android :app module (no SDK needed here);
-        # -Dorg.gradle.java.home overrides the Mac path baked into gradle.properties.
-        run: ./gradlew :generator:run --configure-on-demand --no-daemon -Dorg.gradle.java.home="$JAVA_HOME"
+        # --configure-on-demand skips the Android :app module (no SDK needed here).
+        run: ./gradlew :generator:run --configure-on-demand --no-daemon
 
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -33,4 +33,41 @@ object Http {
                 response.body?.string() ?: throw IOException("Empty body for $url")
             }
         }
+
+    /** Result of a conditional GET: [body] is null iff the server said 304. */
+    data class ConditionalResult(
+        val notModified: Boolean,
+        val body: String?,
+        val etag: String?,
+        val lastModified: String?,
+    )
+
+    /** GET with If-None-Match / If-Modified-Since so unchanged feeds cost one 304. */
+    suspend fun getConditional(
+        url: String,
+        etag: String? = null,
+        lastModified: String? = null,
+    ): ConditionalResult = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url(url).apply {
+            header("User-Agent", "Podly/1.0")
+            etag?.let { header("If-None-Match", it) }
+            lastModified?.let { header("If-Modified-Since", it) }
+        }.build()
+        client.newCall(request).execute().use { response ->
+            when {
+                response.code == 304 -> ConditionalResult(true, null, etag, lastModified)
+                !response.isSuccessful -> throw IOException("HTTP ${response.code} for $url")
+                else -> {
+                    val body = response.body?.string()
+                        ?.takeIf { it.isNotBlank() } ?: throw IOException("Empty body for $url")
+                    ConditionalResult(
+                        notModified = false,
+                        body = body,
+                        etag = response.header("ETag"),
+                        lastModified = response.header("Last-Modified"),
+                    )
+                }
+            }
+        }
+    }
 }

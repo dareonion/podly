@@ -56,8 +56,9 @@ class PodcastRepository(
     }
 
     suspend fun refreshEpisodes(podcast: PodcastEntity) {
-        val xml = Http.get(podcast.feedUrl)
-        val feed = rssParser.parse(StringReader(xml))
+        val response = Http.getConditional(podcast.feedUrl, podcast.etag, podcast.lastModified)
+        if (response.notModified) return
+        val feed = rssParser.parse(StringReader(response.body!!))
         podcastDao.updateMetadata(
             id = podcast.id,
             title = feed.title ?: podcast.title,
@@ -66,6 +67,8 @@ class PodcastRepository(
             description = feed.description ?: podcast.description,
         )
         episodeDao.upsertFromFeed(feed.toEpisodeEntities(podcast))
+        // Stored last: a failed parse/insert must refetch next time, not 304-skip.
+        podcastDao.updateCacheValidators(podcast.id, response.etag, response.lastModified)
     }
 
     suspend fun refreshAllSubscribed(): RefreshSummary {

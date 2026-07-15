@@ -22,5 +22,4 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Build and run unit tests
-        # -Dorg.gradle.java.home overrides the Mac path baked into gradle.properties.
-        run: ./gradlew assembleDebug testDebugUnitTest :generator:test --no-daemon -Dorg.gradle.java.home="$JAVA_HOME"
+        run: ./gradlew assembleDebug testDebugUnitTest :generator:test --no-daemon

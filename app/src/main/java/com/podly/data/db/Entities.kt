@@ -18,7 +18,10 @@ fun stableId(raw: String): String =
         .joinToString("") { "%02x".format(it) }
         .take(32)
 
-@Entity(tableName = "podcasts")
+@Entity(
+    tableName = "podcasts",
+    indices = [Index("subscribed")],
+)
 data class PodcastEntity(
     @PrimaryKey val id: String,
     val title: String,
@@ -29,11 +32,20 @@ data class PodcastEntity(
     val subscribed: Boolean = false,
     val addedAt: Long = System.currentTimeMillis(),
     val episodeSortOrder: PodcastEpisodeSortOrder = PodcastEpisodeSortOrder.NEWEST_FIRST,
+    /** HTTP cache validators from the last feed fetch; enable 304 short-circuits. */
+    val etag: String? = null,
+    val lastModified: String? = null,
 )
 
 @Entity(
     tableName = "episodes",
-    indices = [Index("podcastId"), Index("pubDateMs")],
+    indices = [
+        Index("podcastId"),
+        Index("pubDateMs"),
+        Index("inLibrary"),
+        Index("downloadStatus"),
+        Index("lastPlayedAt"),
+    ],
 )
 data class EpisodeEntity(
     @PrimaryKey val id: String,

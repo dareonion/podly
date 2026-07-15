@@ -357,18 +357,22 @@ class PlaybackService : MediaLibraryService() {
                     graph.database.episodeDao().continueListeningOnce(MAX_BROWSE_CHILDREN)
                         .map(MediaItemFactory::browsableEpisode)
                 parentId == MediaIds.NODE_PLAYLISTS ->
-                    graph.database.playlistDao().playlistsOnce().map { playlist ->
-                        MediaItemFactory.folder(MediaIds.playlist(playlist.id), playlist.name)
-                    }
+                    graph.database.playlistDao().playlistsOnce()
+                        .take(MAX_BROWSE_CHILDREN)
+                        .map { playlist ->
+                            MediaItemFactory.folder(MediaIds.playlist(playlist.id), playlist.name)
+                        }
                 parentId == MediaIds.NODE_LIBRARY ->
                     graph.database.episodeDao().libraryEpisodesOnce()
                         .take(MAX_BROWSE_CHILDREN)
                         .map(MediaItemFactory::browsableEpisode)
                 parentId == MediaIds.NODE_DOWNLOADS ->
                     graph.database.episodeDao().downloadedEpisodesOnce()
+                        .take(MAX_BROWSE_CHILDREN)
                         .map(MediaItemFactory::browsableEpisode)
                 else -> MediaIds.playlistIdOrNull(parentId)?.let { playlistId ->
                     graph.playlists.sortedEpisodesOnce(playlistId)
+                        .take(MAX_BROWSE_CHILDREN)
                         .map(MediaItemFactory::browsableEpisode)
                 } ?: emptyList()
             }

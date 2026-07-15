@@ -45,6 +45,9 @@ interface PodcastDao {
     @Query("UPDATE podcasts SET subscribed = :subscribed WHERE id = :id")
     suspend fun setSubscribed(id: String, subscribed: Boolean)
 
+    @Query("UPDATE podcasts SET etag = :etag, lastModified = :lastModified WHERE id = :id")
+    suspend fun updateCacheValidators(id: String, etag: String?, lastModified: String?)
+
     @Query("UPDATE podcasts SET episodeSortOrder = :sortOrder WHERE id = :id")
     suspend fun setEpisodeSortOrder(id: String, sortOrder: PodcastEpisodeSortOrder)
 
