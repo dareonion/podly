@@ -1,5 +1,5 @@
 {
- "name": "ChatGPT picks · 2026-07-15 v2",
+ "name": "ChatGPT picks · 2026-07-15 v3",
  "version": 1,
  "generatedAtMs": 1784154523011,
  "picks": [
@@ -179,10 +179,10 @@
     "reason": "Pelley's firsthand account gives rare detail about editorial conflict and management decisions inside a major television news institution.",
     "publishedApprox": "2026-06-07"
    },
-   "podcastId": "06439379b6fe1eb4b9fb2ee851fb6ca8",
+   "podcastId": "78d815ce003ccf8ed645a040caedf759",
    "podcastTitle": "The Interview (archive)",
    "podcastAuthor": "The New York Times",
-   "feedUrl": "https://raw.githubusercontent.com/dareonion/podly/main/picks/feeds/the-interview-archive.xml",
+   "feedUrl": "https://web.archive.org/web/20260621065103id_/https://feeds.simplecast.com/HpGMoS4g",
    "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/5b/83/08/5b830874-2a38-e2bf-eafb-61c7efe6dee4/mza_1847005937748297273.jpg/600x600bb.jpg"
   },
   {
@@ -263,10 +263,10 @@
     "reason": "The variety and production polish make it one of the stronger Moth packages in this set.",
     "publishedApprox": "2026-07-14"
    },
-   "podcastId": "9ccef0b18b556955b2ca237dc10db7fd",
+   "podcastId": "d49bfeaed0472a1c9ec9ab5f45481026",
    "podcastTitle": "The Moth",
    "podcastAuthor": "The Moth",
-   "feedUrl": "http://feeds.feedburner.com/themothpodcast",
+   "feedUrl": "https://feeds.feedburner.com/themothpodcast",
    "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/16/39/63/1639632d-7ad2-d87b-d4f7-d0ec95eff386/mza_8915289722686017414.jpg/600x600bb.jpg"
   },
   {
@@ -445,10 +445,10 @@
     "reason": "Rogen's discussion connects Hollywood power and wealth with the practical choices that sustain a long marriage and creative partnership.",
     "publishedApprox": "2026-06-13"
    },
-   "podcastId": "06439379b6fe1eb4b9fb2ee851fb6ca8",
+   "podcastId": "78d815ce003ccf8ed645a040caedf759",
    "podcastTitle": "The Interview (archive)",
    "podcastAuthor": "The New York Times",
-   "feedUrl": "https://raw.githubusercontent.com/dareonion/podly/main/picks/feeds/the-interview-archive.xml",
+   "feedUrl": "https://web.archive.org/web/20260621065103id_/https://feeds.simplecast.com/HpGMoS4g",
    "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/5b/83/08/5b830874-2a38-e2bf-eafb-61c7efe6dee4/mza_1847005937748297273.jpg/600x600bb.jpg"
   },
   {
@@ -473,10 +473,10 @@
     "reason": "The stories compare different kinds of risk and show how consequences are understood differently before and after a decisive choice.",
     "publishedApprox": "2026-07-07"
    },
-   "podcastId": "9ccef0b18b556955b2ca237dc10db7fd",
+   "podcastId": "d49bfeaed0472a1c9ec9ab5f45481026",
    "podcastTitle": "The Moth",
    "podcastAuthor": "The Moth",
-   "feedUrl": "http://feeds.feedburner.com/themothpodcast",
+   "feedUrl": "https://feeds.feedburner.com/themothpodcast",
    "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/16/39/63/1639632d-7ad2-d87b-d4f7-d0ec95eff386/mza_8915289722686017414.jpg/600x600bb.jpg"
   },
   {
@@ -683,10 +683,10 @@
     "reason": "The paired segments examine two distinct cultural effects of AI: simulated companionship and the erosion of discernment in algorithmic media.",
     "publishedApprox": "2026-06-26"
    },
-   "podcastId": "76c7a976f34c368c05ad55e71e2c8059",
+   "podcastId": "35b17467bda061d10e41a7cf4bc246a7",
    "podcastTitle": "Hard Fork (archive)",
    "podcastAuthor": "The New York Times",
-   "feedUrl": "https://raw.githubusercontent.com/dareonion/podly/main/picks/feeds/hard-fork-archive.xml",
+   "feedUrl": "https://web.archive.org/web/20260705081513id_/https://feeds.simplecast.com/6HKOhNgS",
    "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/de/c5/20/dec52092-6be0-9007-875c-6aa8e690a905/mza_12490014444602578825.jpg/600x600bb.jpg"
   },
   {
@@ -893,10 +893,10 @@
     "reason": "The paired stories show how people reinterpret their identities and choices after an unexpected disruption.",
     "publishedApprox": "2026-07-03"
    },
-   "podcastId": "9ccef0b18b556955b2ca237dc10db7fd",
+   "podcastId": "d49bfeaed0472a1c9ec9ab5f45481026",
    "podcastTitle": "The Moth",
    "podcastAuthor": "The Moth",
-   "feedUrl": "http://feeds.feedburner.com/themothpodcast",
+   "feedUrl": "https://feeds.feedburner.com/themothpodcast",
    "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/16/39/63/1639632d-7ad2-d87b-d4f7-d0ec95eff386/mza_8915289722686017414.jpg/600x600bb.jpg"
   },
   {

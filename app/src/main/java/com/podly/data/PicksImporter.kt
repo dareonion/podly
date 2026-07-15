@@ -76,8 +76,9 @@ class PicksImporter(
         val podcast = first.toPodcastOrNull()
             ?: podcasts.resolveByTitle(first.pick.podcastTitle)
             ?: return group.map { it.index to null }
-        val loaded = runCatching { podcasts.openPodcast(podcast) }.getOrNull()
-            ?: return group.map { it.index to null }
+        // A failed refresh (offline, blocked or vanished feed) shouldn't sink the
+        // group when earlier pulls already cached the episodes.
+        val loaded = runCatching { podcasts.openPodcast(podcast) }.getOrNull() ?: podcast
         val episodes = podcasts.episodesForPodcastOnce(loaded.id)
         val candidates = episodes.map {
             RecentEpisodeMatcher.Candidate(it.title, it.description, it.pubDateMs)
