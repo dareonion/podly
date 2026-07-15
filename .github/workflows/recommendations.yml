@@ -34,7 +34,9 @@ jobs:
       - name: Generate recommendation JSON
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OUTPUT_DIR: site
+          # Absolute path: the Gradle run task's working dir is generator/, not the
+          # repo root, so a relative OUTPUT_DIR would miss the upload step's `site`.
+          OUTPUT_DIR: ${{ github.workspace }}/site
         # --configure-on-demand skips the Android :app module (no SDK needed here).
         run: ./gradlew :generator:run --configure-on-demand --no-daemon
 
