@@ -21,7 +21,7 @@ Gradle needs JDK 21. Machine-specific JDK paths live in `~/.gradle/gradle.proper
 adb install -r app/build/outputs/apk/debug/app-debug.apk        # install to device
 ```
 
-CI: `.github/workflows/android.yml` runs the build plus all unit tests on every push/PR to main. `recommendations.yml` regenerates the AI picks JSON weekly (Mondays 08:00 UTC) and deploys it to GitHub Pages.
+CI: `.github/workflows/android.yml` runs the build plus all unit tests on every push/PR to main; pushes to main also publish the debug APK to the rolling `latest` GitHub release (stable URL: `releases/latest/download/podly-debug.apk`). `recommendations.yml` regenerates the AI picks JSON weekly (Mondays 08:00 UTC) and deploys it to GitHub Pages.
 
 ## Architecture
 

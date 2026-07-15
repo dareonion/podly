@@ -1,12 +1,17 @@
 name: Build and test
 
 # Builds the app and runs all JVM unit tests (app + generator) so regressions
-# surface on push instead of at the next local build.
+# surface on push instead of at the next local build. Pushes to main also
+# publish the debug APK to the rolling "latest" release, so the newest build
+# is always at .../releases/latest/download/podly-debug.apk.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -23,3 +28,20 @@ jobs:
 
       - name: Build and run unit tests
         run: ./gradlew assembleDebug testDebugUnitTest :generator:test --no-daemon
+
+      - name: Publish APK to rolling "latest" release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk podly-debug.apk
+          # Keep the "latest" tag on the commit the APK was built from.
+          git tag -f latest
+          git push --force origin refs/tags/latest
+          if ! gh release view latest >/dev/null 2>&1; then
+            gh release create latest --title "Latest build" --verify-tag \
+              --notes "Debug APK from the newest push to main."
+          fi
+          gh release edit latest \
+            --notes "Debug APK built from $(git rev-parse --short HEAD), $(date -u +'%Y-%m-%d %H:%M UTC')."
+          gh release upload latest podly-debug.apk --clobber

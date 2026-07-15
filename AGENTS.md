@@ -16,7 +16,7 @@ Gradle needs JDK 21. Put machine-specific JDK paths in `~/.gradle/gradle.propert
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-`assembleDebug` builds the debug APK. `testDebugUnitTest` runs the app's JVM unit tests and `:generator:test` the generator's. The `--tests` form runs one test class. The `adb install` command sideloads the built APK to a connected device or emulator. CI (`.github/workflows/android.yml`) runs the build and all unit tests on every push and pull request to `main`.
+`assembleDebug` builds the debug APK. `testDebugUnitTest` runs the app's JVM unit tests and `:generator:test` the generator's. The `--tests` form runs one test class. The `adb install` command sideloads the built APK to a connected device or emulator. CI (`.github/workflows/android.yml`) runs the build and all unit tests on every push and pull request to `main`; pushes to `main` also publish the debug APK to the rolling `latest` GitHub release (`releases/latest/download/podly-debug.apk`).
 
 ## Coding Style & Naming Conventions
 
