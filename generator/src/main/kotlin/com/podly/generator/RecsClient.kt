@@ -1,11 +1,35 @@
 package com.podly.generator
 
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
+import com.anthropic.errors.AnthropicIoException
+import com.anthropic.errors.SseException
 import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.ThinkingConfigAdaptive
 import com.anthropic.models.messages.WebSearchTool20260209
 import java.io.IOException
 import java.time.LocalDate
+
+/**
+ * Retries [block] on transient stream/IO errors (the same set the app's
+ * AiRecommender retries); anything else — 4xx, parse failures — propagates
+ * immediately so a bad request isn't paid for three times.
+ */
+internal fun <T> retryTransient(sleep: (Long) -> Unit = Thread::sleep, block: () -> T): T {
+    var lastError: Throwable? = null
+    repeat(3) { attempt ->
+        if (attempt > 0) sleep(2_000L * attempt)
+        try {
+            return block()
+        } catch (e: AnthropicIoException) {
+            lastError = e
+        } catch (e: SseException) {
+            lastError = e
+        } catch (e: IOException) {
+            lastError = e
+        }
+    }
+    throw lastError!!
+}
 
 /** The recent-episode windows, mirroring the app's `RecentEpisodeWindow`. */
 enum class RecentWindow(
@@ -57,16 +81,20 @@ class RecsClient(apiKey: String) {
             builder.addTool(WebSearchTool20260209.builder().maxUses(WEB_SEARCH_MAX_USES).build())
         }
         val params = builder.build()
-        // Stream so bytes keep flowing through the long web-search turn.
-        val text = StringBuilder()
-        client.messages().createStreaming(params).use { stream ->
-            stream.stream().forEach { event ->
-                event.contentBlockDelta().ifPresent { deltaEvent ->
-                    deltaEvent.delta().text().ifPresent { text.append(it.text()) }
+        // Stream so bytes keep flowing through the long web-search turn. Streams
+        // still drop mid-turn occasionally ("Stream failed"); restart the request
+        // rather than letting Main fall back to an empty payload.
+        return retryTransient {
+            val text = StringBuilder()
+            client.messages().createStreaming(params).use { stream ->
+                stream.stream().forEach { event ->
+                    event.contentBlockDelta().ifPresent { deltaEvent ->
+                        deltaEvent.delta().text().ifPresent { text.append(it.text()) }
+                    }
                 }
             }
+            text.toString()
         }
-        return text.toString()
     }
 
     private fun recentPrompt(window: RecentWindow): String = buildString {
