@@ -2,10 +2,10 @@ name: Generate recommendations
 
 # Generates the static recent-episode + acclaimed recommendation JSON with Claude
 # and publishes it to GitHub Pages. The app fetches these files instead of calling
-# Claude on-device. Runs daily; trigger manually for the first publish.
+# Claude on-device. Runs weekly; trigger manually for the first publish.
 on:
   schedule:
-    - cron: "0 8 * * *" # daily at 08:00 UTC — adjust cadence here
+    - cron: "0 8 * * 1" # Mondays at 08:00 UTC — adjust cadence here
   workflow_dispatch:
 
 permissions:
