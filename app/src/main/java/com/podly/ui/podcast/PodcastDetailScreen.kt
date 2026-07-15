@@ -49,6 +49,7 @@ import com.podly.ui.appViewModel
 import com.podly.ui.components.AddToPlaylistDialog
 import com.podly.ui.components.DescriptionDialog
 import com.podly.ui.components.EpisodeRow
+import com.podly.ui.util.generatedText
 import com.podly.ui.util.plainDescription
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -67,6 +68,7 @@ data class StartersState(
     val picks: List<ResolvedStarter>? = null,
     val loading: Boolean = false,
     val error: String? = null,
+    val generatedAtMs: Long = 0,
 )
 
 class PodcastDetailViewModel(
@@ -84,15 +86,19 @@ class PodcastDetailViewModel(
     private val startersRaw = MutableStateFlow<List<AiEpisodePick>?>(null)
     private val startersLoading = MutableStateFlow(false)
     private val startersError = MutableStateFlow<String?>(null)
+    private val startersGeneratedAt = MutableStateFlow(0L)
     private var startersFetchedAtMs = 0L
 
     // Re-match picks whenever the episode list changes (it loads after the cache).
     val starters: StateFlow<StartersState> =
-        combine(startersRaw, episodes, startersLoading, startersError) { raw, eps, loading, error ->
+        combine(
+            startersRaw, episodes, startersLoading, startersError, startersGeneratedAt,
+        ) { raw, eps, loading, error, generatedAt ->
             StartersState(
                 picks = raw?.map { pick -> ResolvedStarter(pick, matchEpisode(pick.episodeTitle, eps)) },
                 loading = loading,
                 error = error,
+                generatedAtMs = generatedAt,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StartersState())
 
@@ -100,7 +106,10 @@ class PodcastDetailViewModel(
         viewModelScope.launch {
             graph.aiPicksCache.loadStarters(podcastId)?.let { cached ->
                 startersFetchedAtMs = cached.fetchedAtMs
-                if (startersRaw.value == null) startersRaw.value = cached.picks
+                if (startersRaw.value == null) {
+                    startersRaw.value = cached.picks
+                    startersGeneratedAt.value = cached.fetchedAtMs
+                }
             }
         }
     }
@@ -154,6 +163,7 @@ class PodcastDetailViewModel(
                         CachedEpisodePicks(picks, startersFetchedAtMs),
                     )
                     startersRaw.value = picks
+                    startersGeneratedAt.value = startersFetchedAtMs
                     startersLoading.value = false
                 }
                 .onFailure { e ->
@@ -294,23 +304,34 @@ fun PodcastDetailScreen(podcastId: String, onOpenEpisode: (String) -> Unit) {
             }
             startersState.picks?.let { picks ->
                 item {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            "Where to start",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            "Refresh",
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable { viewModel.loadStarters(force = true) },
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Where to start",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                "Refresh",
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.clickable { viewModel.loadStarters(force = true) },
+                            )
+                        }
+                        generatedText(startersState.generatedAtMs)?.let { caption ->
+                            Text(
+                                caption,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
                 itemsIndexed(picks, key = { index, _ -> "starter_$index" }) { _, resolved ->

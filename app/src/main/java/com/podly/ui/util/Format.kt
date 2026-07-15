@@ -1,5 +1,6 @@
 package com.podly.ui.util
 
+import android.text.format.DateUtils
 import androidx.core.text.HtmlCompat
 import java.text.DateFormat
 import java.util.Date
@@ -20,6 +21,17 @@ fun formatDate(epochMs: Long): String? {
 fun formatDateTime(epochMs: Long): String? {
     if (epochMs <= 0) return null
     return DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(epochMs))
+}
+
+/** "generated Jul 13, 2026 (2 days ago)", or null if the time is unknown. */
+fun generatedText(generatedAtMs: Long): String? {
+    if (generatedAtMs <= 0L) return null
+    val relative = DateUtils.getRelativeTimeSpanString(
+        generatedAtMs,
+        System.currentTimeMillis(),
+        DateUtils.MINUTE_IN_MILLIS,
+    )
+    return "generated ${formatDate(generatedAtMs)} ($relative)"
 }
 
 fun formatPosition(positionMs: Long): String {

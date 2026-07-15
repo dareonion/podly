@@ -1,6 +1,5 @@
 package com.podly.ui.discover
 
-import android.text.format.DateUtils
 import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -57,6 +56,8 @@ import com.podly.network.ai.AiRecommendation
 import com.podly.network.ai.RecentEpisodeMatcher
 import com.podly.network.ai.RecentEpisodeWindow
 import com.podly.ui.appViewModel
+import com.podly.ui.util.formatDate
+import com.podly.ui.util.generatedText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -90,6 +91,7 @@ data class ResolvedRecentEpisode(
 /** Outcome of "Save as playlist": how many picks resolved, and which didn't. */
 data class RecentPlaylistResult(
     val playlistId: Long,
+    val name: String,
     val saved: Int,
     val total: Int,
     val missed: List<String>,
@@ -105,6 +107,7 @@ data class DiscoverUiState(
     val hasPodcastIndexCreds: Boolean = false,
     val recommendations: List<ResolvedRecommendation>? = null,
     val recsLoading: Boolean = false,
+    val recsGeneratedAtMs: Long = 0,
     val acclaimed: List<ResolvedAcclaimed>? = null,
     val acclaimedLoading: Boolean = false,
     val recentEpisodeWindow: RecentEpisodeWindow = RecentEpisodeWindow.MONTH,
@@ -208,7 +211,15 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                     }.awaitAll()
                 }
             }
-                .onSuccess { recs -> _state.update { it.copy(recommendations = recs, recsLoading = false) } }
+                .onSuccess { recs ->
+                    _state.update {
+                        it.copy(
+                            recommendations = recs,
+                            recsLoading = false,
+                            recsGeneratedAtMs = System.currentTimeMillis(),
+                        )
+                    }
+                }
                 .onFailure { e ->
                     Log.e(TAG, "AI picks failed", e)
                     _state.update { it.copy(error = describe(e), recsLoading = false) }
@@ -337,9 +348,14 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                 require(matched.isNotEmpty()) {
                     "Couldn't match any of these episodes to a podcast feed."
                 }
-                val playlistId = graph.playlists.create("Recent picks · ${window.label}")
+                // Stamp with the picks' generation date so repeat saves stay distinguishable.
+                val generatedAtMs = _state.value.recentGeneratedAtMs.takeIf { it > 0 }
+                    ?: System.currentTimeMillis()
+                val name = listOfNotNull("Recent picks", window.label, formatDate(generatedAtMs))
+                    .joinToString(" · ")
+                val playlistId = graph.playlists.create(name)
                 matched.forEach { graph.playlists.addEpisode(playlistId, it) }
-                RecentPlaylistResult(playlistId, matched.size, picks.size, missed)
+                RecentPlaylistResult(playlistId, name, matched.size, picks.size, missed)
             }.onSuccess { result ->
                 _state.update { it.copy(savingPlaylist = false, recentPlaylistResult = result) }
             }.onFailure { e ->
@@ -687,8 +703,7 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit, onOpenPlaylist: (Long) -> Un
                             state.recentPlaylistResult?.let { result ->
                                 Spacer(Modifier.height(8.dp))
                                 Text(
-                                    "Saved ${result.saved} of ${result.total} to " +
-                                        "\"Recent picks · ${state.recentEpisodeWindow.label}\".",
+                                    "Saved ${result.saved} of ${result.total} to \"${result.name}\".",
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
                                 if (result.missed.isNotEmpty()) {
@@ -739,7 +754,7 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit, onOpenPlaylist: (Long) -> Un
                                     modifier = Modifier.clickable { viewModel.loadAcclaimed(force = true) },
                                 )
                             }
-                            updatedText(state.acclaimedGeneratedAtMs)?.let { caption ->
+                            generatedText(state.acclaimedGeneratedAtMs)?.let { caption ->
                                 Text(
                                     caption,
                                     style = MaterialTheme.typography.bodySmall,
@@ -767,11 +782,19 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit, onOpenPlaylist: (Long) -> Un
                 }
                 state.recommendations?.let { recs ->
                     item {
-                        Text(
-                            "AI picks for you",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text(
+                                "AI picks for you",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            generatedText(state.recsGeneratedAtMs)?.let { caption ->
+                                Text(
+                                    caption,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                     items(recs) { resolved ->
                         val rec = resolved.rec
@@ -881,7 +904,7 @@ private fun PodcastListRow(
 
 /** e.g. "Best of May 26 – Jun 26 · updated 2 days ago", or null when nothing to show. */
 private fun recentCoverageCaption(start: String?, end: String?, generatedAtMs: Long): String? =
-    listOfNotNull(spanText(start, end), updatedText(generatedAtMs))
+    listOfNotNull(spanText(start, end), generatedText(generatedAtMs))
         .joinToString(" · ")
         .ifBlank { null }
 
@@ -894,14 +917,3 @@ private fun spanText(start: String?, end: String?): String? {
     }.getOrNull()
 }
 
-/** "updated 2 days ago" from the server-side generation time, or null if unknown. */
-private fun updatedText(generatedAtMs: Long): String? =
-    if (generatedAtMs <= 0L) {
-        null
-    } else {
-        "updated " + DateUtils.getRelativeTimeSpanString(
-            generatedAtMs,
-            System.currentTimeMillis(),
-            DateUtils.MINUTE_IN_MILLIS,
-        )
-    }
