@@ -372,10 +372,19 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
         return idx?.let { episodes[it].id }
     }
 
+    /**
+     * Matches an AI-suggested podcast title against the iTunes directory. Requires
+     * an exact or containment match — an unrelated first search hit used to get
+     * silently attached to the pick, linking it to the wrong show.
+     */
     private suspend fun resolveAgainstDirectory(title: String): PodcastEntity? =
         runCatching { graph.podcasts.search(title) }.getOrNull()?.let { results ->
-            results.firstOrNull { it.title.equals(title, ignoreCase = true) }
-                ?: results.firstOrNull()
+            val wanted = title.trim().lowercase()
+            results.firstOrNull { it.title.trim().lowercase() == wanted }
+                ?: results.firstOrNull {
+                    val have = it.title.trim().lowercase()
+                    have.contains(wanted) || wanted.contains(have)
+                }
         }
 
     /** Inserts the podcast locally, pulls its feed, then hands back the id for navigation. */

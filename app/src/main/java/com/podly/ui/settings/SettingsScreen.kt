@@ -293,7 +293,7 @@ fun SettingsScreen() {
 
         Text("Seek buttons", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Car and headset previous/next buttons jump by these amounts. Changes apply after playback restarts.",
+            "Car and headset previous/next buttons jump by these amounts.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

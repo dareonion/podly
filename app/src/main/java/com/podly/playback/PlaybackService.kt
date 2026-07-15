@@ -33,7 +33,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 
 /**
  * Media3 library service used both by the in-app player UI and Android Auto.
@@ -54,7 +53,6 @@ class PlaybackService : MediaLibraryService() {
     override fun onCreate() {
         super.onCreate()
         val graph = appGraph
-        val settings = runBlocking { graph.settings.current() }
 
         val httpDataSourceFactory = OkHttpDataSource.Factory(Http.client)
         // Streamed audio goes through the LRU cache; file:// URIs (downloads) bypass it
@@ -75,11 +73,16 @@ class PlaybackService : MediaLibraryService() {
                 /* handleAudioFocus = */ true,
             )
             .setHandleAudioBecomingNoisy(true)
-            .setSeekBackIncrementMs(settings.seekBackSeconds * 1000L)
-            .setSeekForwardIncrementMs(settings.seekForwardSeconds * 1000L)
             .build()
 
         val player = NudgingPlayer(exoPlayer)
+        // Nudge increments track Settings live (no runBlocking, no service restart).
+        scope.launch {
+            graph.settings.settings.collect { settings ->
+                player.seekBackMs = settings.seekBackSeconds * 1000L
+                player.seekForwardMs = settings.seekForwardSeconds * 1000L
+            }
+        }
         session = MediaLibrarySession.Builder(this, player, LibraryCallback())
             .setSessionActivity(mainActivityIntent())
             .build()
@@ -98,7 +101,13 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
-        runBlocking { flushListeningSegment() }
+        // Capture the in-flight segment synchronously; the insert outlives this
+        // service on the app-wide scope instead of blocking the main thread.
+        takePendingSegment()?.let { segment ->
+            appGraph.applicationScope.launch {
+                appGraph.database.episodeDao().insertListeningSegment(segment)
+            }
+        }
         scope.cancel()
         session?.run {
             player.release()
@@ -121,11 +130,27 @@ class PlaybackService : MediaLibraryService() {
     /**
      * Remaps next/previous (car & headset buttons) to in-episode nudges.
      * seekToNext/PreviousMediaItem stay untouched so the in-app UI can still
-     * move through the queue.
+     * move through the queue. Increments are mutable so Settings changes apply
+     * to the running player.
      */
     private class NudgingPlayer(player: Player) : ForwardingPlayer(player) {
+        @Volatile var seekBackMs: Long = 10_000
+        @Volatile var seekForwardMs: Long = 30_000
+
         override fun seekToNext() = seekForward()
         override fun seekToPrevious() = seekBack()
+
+        override fun seekBack() = seekTo((currentPosition - seekBackMs).coerceAtLeast(0))
+
+        override fun seekForward() {
+            val target = currentPosition + seekForwardMs
+            val duration = duration
+            seekTo(if (duration == C.TIME_UNSET) target else target.coerceAtMost(duration))
+        }
+
+        override fun getSeekBackIncrement(): Long = seekBackMs
+
+        override fun getSeekForwardIncrement(): Long = seekForwardMs
 
         override fun getAvailableCommands(): Player.Commands =
             super.getAvailableCommands().buildUpon()
@@ -239,19 +264,22 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private suspend fun flushListeningSegment() {
-        val active = activeListenSegment ?: return
+    /** Detaches the active segment, or null if there's nothing worth persisting. */
+    private fun takePendingSegment(): ListeningSegmentEntity? {
+        val active = activeListenSegment ?: return null
         activeListenSegment = null
-        if (active.endPositionMs - active.startPositionMs < MIN_LISTEN_SEGMENT_MS) return
-        appGraph.database.episodeDao().insertListeningSegment(
-            ListeningSegmentEntity(
-                episodeId = active.episodeId,
-                startPositionMs = active.startPositionMs,
-                endPositionMs = active.endPositionMs,
-                startedAt = active.startedAt,
-                endedAt = active.endedAt,
-            )
+        if (active.endPositionMs - active.startPositionMs < MIN_LISTEN_SEGMENT_MS) return null
+        return ListeningSegmentEntity(
+            episodeId = active.episodeId,
+            startPositionMs = active.startPositionMs,
+            endPositionMs = active.endPositionMs,
+            startedAt = active.startedAt,
+            endedAt = active.endedAt,
         )
+    }
+
+    private suspend fun flushListeningSegment() {
+        takePendingSegment()?.let { appGraph.database.episodeDao().insertListeningSegment(it) }
     }
 
     private fun Player.currentEpisodeIdOrNull(): String? =

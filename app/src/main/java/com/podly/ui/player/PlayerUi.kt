@@ -125,9 +125,10 @@ fun MiniPlayer(onOpenPlayer: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    state.podcastTitle ?: "",
+                    state.errorMessage ?: state.podcastTitle ?: "",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (state.errorMessage != null) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -203,6 +204,14 @@ fun PlayerScreen() {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        state.errorMessage?.let { error ->
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "$error — press play to retry",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         Spacer(Modifier.height(16.dp))
 
         val duration = state.durationMs.coerceAtLeast(1)

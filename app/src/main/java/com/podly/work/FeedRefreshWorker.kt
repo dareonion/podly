@@ -19,9 +19,12 @@ class FeedRefreshWorker(
 
     override suspend fun doWork(): Result {
         val graph = applicationContext.appGraph
-        graph.podcasts.refreshAllSubscribed()
+        val summary = graph.podcasts.refreshAllSubscribed()
         graph.downloader.applyPolicies()
-        return Result.success()
+        // Individual flaky feeds aren't worth a retry, but every feed failing
+        // usually means the network was down — try again with backoff.
+        val allFailed = summary.total > 0 && summary.failures == summary.total
+        return if (allFailed) Result.retry() else Result.success()
     }
 
     companion object {

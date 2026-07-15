@@ -21,6 +21,8 @@ import kotlinx.coroutines.sync.withPermit
 import java.io.Reader
 import java.io.StringReader
 
+data class RefreshSummary(val total: Int, val failures: Int)
+
 class PodcastRepository(
     private val podcastDao: PodcastDao,
     private val episodeDao: EpisodeDao,
@@ -63,17 +65,18 @@ class PodcastRepository(
             artworkUrl = feed.imageUrl ?: podcast.artworkUrl,
             description = feed.description ?: podcast.description,
         )
-        episodeDao.insertIgnore(feed.toEpisodeEntities(podcast))
+        episodeDao.upsertFromFeed(feed.toEpisodeEntities(podcast))
     }
 
-    suspend fun refreshAllSubscribed() {
+    suspend fun refreshAllSubscribed(): RefreshSummary {
         val podcasts = podcastDao.subscribedPodcastsOnce()
-        coroutineScope {
+        val succeeded = coroutineScope {
             val gate = Semaphore(MAX_CONCURRENT_REFRESHES)
             podcasts.map { podcast ->
-                async { gate.withPermit { runCatching { refreshEpisodes(podcast) } } }
+                async { gate.withPermit { runCatching { refreshEpisodes(podcast) }.isSuccess } }
             }.awaitAll()
         }
+        return RefreshSummary(total = succeeded.size, failures = succeeded.count { !it })
     }
 
     suspend fun importOpml(reader: Reader): OpmlImportResult {

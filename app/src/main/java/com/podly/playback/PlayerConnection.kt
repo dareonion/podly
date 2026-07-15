@@ -37,6 +37,8 @@ data class PlayerUiState(
     val queueIndex: Int = 0,
     val hasNextEpisode: Boolean = false,
     val hasPreviousEpisode: Boolean = false,
+    /** Set while the player is in a failed state; pressing play retries. */
+    val errorMessage: String? = null,
 )
 
 /**
@@ -94,6 +96,9 @@ class PlayerConnection(context: Context) {
             queueIndex = player.currentMediaItemIndex,
             hasNextEpisode = player.hasNextMediaItem(),
             hasPreviousEpisode = player.hasPreviousMediaItem(),
+            errorMessage = player.playerError?.let { error ->
+                "Playback failed: ${error.message ?: error.errorCodeName}"
+            },
         )
     }
 
@@ -112,7 +117,13 @@ class PlayerConnection(context: Context) {
 
     fun togglePlayPause() {
         val mediaController = controller ?: return
-        if (mediaController.isPlaying) mediaController.pause() else mediaController.play()
+        if (mediaController.isPlaying) {
+            mediaController.pause()
+        } else {
+            // After a playback error the player sits in IDLE; prepare() retries the source.
+            if (mediaController.playbackState == Player.STATE_IDLE) mediaController.prepare()
+            mediaController.play()
+        }
     }
 
     fun seekTo(positionMs: Long) {

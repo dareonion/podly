@@ -13,6 +13,10 @@ import com.podly.network.PodcastIndexApi
 import com.podly.network.RemoteRecsApi
 import com.podly.network.ai.AiRecommender
 import com.podly.playback.PlayerConnection
+import com.podly.ui.UiMessages
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /**
  * Hand-rolled dependency graph; one instance lives on [PodlyApp].
@@ -20,6 +24,10 @@ import com.podly.playback.PlayerConnection
 class AppGraph(private val context: Context) {
     /** Application context, for WorkManager enqueue/observe from ViewModels. */
     val appContext: Context = context.applicationContext
+    /** Process-wide scope for fire-and-forget work that must outlive a component. */
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /** One-shot user-visible messages; MainActivity shows them as snackbars. */
+    val messages: UiMessages = UiMessages()
     val database: PodlyDatabase = PodlyDatabase.build(context)
     val settings: SettingsRepository = SettingsRepository(context)
     val playbackState: PlaybackStateStore = PlaybackStateStore(context)

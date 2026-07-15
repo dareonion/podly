@@ -60,11 +60,11 @@ class RssParserTest {
         assertEquals("https://example.com/ep2.mp3", ep2.audioUrl)
         assertEquals("Second episode", ep2.description)
         assertEquals((1 * 3600 + 2 * 60 + 3) * 1000L, ep2.durationMs)
-        assertTrue(ep2.pubDateMs > 0)
+        assertTrue(ep2.pubDateMs!! > 0)
 
         val ep1 = feed.episodes[1]
         assertEquals((45 * 60 + 30) * 1000L, ep1.durationMs)
-        assertTrue(ep2.pubDateMs > ep1.pubDateMs)
+        assertTrue(ep2.pubDateMs > ep1.pubDateMs!!)
     }
 
     @Test
@@ -78,8 +78,9 @@ class RssParserTest {
 
     @Test
     fun `parses rfc822 dates`() {
-        assertTrue(RssParser.parseRfc822("Mon, 01 Jan 2024 10:00:00 +0000") > 0)
-        assertTrue(RssParser.parseRfc822("Mon, 01 Jan 2024 10:00:00 GMT") > 0)
-        assertEquals(0L, RssParser.parseRfc822("garbage"))
+        assertTrue(RssParser.parseRfc822("Mon, 01 Jan 2024 10:00:00 +0000")!! > 0)
+        assertTrue(RssParser.parseRfc822("Mon, 01 Jan 2024 10:00:00 GMT")!! > 0)
+        assertNull(RssParser.parseRfc822("garbage"))
+        assertNull(RssParser.parseRfc822(null))
     }
 }

@@ -150,6 +150,47 @@ interface EpisodeDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnore(episode: EpisodeEntity)
 
+    /**
+     * Refresh path: applies upstream metadata corrections without touching
+     * library/download/progress state. durationMs only fills a missing value
+     * (playback measures the real one); pubDateMs is deliberately left alone —
+     * undated episodes get a first-seen fallback at insert that must not churn.
+     */
+    @Query(
+        """UPDATE episodes SET podcastTitle = :podcastTitle, title = :title,
+           description = COALESCE(:description, description),
+           audioUrl = :audioUrl,
+           durationMs = COALESCE(durationMs, :durationMs),
+           artworkUrl = COALESCE(:artworkUrl, artworkUrl)
+           WHERE id = :id"""
+    )
+    suspend fun updateFeedMetadata(
+        id: String,
+        podcastTitle: String,
+        title: String,
+        description: String?,
+        audioUrl: String,
+        durationMs: Long?,
+        artworkUrl: String?,
+    )
+
+    /** Inserts new episodes and refreshes feed metadata on existing ones. */
+    @Transaction
+    suspend fun upsertFromFeed(episodes: List<EpisodeEntity>) {
+        insertIgnore(episodes)
+        episodes.forEach {
+            updateFeedMetadata(
+                id = it.id,
+                podcastTitle = it.podcastTitle,
+                title = it.title,
+                description = it.description,
+                audioUrl = it.audioUrl,
+                durationMs = it.durationMs,
+                artworkUrl = it.artworkUrl,
+            )
+        }
+    }
+
     @Query("UPDATE episodes SET inLibrary = :inLibrary WHERE id = :id")
     suspend fun setInLibrary(id: String, inLibrary: Boolean)
 

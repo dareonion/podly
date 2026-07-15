@@ -22,7 +22,8 @@ data class ParsedEpisode(
     val title: String,
     val description: String?,
     val audioUrl: String,
-    val pubDateMs: Long,
+    /** Null when the feed has no date or one we can't parse. */
+    val pubDateMs: Long?,
     val durationMs: Long?,
     val imageUrl: String?,
 )
@@ -130,15 +131,15 @@ class RssParser {
             "yyyy-MM-dd'T'HH:mm:ss'Z'",
         )
 
-        fun parseRfc822(text: String?): Long {
-            if (text.isNullOrBlank()) return 0L
+        fun parseRfc822(text: String?): Long? {
+            if (text.isNullOrBlank()) return null
             for (pattern in RFC822_PATTERNS) {
                 try {
                     return SimpleDateFormat(pattern, Locale.US).parse(text.trim())!!.time
                 } catch (_: Exception) {
                 }
             }
-            return 0L
+            return null
         }
 
         /** Accepts "HH:MM:SS", "MM:SS", or plain seconds. */
@@ -161,8 +162,11 @@ class RssParser {
 }
 
 /** Maps a parsed feed onto entity rows for a given podcast. */
-fun ParsedFeed.toEpisodeEntities(podcast: PodcastEntity): List<EpisodeEntity> =
-    episodes.map { episode ->
+fun ParsedFeed.toEpisodeEntities(podcast: PodcastEntity): List<EpisodeEntity> {
+    // Undated episodes sort as "new when first seen" rather than 1970. Stable
+    // because refresh inserts are IGNOREd and metadata updates skip pubDateMs.
+    val firstSeenMs = System.currentTimeMillis()
+    return episodes.map { episode ->
         EpisodeEntity(
             id = stableId(episode.guid ?: episode.audioUrl),
             podcastId = podcast.id,
@@ -171,8 +175,9 @@ fun ParsedFeed.toEpisodeEntities(podcast: PodcastEntity): List<EpisodeEntity> =
             title = episode.title,
             description = episode.description,
             audioUrl = episode.audioUrl,
-            pubDateMs = episode.pubDateMs,
+            pubDateMs = episode.pubDateMs ?: firstSeenMs,
             durationMs = episode.durationMs,
             artworkUrl = episode.imageUrl ?: imageUrl ?: podcast.artworkUrl,
         )
     }
+}
