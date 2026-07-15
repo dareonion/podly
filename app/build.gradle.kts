@@ -38,8 +38,8 @@ android {
         applicationId = "com.podly"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
     signingConfigs {
@@ -79,6 +79,12 @@ android {
             )
         }
     }
+}
+
+// Room writes a JSON snapshot per schema version (checked in) so migrations
+// stay reviewable and testable.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {

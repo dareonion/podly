@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Downloading
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.foundation.layout.height
@@ -129,6 +130,11 @@ fun EpisodeRow(
                 Icons.Filled.Downloading, "Downloading",
                 modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            DownloadStatus.FAILED -> Icon(
+                Icons.Filled.ErrorOutline, "Download failed",
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.error,
             )
             else -> {}
         }

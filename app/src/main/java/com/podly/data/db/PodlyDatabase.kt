@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaylistItemEntity::class,
     ],
     version = 5,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class PodlyDatabase : RoomDatabase() {
     abstract fun podcastDao(): PodcastDao
