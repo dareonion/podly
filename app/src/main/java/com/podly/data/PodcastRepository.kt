@@ -46,6 +46,21 @@ class PodcastRepository(
     suspend fun search(term: String): List<PodcastEntity> = itunesApi.searchPodcasts(term)
 
     /**
+     * Matches a free-text podcast title against the iTunes directory. Requires an
+     * exact or containment match — an unrelated first search hit used to get
+     * silently attached to AI picks, linking them to the wrong show.
+     */
+    suspend fun resolveByTitle(title: String): PodcastEntity? =
+        runCatching { search(title) }.getOrNull()?.let { results ->
+            val wanted = title.trim().lowercase()
+            results.firstOrNull { it.title.trim().lowercase() == wanted }
+                ?: results.firstOrNull {
+                    val have = it.title.trim().lowercase()
+                    have.contains(wanted) || wanted.contains(have)
+                }
+        }
+
+    /**
      * Ensures the podcast row exists locally (e.g. after tapping a search result)
      * and pulls its episode list from the feed.
      */
@@ -156,7 +171,8 @@ class PodcastRepository(
 
     suspend fun episodeById(id: String): EpisodeEntity? = episodeDao.byId(id)
 
-    private companion object {
+    companion object {
+        /** Feed-fetch concurrency, shared with [PicksImporter]. */
         const val MAX_CONCURRENT_REFRESHES = 4
     }
 }

@@ -2,6 +2,7 @@ package com.podly
 
 import android.content.Context
 import com.podly.data.AiPicksCache
+import com.podly.data.PicksImporter
 import com.podly.data.PlaybackStateStore
 import com.podly.data.PlaylistRepository
 import com.podly.data.PodcastRepository
@@ -34,6 +35,7 @@ class AppGraph(private val context: Context) {
     val podcasts: PodcastRepository =
         PodcastRepository(database.podcastDao(), database.episodeDao())
     val playlists: PlaylistRepository = PlaylistRepository(database.playlistDao())
+    val picksImporter: PicksImporter = PicksImporter(podcasts, playlists)
     val downloader: Downloader =
         Downloader(context, settings, database.podcastDao(), database.episodeDao())
     val appleCharts: AppleChartsApi = AppleChartsApi()

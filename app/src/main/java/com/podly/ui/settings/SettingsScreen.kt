@@ -34,8 +34,10 @@ import androidx.lifecycle.viewModelScope
 import com.podly.AppGraph
 import com.podly.data.AiProvider
 import com.podly.data.OpmlImportResult
+import com.podly.data.PicksImportResult
 import com.podly.data.Settings
 import com.podly.ui.appViewModel
+import com.podly.ui.util.formatDate
 import java.io.StringReader
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +69,12 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
 
     suspend fun exportOpml(): String =
         graph.podcasts.exportOpml()
+
+    suspend fun importPicks(text: String): PicksImportResult =
+        graph.picksImporter.import(
+            json = text,
+            fallbackName = "Imported picks · ${formatDate(System.currentTimeMillis())}",
+        )
 }
 
 @Composable
@@ -125,6 +133,30 @@ fun SettingsScreen() {
                     if (result.failedRefreshes > 0) ", ${result.failedRefreshes} refresh failed" else ""
             }.onFailure {
                 opmlStatus = "Import failed: ${it.message ?: "unknown error"}"
+            }
+        }
+    }
+    var picksStatus by remember { mutableStateOf<String?>(null) }
+    val importPicksLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) {
+            picksStatus = "Import canceled"
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            picksStatus = "Importing picks..."
+            runCatching {
+                val text = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                        ?: error("Could not open picks file")
+                }
+                withContext(Dispatchers.IO) { viewModel.importPicks(text) }
+            }.onSuccess { result ->
+                picksStatus = "Created \"${result.name}\": ${result.saved} of ${result.total} picks matched" +
+                    if (result.missed.isNotEmpty()) ", ${result.missed.size} skipped" else ""
+            }.onFailure {
+                picksStatus = "Import failed: ${it.message ?: "unknown error"}"
             }
         }
     }
@@ -231,6 +263,26 @@ fun SettingsScreen() {
             }
         }
         opmlStatus?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        HorizontalDivider()
+
+        Text("Playlists", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Import a JSON file of episode picks as a playlist. Each pick is matched " +
+                "against its show's feed; unmatched picks are skipped.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Button(onClick = { importPicksLauncher.launch(arrayOf("application/json", "text/*", "*/*")) }) {
+            Text("Import picks JSON")
+        }
+        picksStatus?.let {
             Text(
                 it,
                 style = MaterialTheme.typography.bodySmall,

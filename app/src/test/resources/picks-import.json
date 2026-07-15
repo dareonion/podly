@@ -1,0 +1,31 @@
+{
+ "name": "ChatGPT picks · 2026-07-15",
+ "version": 1,
+ "generatedAtMs": 1752566400000,
+ "source": "chatgpt-export",
+ "picks": [
+  {
+   "pick": {
+    "podcastTitle": "This American Life",
+    "episodeTitle": "The Test Case",
+    "author": "This American Life",
+    "reason": "Zoe Chace’s reporting gives the episode unusual documentary weight.",
+    "publishedApprox": "2026-07-13"
+   },
+   "podcastId": "7dcadc2f421b0a56d7c3e0dc01e69eb3",
+   "podcastTitle": "This American Life",
+   "podcastAuthor": "This American Life",
+   "feedUrl": "https://www.thisamericanlife.org/podcast/rss.xml",
+   "artworkUrl": "https://example.com/tal.jpg",
+   "confidence": 0.94
+  },
+  {
+   "pick": {
+    "podcastTitle": "Some Unresolved Show",
+    "episodeTitle": "An Episode",
+    "reason": "Interesting.",
+    "publishedApprox": "2026-06-01"
+   }
+  }
+ ]
+}
