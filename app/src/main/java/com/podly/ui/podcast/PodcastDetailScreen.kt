@@ -17,12 +17,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -103,6 +105,26 @@ class PodcastDetailViewModel(
         }
     }
 
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing
+    val refreshError = MutableStateFlow<String?>(null)
+
+    fun refresh() {
+        val current = podcast.value ?: return
+        if (_refreshing.value) return
+        viewModelScope.launch {
+            _refreshing.value = true
+            refreshError.value = null
+            runCatching { graph.podcasts.refreshEpisodes(current) }
+                .onFailure { e ->
+                    Log.e(TAG, "Feed refresh failed", e)
+                    refreshError.value = "Refresh failed: ${e.message ?: e.toString()}"
+                }
+            graph.downloader.applyPolicies()
+            _refreshing.value = false
+        }
+    }
+
     fun toggleSubscribed() = viewModelScope.launch {
         podcast.value?.let { graph.podcasts.setSubscribed(it.id, !it.subscribed) }
     }
@@ -158,6 +180,7 @@ class PodcastDetailViewModel(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PodcastDetailScreen(podcastId: String, onOpenEpisode: (String) -> Unit) {
     val viewModel = appViewModel(key = "podcast_$podcastId") {
@@ -167,93 +190,161 @@ fun PodcastDetailScreen(podcastId: String, onOpenEpisode: (String) -> Unit) {
     val episodes by viewModel.episodes.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val startersState by viewModel.starters.collectAsStateWithLifecycle()
+    val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
+    val refreshError by viewModel.refreshError.collectAsStateWithLifecycle()
     var episodeForPlaylist by remember { mutableStateOf<EpisodeEntity?>(null) }
     var episodeForDescription by remember { mutableStateOf<EpisodeEntity?>(null) }
     var showFullPodcastDescription by remember(podcast?.id) { mutableStateOf(false) }
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        item {
-            Row(modifier = Modifier.padding(16.dp)) {
-                AsyncImage(
-                    model = podcast?.artworkUrl,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(96.dp)
-                        .clip(RoundedCornerShape(12.dp)),
-                )
-                Column(modifier = Modifier.padding(start = 16.dp)) {
-                    Text(
-                        podcast?.title ?: "",
-                        style = MaterialTheme.typography.titleLarge,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        podcast?.author ?: "",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (podcast?.subscribed == true) {
-                        OutlinedButton(onClick = viewModel::toggleSubscribed) { Text("Unsubscribe") }
-                    } else {
-                        Button(onClick = viewModel::toggleSubscribed) { Text("Subscribe") }
-                    }
-                }
-            }
-        }
-        plainDescription(podcast?.description)?.let { description ->
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = viewModel::refresh,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
             item {
-                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                    Text(
-                        description,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = if (showFullPodcastDescription) Int.MAX_VALUE else 4,
-                        overflow = if (showFullPodcastDescription) TextOverflow.Clip else TextOverflow.Ellipsis,
+                Row(modifier = Modifier.padding(16.dp)) {
+                    AsyncImage(
+                        model = podcast?.artworkUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(96.dp)
+                            .clip(RoundedCornerShape(12.dp)),
                     )
-                    if (description.length > 240 || description.count { it == '\n' } >= 4) {
-                        TextButton(
-                            onClick = { showFullPodcastDescription = !showFullPodcastDescription },
-                            modifier = Modifier.padding(top = 4.dp),
-                        ) {
-                            Text(if (showFullPodcastDescription) "Show less" else "Show full description")
+                    Column(modifier = Modifier.padding(start = 16.dp)) {
+                        Text(
+                            podcast?.title ?: "",
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            podcast?.author ?: "",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (podcast?.subscribed == true) {
+                            OutlinedButton(onClick = viewModel::toggleSubscribed) { Text("Unsubscribe") }
+                        } else {
+                            Button(onClick = viewModel::toggleSubscribed) { Text("Subscribe") }
                         }
                     }
                 }
             }
-        }
-        if (episodes.isNotEmpty()) {
-            item {
-                Button(
-                    onClick = { viewModel.loadStarters() },
-                    enabled = !startersState.loading,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    Icon(Icons.Filled.AutoAwesome, null)
-                    Text("  Where to start")
+            plainDescription(podcast?.description)?.let { description ->
+                item {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                        Text(
+                            description,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = if (showFullPodcastDescription) Int.MAX_VALUE else 4,
+                            overflow = if (showFullPodcastDescription) TextOverflow.Clip else TextOverflow.Ellipsis,
+                        )
+                        if (description.length > 240 || description.count { it == '\n' } >= 4) {
+                            TextButton(
+                                onClick = { showFullPodcastDescription = !showFullPodcastDescription },
+                                modifier = Modifier.padding(top = 4.dp),
+                            ) {
+                                Text(if (showFullPodcastDescription) "Show less" else "Show full description")
+                            }
+                        }
+                    }
                 }
             }
-        }
-        if (startersState.loading) {
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.Center,
-                ) { CircularProgressIndicator() }
+            refreshError?.let { error ->
+                item {
+                    Text(
+                        error,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
             }
-        }
-        startersState.error?.let { error ->
-            item {
-                Text(
-                    error,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
+            if (episodes.isNotEmpty()) {
+                item {
+                    Button(
+                        onClick = { viewModel.loadStarters() },
+                        enabled = !startersState.loading,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Icon(Icons.Filled.AutoAwesome, null)
+                        Text("  Where to start")
+                    }
+                }
             }
-        }
-        startersState.picks?.let { picks ->
+            if (startersState.loading) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                    ) { CircularProgressIndicator() }
+                }
+            }
+            startersState.error?.let { error ->
+                item {
+                    Text(
+                        error,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+            }
+            startersState.picks?.let { picks ->
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Where to start",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            "Refresh",
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clickable { viewModel.loadStarters(force = true) },
+                        )
+                    }
+                }
+                itemsIndexed(picks, key = { index, _ -> "starter_$index" }) { _, resolved ->
+                    Column {
+                        Text(
+                            resolved.pick.reason,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                        val starter = resolved.episode
+                        if (starter != null) {
+                            EpisodeRow(
+                                episode = starter,
+                                onPlay = { viewModel.actions.play(episodes, episodes.indexOf(starter)) },
+                                onToggleLibrary = { viewModel.actions.toggleLibrary(starter) },
+                                onDownload = { viewModel.actions.download(starter) },
+                                onRemoveDownload = { viewModel.actions.removeDownload(starter) },
+                                onAddToPlaylist = { episodeForPlaylist = starter },
+                                onTogglePlayed = { viewModel.actions.togglePlayed(starter) },
+                                onShowDescription = { episodeForDescription = starter },
+                                onOpenDetail = { onOpenEpisode(starter.id) },
+                            )
+                        } else {
+                            Text(
+                                "${resolved.pick.episodeTitle} — not found in the feed",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                        }
+                    }
+                }
+            }
             item {
                 Row(
                     modifier = Modifier
@@ -263,89 +354,38 @@ fun PodcastDetailScreen(podcastId: String, onOpenEpisode: (String) -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "Where to start",
+                        "${episodes.size} episodes",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
                     )
-                    Text(
-                        "Refresh",
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable { viewModel.loadStarters(force = true) },
-                    )
-                }
-            }
-            itemsIndexed(picks, key = { index, _ -> "starter_$index" }) { _, resolved ->
-                Column {
-                    Text(
-                        resolved.pick.reason,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    )
-                    val starter = resolved.episode
-                    if (starter != null) {
-                        EpisodeRow(
-                            episode = starter,
-                            onPlay = { viewModel.actions.play(episodes, episodes.indexOf(starter)) },
-                            onToggleLibrary = { viewModel.actions.toggleLibrary(starter) },
-                            onDownload = { viewModel.actions.download(starter) },
-                            onRemoveDownload = { viewModel.actions.removeDownload(starter) },
-                            onAddToPlaylist = { episodeForPlaylist = starter },
-                            onTogglePlayed = { viewModel.actions.togglePlayed(starter) },
-                            onShowDescription = { episodeForDescription = starter },
-                            onOpenDetail = { onOpenEpisode(starter.id) },
+                    val sortOrder = podcast?.episodeSortOrder ?: PodcastEpisodeSortOrder.NEWEST_FIRST
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = sortOrder == PodcastEpisodeSortOrder.NEWEST_FIRST,
+                            onClick = { viewModel.setEpisodeSortOrder(PodcastEpisodeSortOrder.NEWEST_FIRST) },
+                            label = { Text("Newest") },
                         )
-                    } else {
-                        Text(
-                            "${resolved.pick.episodeTitle} — not found in the feed",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        FilterChip(
+                            selected = sortOrder == PodcastEpisodeSortOrder.OLDEST_FIRST,
+                            onClick = { viewModel.setEpisodeSortOrder(PodcastEpisodeSortOrder.OLDEST_FIRST) },
+                            label = { Text("Oldest") },
                         )
                     }
                 }
             }
-        }
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "${episodes.size} episodes",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
+            items(episodes, key = { it.id }) { episode ->
+                EpisodeRow(
+                    episode = episode,
+                    onPlay = { viewModel.actions.play(episodes, episodes.indexOf(episode)) },
+                    onToggleLibrary = { viewModel.actions.toggleLibrary(episode) },
+                    onDownload = { viewModel.actions.download(episode) },
+                    onRemoveDownload = { viewModel.actions.removeDownload(episode) },
+                    onAddToPlaylist = { episodeForPlaylist = episode },
+                    onTogglePlayed = { viewModel.actions.togglePlayed(episode) },
+                    onShowDescription = { episodeForDescription = episode },
+                    onOpenDetail = { onOpenEpisode(episode.id) },
                 )
-                val sortOrder = podcast?.episodeSortOrder ?: PodcastEpisodeSortOrder.NEWEST_FIRST
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = sortOrder == PodcastEpisodeSortOrder.NEWEST_FIRST,
-                        onClick = { viewModel.setEpisodeSortOrder(PodcastEpisodeSortOrder.NEWEST_FIRST) },
-                        label = { Text("Newest") },
-                    )
-                    FilterChip(
-                        selected = sortOrder == PodcastEpisodeSortOrder.OLDEST_FIRST,
-                        onClick = { viewModel.setEpisodeSortOrder(PodcastEpisodeSortOrder.OLDEST_FIRST) },
-                        label = { Text("Oldest") },
-                    )
-                }
             }
-        }
-        items(episodes, key = { it.id }) { episode ->
-            EpisodeRow(
-                episode = episode,
-                onPlay = { viewModel.actions.play(episodes, episodes.indexOf(episode)) },
-                onToggleLibrary = { viewModel.actions.toggleLibrary(episode) },
-                onDownload = { viewModel.actions.download(episode) },
-                onRemoveDownload = { viewModel.actions.removeDownload(episode) },
-                onAddToPlaylist = { episodeForPlaylist = episode },
-                onTogglePlayed = { viewModel.actions.togglePlayed(episode) },
-                onShowDescription = { episodeForDescription = episode },
-                onOpenDetail = { onOpenEpisode(episode.id) },
-            )
         }
     }
 

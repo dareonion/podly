@@ -26,7 +26,8 @@ class AppGraph(private val context: Context) {
     val podcasts: PodcastRepository =
         PodcastRepository(database.podcastDao(), database.episodeDao())
     val playlists: PlaylistRepository = PlaylistRepository(database.playlistDao())
-    val downloader: Downloader = Downloader(context, database.episodeDao())
+    val downloader: Downloader =
+        Downloader(context, settings, database.podcastDao(), database.episodeDao())
     val appleCharts: AppleChartsApi = AppleChartsApi()
     val podcastIndex: PodcastIndexApi = PodcastIndexApi()
     val aiRecommender: AiRecommender =

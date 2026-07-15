@@ -48,6 +48,9 @@ class PlaybackService : MediaLibraryService() {
     private var session: MediaLibrarySession? = null
     private var activeListenSegment: ActiveListenSegment? = null
 
+    /** Episode whose saved position is about to be restored; saveProgress must not clobber it. */
+    private var pendingResumeEpisodeId: String? = null
+
     override fun onCreate() {
         super.onCreate()
         val graph = appGraph
@@ -115,29 +118,27 @@ class PlaybackService : MediaLibraryService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-    /** Remaps next/previous (car & headset buttons) to in-episode nudges. */
+    /**
+     * Remaps next/previous (car & headset buttons) to in-episode nudges.
+     * seekToNext/PreviousMediaItem stay untouched so the in-app UI can still
+     * move through the queue.
+     */
     private class NudgingPlayer(player: Player) : ForwardingPlayer(player) {
         override fun seekToNext() = seekForward()
-        override fun seekToNextMediaItem() = seekForward()
         override fun seekToPrevious() = seekBack()
-        override fun seekToPreviousMediaItem() = seekBack()
 
         override fun getAvailableCommands(): Player.Commands =
             super.getAvailableCommands().buildUpon()
                 .addAll(
                     Player.COMMAND_SEEK_TO_NEXT,
-                    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
                     Player.COMMAND_SEEK_TO_PREVIOUS,
-                    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
                 )
                 .build()
 
         override fun isCommandAvailable(command: Int): Boolean =
             when (command) {
                 Player.COMMAND_SEEK_TO_NEXT,
-                Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
                 Player.COMMAND_SEEK_TO_PREVIOUS,
-                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
                 -> true
                 else -> super.isCommandAvailable(command)
             }
@@ -166,10 +167,22 @@ class PlaybackService : MediaLibraryService() {
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                // Auto-advance and in-queue jumps start episodes at 0; restore the saved
+                // position instead. The initial queue set is handled by onSetMediaItems.
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                    reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
+                ) {
+                    mediaItem?.mediaId?.let(MediaIds::episodeIdOrNull)?.let { episodeId ->
+                        pendingResumeEpisodeId = episodeId
+                        scope.launch { resumeSavedPosition(player, episodeId) }
+                    }
+                }
                 scope.launch {
                     flushListeningSegment()
                     if (player.isPlaying) beginListeningSegment(player)
                     snapshotQueue(player)
+                    // Frees space right after an episode finishes (no-op unless enabled).
+                    appGraph.downloader.deleteCompletedDownloads()
                 }
             }
 
@@ -244,6 +257,19 @@ class PlaybackService : MediaLibraryService() {
     private fun Player.currentEpisodeIdOrNull(): String? =
         currentMediaItem?.mediaId?.let(MediaIds::episodeIdOrNull)
 
+    private suspend fun resumeSavedPosition(player: Player, episodeId: String) {
+        try {
+            val episode = appGraph.database.episodeDao().byId(episodeId)
+            if (player.currentEpisodeIdOrNull() == episodeId &&
+                episode != null && !episode.completed && episode.playbackPositionMs > 0
+            ) {
+                player.seekTo(episode.playbackPositionMs)
+            }
+        } finally {
+            if (pendingResumeEpisodeId == episodeId) pendingResumeEpisodeId = null
+        }
+    }
+
     /** Remembers the queue so onPlaybackResumption can restore it after process death. */
     private suspend fun snapshotQueue(player: Player) {
         val ids = (0 until player.mediaItemCount).mapNotNull { index ->
@@ -258,6 +284,9 @@ class PlaybackService : MediaLibraryService() {
         if (player.playbackState != Player.STATE_READY && player.playbackState != Player.STATE_ENDED) return
         val mediaId = player.currentMediaItem?.mediaId ?: return
         val episodeId = MediaIds.episodeIdOrNull(mediaId) ?: return
+        // A queue transition is still restoring this episode's saved position;
+        // saving now would overwrite it with ~0.
+        if (episodeId == pendingResumeEpisodeId) return
         val position = player.currentPosition
         val duration = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L
         val completed = duration > 0 && position >= duration - 10_000

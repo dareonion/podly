@@ -18,7 +18,9 @@ class FeedRefreshWorker(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        applicationContext.appGraph.podcasts.refreshAllSubscribed()
+        val graph = applicationContext.appGraph
+        graph.podcasts.refreshAllSubscribed()
+        graph.downloader.applyPolicies()
         return Result.success()
     }
 

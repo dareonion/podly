@@ -98,6 +98,12 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE downloadStatus = 'DONE' ORDER BY pubDateMs DESC")
     suspend fun downloadedEpisodesOnce(): List<EpisodeEntity>
 
+    @Query("SELECT * FROM episodes WHERE downloadStatus = 'DONE' AND completed = 1")
+    suspend fun downloadedCompletedOnce(): List<EpisodeEntity>
+
+    @Query("SELECT * FROM episodes WHERE podcastId = :podcastId ORDER BY pubDateMs DESC LIMIT :limit")
+    suspend fun newestEpisodesForPodcast(podcastId: String, limit: Int): List<EpisodeEntity>
+
     @Query("SELECT * FROM episodes WHERE id = :id")
     suspend fun byId(id: String): EpisodeEntity?
 
@@ -158,6 +164,9 @@ interface EpisodeDao {
 
     @Query("UPDATE episodes SET downloadStatus = :status, localFilePath = :localFilePath WHERE id = :id")
     suspend fun updateDownload(id: String, status: DownloadStatus, localFilePath: String?)
+
+    @Query("UPDATE episodes SET autoDownloadBlocked = :blocked WHERE id = :id")
+    suspend fun setAutoDownloadBlocked(id: String, blocked: Boolean)
 
     @Query("UPDATE episodes SET durationMs = :durationMs WHERE id = :id")
     suspend fun updateDuration(id: String, durationMs: Long)

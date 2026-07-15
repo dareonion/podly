@@ -49,6 +49,8 @@ data class EpisodeEntity(
     val inLibrary: Boolean = false,
     val downloadStatus: DownloadStatus = DownloadStatus.NONE,
     val localFilePath: String? = null,
+    /** Set when the user removes a download, so auto-download won't re-fetch it. */
+    val autoDownloadBlocked: Boolean = false,
     val playbackPositionMs: Long = 0,
     val completed: Boolean = false,
     val lastPlayedAt: Long = 0,

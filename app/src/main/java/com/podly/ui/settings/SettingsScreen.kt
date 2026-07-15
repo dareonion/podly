@@ -15,6 +15,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -53,6 +55,12 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
         viewModelScope.launch { graph.settings.setPodcastIndexCreds(key, secret) }
     fun setSeekIncrements(back: Int, forward: Int) =
         viewModelScope.launch { graph.settings.setSeekIncrements(back, forward) }
+    fun setDownloadWifiOnly(wifiOnly: Boolean) =
+        viewModelScope.launch { graph.settings.setDownloadWifiOnly(wifiOnly) }
+    fun setAutoDownloadCount(count: Int) =
+        viewModelScope.launch { graph.settings.setAutoDownloadCount(count) }
+    fun setAutoDeleteCompleted(enabled: Boolean) =
+        viewModelScope.launch { graph.settings.setAutoDeleteCompleted(enabled) }
 
     suspend fun importOpml(text: String): OpmlImportResult =
         graph.podcasts.importOpml(StringReader(text))
@@ -227,6 +235,57 @@ fun SettingsScreen() {
                 it,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        HorizontalDivider()
+
+        Text("Downloads", style = MaterialTheme.typography.titleMedium)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Download on Wi-Fi only", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Applies to downloads started after the change.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = settings.downloadWifiOnly,
+                onCheckedChange = viewModel::setDownloadWifiOnly,
+            )
+        }
+        Text(
+            "Auto-download newest episodes per subscribed show",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(0, 1, 2, 3, 5).forEach { count ->
+                FilterChip(
+                    selected = settings.autoDownloadCount == count,
+                    onClick = { viewModel.setAutoDownloadCount(count) },
+                    label = { Text(if (count == 0) "Off" else "$count") },
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Delete downloads when played", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Frees space after an episode finishes or is marked played.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = settings.autoDeleteCompleted,
+                onCheckedChange = viewModel::setAutoDeleteCompleted,
             )
         }
 

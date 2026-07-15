@@ -12,7 +12,12 @@ import com.podly.network.Http
 import com.podly.network.ItunesApi
 import com.podly.network.RssParser
 import com.podly.network.toEpisodeEntities
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.io.Reader
 import java.io.StringReader
 
@@ -62,8 +67,12 @@ class PodcastRepository(
     }
 
     suspend fun refreshAllSubscribed() {
-        podcastDao.subscribedPodcastsOnce().forEach { podcast ->
-            runCatching { refreshEpisodes(podcast) }
+        val podcasts = podcastDao.subscribedPodcastsOnce()
+        coroutineScope {
+            val gate = Semaphore(MAX_CONCURRENT_REFRESHES)
+            podcasts.map { podcast ->
+                async { gate.withPermit { runCatching { refreshEpisodes(podcast) } } }
+            }.awaitAll()
         }
     }
 
@@ -140,4 +149,8 @@ class PodcastRepository(
         )
 
     suspend fun episodeById(id: String): EpisodeEntity? = episodeDao.byId(id)
+
+    private companion object {
+        const val MAX_CONCURRENT_REFRESHES = 4
+    }
 }

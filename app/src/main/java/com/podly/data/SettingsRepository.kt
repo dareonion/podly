@@ -1,6 +1,7 @@
 package com.podly.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -19,6 +20,10 @@ data class Settings(
     val podcastIndexSecret: String = "",
     val seekBackSeconds: Int = 10,
     val seekForwardSeconds: Int = 30,
+    val downloadWifiOnly: Boolean = false,
+    /** Auto-download this many newest episodes per subscribed podcast; 0 = off. */
+    val autoDownloadCount: Int = 0,
+    val autoDeleteCompleted: Boolean = false,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
@@ -33,6 +38,9 @@ class SettingsRepository(private val context: Context) {
         val PI_SECRET = stringPreferencesKey("podcastindex_secret")
         val SEEK_BACK = intPreferencesKey("seek_back_seconds")
         val SEEK_FORWARD = intPreferencesKey("seek_forward_seconds")
+        val DOWNLOAD_WIFI_ONLY = booleanPreferencesKey("download_wifi_only")
+        val AUTO_DOWNLOAD_COUNT = intPreferencesKey("auto_download_count")
+        val AUTO_DELETE_COMPLETED = booleanPreferencesKey("auto_delete_completed")
     }
 
     val settings: Flow<Settings> = context.dataStore.data.map { prefs ->
@@ -45,6 +53,9 @@ class SettingsRepository(private val context: Context) {
             podcastIndexSecret = prefs[Keys.PI_SECRET] ?: "",
             seekBackSeconds = prefs[Keys.SEEK_BACK] ?: 10,
             seekForwardSeconds = prefs[Keys.SEEK_FORWARD] ?: 30,
+            downloadWifiOnly = prefs[Keys.DOWNLOAD_WIFI_ONLY] ?: false,
+            autoDownloadCount = prefs[Keys.AUTO_DOWNLOAD_COUNT] ?: 0,
+            autoDeleteCompleted = prefs[Keys.AUTO_DELETE_COMPLETED] ?: false,
         )
     }
 
@@ -70,4 +81,13 @@ class SettingsRepository(private val context: Context) {
             it[Keys.SEEK_BACK] = backSeconds
             it[Keys.SEEK_FORWARD] = forwardSeconds
         }
+
+    suspend fun setDownloadWifiOnly(wifiOnly: Boolean) =
+        context.dataStore.edit { it[Keys.DOWNLOAD_WIFI_ONLY] = wifiOnly }
+
+    suspend fun setAutoDownloadCount(count: Int) =
+        context.dataStore.edit { it[Keys.AUTO_DOWNLOAD_COUNT] = count.coerceAtLeast(0) }
+
+    suspend fun setAutoDeleteCompleted(enabled: Boolean) =
+        context.dataStore.edit { it[Keys.AUTO_DELETE_COMPLETED] = enabled }
 }
