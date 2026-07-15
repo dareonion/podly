@@ -67,6 +67,26 @@ class RssParserTest {
         assertTrue(ep2.pubDateMs > ep1.pubDateMs!!)
     }
 
+    // Real-world sample of the hand-built archive feeds in picks/feeds/ — verbatim
+    // Simplecast <item> blocks (CDATA titles/descriptions, namespaced tags) inside a
+    // minimal channel. Guards the format the picks-import pipeline relies on.
+    @Test
+    fun `parses archive feed with real-world simplecast items`() {
+        val xml = javaClass.getResourceAsStream("/archive-feed.xml")!!
+            .bufferedReader().use { it.readText() }
+        val feed = RssParser().parse(StringReader(xml))
+
+        assertEquals("The Interview (archive)", feed.title)
+        assertEquals(2, feed.episodes.size)
+        feed.episodes.forEach { ep ->
+            assertTrue(ep.title.isNotBlank())
+            assertTrue(ep.audioUrl.startsWith("https://"))
+            assertTrue(ep.guid!!.isNotBlank())
+            assertTrue(ep.pubDateMs!! > 0)
+        }
+        assertTrue(feed.episodes.any { it.title.contains("Seth Rogen") })
+    }
+
     @Test
     fun `parses duration formats`() {
         assertEquals(90_000L, RssParser.parseDuration("90"))

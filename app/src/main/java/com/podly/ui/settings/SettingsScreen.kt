@@ -153,8 +153,16 @@ fun SettingsScreen() {
                 }
                 withContext(Dispatchers.IO) { viewModel.importPicks(text) }
             }.onSuccess { result ->
-                picksStatus = "Created \"${result.name}\": ${result.saved} of ${result.total} picks matched" +
-                    if (result.missed.isNotEmpty()) ", ${result.missed.size} skipped" else ""
+                picksStatus = buildString {
+                    append("Created \"${result.name}\": ${result.saved} of ${result.total} picks matched")
+                    if (result.missed.isNotEmpty()) {
+                        val shown = result.missed.take(10)
+                        append("\nSkipped: ${shown.joinToString("; ")}")
+                        if (result.missed.size > shown.size) {
+                            append(" (+${result.missed.size - shown.size} more)")
+                        }
+                    }
+                }
             }.onFailure {
                 picksStatus = "Import failed: ${it.message ?: "unknown error"}"
             }
