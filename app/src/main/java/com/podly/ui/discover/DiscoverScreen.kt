@@ -249,8 +249,13 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                 }
                 .onFailure { e ->
                     Log.e(TAG, "Acclaimed fetch failed", e)
+                    // Keep showing the cached list rather than replacing it with an
+                    // error, but say the refresh itself failed — a silently vanishing
+                    // spinner reads as a no-op.
+                    if (_state.value.acclaimed != null) {
+                        graph.messages.post("Refresh failed: ${describe(e)}")
+                    }
                     _state.update {
-                        // Keep showing the cached list (if any) rather than replacing it with an error.
                         it.copy(
                             error = if (it.acclaimed == null) describe(e) else it.error,
                             acclaimedLoading = false,
@@ -296,8 +301,13 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                 }
                 .onFailure { e ->
                     Log.e(TAG, "Recent episodes fetch failed", e)
+                    // Keep showing the cached list rather than replacing it with an
+                    // error, but say the refresh itself failed — a silently vanishing
+                    // spinner reads as a no-op.
+                    if (_state.value.recentEpisodes != null) {
+                        graph.messages.post("Refresh failed: ${describe(e)}")
+                    }
                     _state.update {
-                        // Keep showing the cached list (if any) rather than replacing it with an error.
                         it.copy(
                             recentEpisodesLoading = false,
                             error = if (it.recentEpisodes == null) describe(e) else it.error,
