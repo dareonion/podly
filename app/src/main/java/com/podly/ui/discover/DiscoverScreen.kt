@@ -169,6 +169,22 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
             _state.update { it.copy(searchResults = null) }
             return
         }
+        // A pasted feed URL: offer it as a direct result — opening it pulls the
+        // feed and fills in the real title/artwork.
+        if (term.startsWith("http://", ignoreCase = true) ||
+            term.startsWith("https://", ignoreCase = true)
+        ) {
+            val podcast = PodcastEntity(
+                id = stableId(term),
+                title = term.substringAfter("://"),
+                author = "RSS feed",
+                feedUrl = term,
+                artworkUrl = null,
+                description = null,
+            )
+            _state.update { it.copy(searchResults = listOf(podcast), searching = false) }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(searching = true, error = null) }
             runCatching { graph.podcasts.search(term) }
@@ -466,7 +482,7 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit, onOpenPlaylist: (Long) -> Un
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = viewModel::setQuery,
-                    label = { Text("Search podcasts") },
+                    label = { Text("Search podcasts (or paste a feed URL)") },
                     singleLine = true,
                     trailingIcon = {
                         IconButton(onClick = viewModel::search) {
