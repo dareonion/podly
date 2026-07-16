@@ -58,11 +58,10 @@ class PlaylistDetailViewModel(
     val allPlaylists = graph.playlists.playlists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Only sets the mode: chrono sorts are applied at read time, so the stored manual
+    // order (insertion/import order until the user drags) survives round trips through
+    // "Oldest/Newest first" and switching back restores it. Only dragging rewrites it.
     fun setSortMode(sortMode: SortMode) = viewModelScope.launch {
-        if (sortMode == SortMode.MANUAL) {
-            // Freeze the currently displayed order as the manual order.
-            graph.playlists.reorder(playlistId, episodes.value.map { it.id })
-        }
         graph.playlists.setSortMode(playlistId, sortMode)
     }
 
