@@ -22,7 +22,27 @@ object Http {
         explicitNulls = false
     }
 
-    suspend fun get(url: String, headers: Map<String, String> = emptyMap()): String =
+    /**
+     * The https variant of a cleartext URL, or null if it's already https. Old feeds
+     * (and iTunes search results) are often still registered as http://, which Android
+     * blocks — most of those hosts serve the same content over https.
+     */
+    fun httpsUpgradeOrNull(url: String): String? =
+        if (url.startsWith("http://", ignoreCase = true)) "https://" + url.substring(7) else null
+
+    suspend fun get(url: String, headers: Map<String, String> = emptyMap()): String {
+        httpsUpgradeOrNull(url)?.let { upgraded ->
+            try {
+                return getOnce(upgraded, headers)
+            } catch (_: IOException) {
+                // Fall through to the original URL: on-device it fails as blocked
+                // cleartext, the accurate error for a genuinely http-only host.
+            }
+        }
+        return getOnce(url, headers)
+    }
+
+    private suspend fun getOnce(url: String, headers: Map<String, String>): String =
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(url).apply {
                 header("User-Agent", "Podly/1.0")
@@ -47,6 +67,21 @@ object Http {
         url: String,
         etag: String? = null,
         lastModified: String? = null,
+    ): ConditionalResult {
+        httpsUpgradeOrNull(url)?.let { upgraded ->
+            try {
+                return getConditionalOnce(upgraded, etag, lastModified)
+            } catch (_: IOException) {
+                // See get(): report the http-only failure, not the upgrade attempt's.
+            }
+        }
+        return getConditionalOnce(url, etag, lastModified)
+    }
+
+    private suspend fun getConditionalOnce(
+        url: String,
+        etag: String?,
+        lastModified: String?,
     ): ConditionalResult = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(url).apply {
             header("User-Agent", "Podly/1.0")
