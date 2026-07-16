@@ -10,8 +10,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -20,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +37,7 @@ import androidx.lifecycle.viewModelScope
 import com.podly.AppGraph
 import com.podly.data.db.EpisodeEntity
 import com.podly.data.db.SortMode
+import com.podly.data.db.needsDownload
 import com.podly.ui.EpisodeActions
 import com.podly.ui.appViewModel
 import com.podly.ui.components.AddToPlaylistDialog
@@ -69,6 +73,13 @@ class PlaylistDetailViewModel(
         graph.playlists.reorder(playlistId, orderedIds)
     }
 
+    /** Queues a download for every episode that doesn't already have one. */
+    fun downloadAll() = viewModelScope.launch {
+        val pending = episodes.value.filter { it.downloadStatus.needsDownload }
+        pending.forEach { actions.download(it) }
+        graph.messages.post("Queued ${pending.size} downloads")
+    }
+
     fun remove(episodeId: String) = viewModelScope.launch {
         graph.playlists.removeEpisode(playlistId, episodeId)
     }
@@ -85,6 +96,7 @@ fun PlaylistDetailScreen(playlistId: Long, onOpenEpisode: (String) -> Unit) {
     var episodeForPlaylist by remember { mutableStateOf<EpisodeEntity?>(null) }
     var episodeForDescription by remember { mutableStateOf<EpisodeEntity?>(null) }
     var sortMenuOpen by remember { mutableStateOf(false) }
+    var confirmDownloadAll by remember { mutableStateOf(false) }
 
     // Local copy that mutates live during a drag; resyncs whenever the DB emits.
     var localList by remember(episodes) { mutableStateOf(episodes) }
@@ -118,6 +130,13 @@ fun PlaylistDetailScreen(playlistId: Long, onOpenEpisode: (String) -> Unit) {
             ) {
                 Icon(Icons.Filled.PlayArrow, null)
                 Text("Play")
+            }
+            val pendingDownloads = localList.count { it.downloadStatus.needsDownload }
+            IconButton(
+                enabled = pendingDownloads > 0,
+                onClick = { confirmDownloadAll = true },
+            ) {
+                Icon(Icons.Filled.Download, contentDescription = "Download all")
             }
             OutlinedButton(
                 onClick = { sortMenuOpen = true },
@@ -180,6 +199,24 @@ fun PlaylistDetailScreen(playlistId: Long, onOpenEpisode: (String) -> Unit) {
                 }
             }
         }
+    }
+
+    if (confirmDownloadAll) {
+        val pending = localList.count { it.downloadStatus.needsDownload }
+        AlertDialog(
+            onDismissRequest = { confirmDownloadAll = false },
+            title = { Text("Download all") },
+            text = { Text("Queue downloads for $pending episodes? The Wi-Fi-only setting still applies.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDownloadAll = false
+                    viewModel.downloadAll()
+                }) { Text("Download") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDownloadAll = false }) { Text("Cancel") }
+            },
+        )
     }
 
     episodeForPlaylist?.let { episode ->

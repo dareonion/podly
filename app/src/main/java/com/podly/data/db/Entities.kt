@@ -7,6 +7,10 @@ import java.security.MessageDigest
 
 enum class DownloadStatus { NONE, QUEUED, DOWNLOADING, DONE, FAILED }
 
+/** True when the episode has no usable or in-flight download. */
+val DownloadStatus.needsDownload: Boolean
+    get() = this == DownloadStatus.NONE || this == DownloadStatus.FAILED
+
 enum class SortMode { MANUAL, CHRONO_ASC, CHRONO_DESC }
 
 enum class PodcastEpisodeSortOrder { NEWEST_FIRST, OLDEST_FIRST }
