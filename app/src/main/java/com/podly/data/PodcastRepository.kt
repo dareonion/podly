@@ -171,6 +171,10 @@ class PodcastRepository(
 
     suspend fun episodeById(id: String): EpisodeEntity? = episodeDao.byId(id)
 
+    /** Inserts episodes from a non-feed source (e.g. PodcastIndex) with feed-refresh semantics. */
+    suspend fun insertEpisodes(episodes: List<EpisodeEntity>) =
+        episodeDao.upsertFromFeed(episodes)
+
     companion object {
         /** Feed-fetch concurrency, shared with [PicksImporter]. */
         const val MAX_CONCURRENT_REFRESHES = 4

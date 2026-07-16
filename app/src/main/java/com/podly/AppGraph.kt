@@ -35,11 +35,11 @@ class AppGraph(private val context: Context) {
     val podcasts: PodcastRepository =
         PodcastRepository(database.podcastDao(), database.episodeDao())
     val playlists: PlaylistRepository = PlaylistRepository(database.playlistDao())
-    val picksImporter: PicksImporter = PicksImporter(podcasts, playlists)
     val downloader: Downloader =
         Downloader(context, settings, database.podcastDao(), database.episodeDao())
     val appleCharts: AppleChartsApi = AppleChartsApi()
     val podcastIndex: PodcastIndexApi = PodcastIndexApi()
+    val picksImporter: PicksImporter = PicksImporter(podcasts, playlists, podcastIndex, settings)
     val aiRecommender: AiRecommender =
         AiRecommender(settings, database.podcastDao(), database.episodeDao())
     // Recent-episode + acclaimed lists are pre-generated server-side and fetched as static JSON.

@@ -3,6 +3,7 @@ package com.podly.network
 import com.podly.data.db.PodcastEntity
 import com.podly.data.db.stableId
 import kotlinx.serialization.Serializable
+import java.net.URLEncoder
 import java.security.MessageDigest
 
 enum class TrendingPeriod { NOW, WEEK, MONTH }
@@ -79,6 +80,21 @@ class AppleChartsApi {
 private data class PodcastIndexTrendingResponse(val feeds: List<PodcastIndexFeed> = emptyList())
 
 @Serializable
+internal data class PodcastIndexEpisodesResponse(val items: List<PodcastIndexEpisode> = emptyList())
+
+/** An episode as PodcastIndex indexed it; retained even after it rolls off the feed. */
+@Serializable
+data class PodcastIndexEpisode(
+    val title: String? = null,
+    val description: String? = null,
+    val guid: String? = null,
+    val datePublished: Long = 0, // unix seconds
+    val enclosureUrl: String? = null,
+    val duration: Long? = null, // seconds
+    val image: String? = null,
+)
+
+@Serializable
 private data class PodcastIndexFeed(
     val url: String? = null,
     val title: String? = null,
@@ -114,6 +130,29 @@ class PodcastIndexApi {
                 appleId = null,
             )
         }
+    }
+
+    /**
+     * Episodes PodcastIndex has indexed for a feed — unlike the live RSS, this
+     * includes episodes that have rolled off a short feed window.
+     */
+    suspend fun episodesByFeedUrl(
+        key: String,
+        secret: String,
+        feedUrl: String,
+        max: Int = 1000,
+    ): List<PodcastIndexEpisode> {
+        val timestamp = System.currentTimeMillis() / 1000
+        val encoded = URLEncoder.encode(feedUrl, "UTF-8")
+        val body = Http.get(
+            "https://api.podcastindex.org/api/1.0/episodes/byfeedurl?url=$encoded&max=$max&fulltext",
+            headers = mapOf(
+                "X-Auth-Key" to key,
+                "X-Auth-Date" to timestamp.toString(),
+                "Authorization" to authHash(key, secret, timestamp),
+            ),
+        )
+        return Http.json.decodeFromString<PodcastIndexEpisodesResponse>(body).items
     }
 
     companion object {
