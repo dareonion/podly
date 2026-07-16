@@ -18,6 +18,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +39,7 @@ import com.podly.data.db.ListeningSegmentEntity
 import com.podly.ui.appViewModel
 import com.podly.ui.components.EpisodeNoteDialog
 import com.podly.ui.util.formatDateTime
+import com.podly.ui.util.formatDuration
 import com.podly.ui.util.formatPosition
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
@@ -79,10 +81,17 @@ fun HistoryScreen() {
             )
         }
     } else {
+        val stats = remember(history, segments) {
+            ListeningStatsCalculator.compute(history, segments, System.currentTimeMillis())
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
         ) {
+            item(key = "stats") {
+                StatsCard(stats)
+                Spacer(Modifier.height(12.dp))
+            }
             items(history, key = { it.id }) { episode ->
                 HistoryCard(
                     episode = episode,
@@ -104,6 +113,69 @@ fun HistoryScreen() {
                 editingEpisode = null
             },
             onDismiss = { editingEpisode = null },
+        )
+    }
+}
+
+@Composable
+private fun StatsCard(stats: ListeningStats) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text("Listening stats", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(10.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                StatTile("7 days", stats.last7DaysMs, Modifier.weight(1f))
+                StatTile("30 days", stats.last30DaysMs, Modifier.weight(1f))
+                StatTile("All time", stats.totalMs, Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "${stats.episodesTouched} episodes played · ${stats.episodesCompleted} finished",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (stats.topShows.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+                Text("Top shows", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(6.dp))
+                val most = stats.topShows.first().listenedMs.coerceAtLeast(1)
+                stats.topShows.take(5).forEach { show ->
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            show.podcastTitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            formatDuration(show.listenedMs) ?: "0m",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    LinearProgressIndicator(
+                        progress = { show.listenedMs.toFloat() / most },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatTile(label: String, ms: Long, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(formatDuration(ms) ?: "0m", style = MaterialTheme.typography.titleLarge)
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
