@@ -46,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import coil.compose.AsyncImage
 import com.podly.AppGraph
+import com.podly.data.PodcastIndexRescuer
 import com.podly.data.db.PodcastEntity
 import com.podly.data.db.stableId
 import com.podly.network.TrendingPeriod
@@ -408,10 +409,17 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                 RecentEpisodeMatcher.Candidate(it.title, it.description, it.pubDateMs)
             },
         )
-        if (idx == null) {
-            Log.w(TAG, "No feed match for \"${resolved.pick.episodeTitle}\" in ${loaded.title}")
+        if (idx != null) return episodes[idx].id
+        // Not in the feed — e.g. a short window like "The Interview" that exposes only its
+        // newest episodes. Fall back to PodcastIndex's archive (needs the user's creds).
+        val rescued = graph.picksRescuer.rescue(
+            loaded,
+            listOf(Unit to PodcastIndexRescuer.Query(resolved.pick.episodeTitle, resolved.pick.publishedApprox)),
+        )[Unit]
+        if (rescued == null) {
+            Log.w(TAG, "No feed or archive match for \"${resolved.pick.episodeTitle}\" in ${loaded.title}")
         }
-        return idx?.let { episodes[it].id }
+        return rescued
     }
 
     /** Inserts the podcast locally, pulls its feed, then hands back the id for navigation. */
@@ -723,6 +731,14 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit, onOpenPlaylist: (Long) -> Un
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
+                                    if (!state.hasPodcastIndexCreds) {
+                                        Text(
+                                            "Some shows only publish their newest episodes. Add free " +
+                                                "PodcastIndex API keys in Settings to pull older ones from its archive.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                 }
                                 TextButton(
                                     onClick = { onOpenPlaylist(result.playlistId) },

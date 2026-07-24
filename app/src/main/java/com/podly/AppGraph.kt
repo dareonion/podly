@@ -3,6 +3,7 @@ package com.podly
 import android.content.Context
 import com.podly.data.AiPicksCache
 import com.podly.data.PicksImporter
+import com.podly.data.PodcastIndexRescuer
 import com.podly.data.PlaybackStateStore
 import com.podly.data.PlaylistRepository
 import com.podly.data.PodcastRepository
@@ -39,7 +40,9 @@ class AppGraph(private val context: Context) {
         Downloader(context, settings, database.podcastDao(), database.episodeDao())
     val appleCharts: AppleChartsApi = AppleChartsApi()
     val podcastIndex: PodcastIndexApi = PodcastIndexApi()
-    val picksImporter: PicksImporter = PicksImporter(podcasts, playlists, podcastIndex, settings)
+    // Looks rolled-off picks up in PodcastIndex's archive; shared by import + Discover save.
+    val picksRescuer: PodcastIndexRescuer = PodcastIndexRescuer(podcasts, podcastIndex, settings)
+    val picksImporter: PicksImporter = PicksImporter(podcasts, playlists, picksRescuer)
     val aiRecommender: AiRecommender =
         AiRecommender(settings, database.podcastDao(), database.episodeDao())
     // Recent-episode + acclaimed lists are pre-generated server-side and fetched as static JSON.

@@ -1,15 +1,10 @@
 package com.podly.data
 
-import com.podly.data.db.EpisodeEntity
-import com.podly.data.db.PodcastEntity
-import com.podly.data.db.stableId
 import com.podly.network.Http
-import com.podly.network.PodcastIndexApi
 import com.podly.network.ai.RecentEpisodeMatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.Serializable
@@ -45,8 +40,7 @@ data class PicksImportResult(
 class PicksImporter(
     private val podcasts: PodcastRepository,
     private val playlists: PlaylistRepository,
-    private val podcastIndex: PodcastIndexApi,
-    private val settings: SettingsRepository,
+    private val rescuer: PodcastIndexRescuer,
 ) {
     suspend fun import(json: String, fallbackName: String): PicksImportResult {
         val file = Http.json.decodeFromString<PicksImportFile>(json)
@@ -100,53 +94,12 @@ class PicksImporter(
         }
         val missing = group.filter { (index, _) -> fromFeed.first { it.first == index }.second == null }
         if (missing.isEmpty()) return fromFeed
-        val rescued = rescueFromPodcastIndex(loaded, missing)
+        val rescued = rescuer.rescue(
+            loaded,
+            missing.map { (index, p) ->
+                index to PodcastIndexRescuer.Query(p.pick.episodeTitle, p.pick.publishedApprox)
+            },
+        )
         return fromFeed.map { (index, id) -> index to (id ?: rescued[index]) }
-    }
-
-    /**
-     * PodcastIndex retains episodes after they roll off a short feed window; when
-     * creds are configured, look missing picks up there and insert the episode rows
-     * directly so they're playable like any feed episode.
-     */
-    private suspend fun rescueFromPodcastIndex(
-        podcast: PodcastEntity,
-        missing: List<IndexedValue<CachedRecentEpisodePick>>,
-    ): Map<Int, String> {
-        val s = settings.settings.first()
-        if (s.podcastIndexKey.isBlank() || s.podcastIndexSecret.isBlank()) return emptyMap()
-        val items = runCatching {
-            podcastIndex.episodesByFeedUrl(s.podcastIndexKey, s.podcastIndexSecret, podcast.feedUrl)
-        }.getOrNull() ?: return emptyMap()
-        val candidates = items.map {
-            RecentEpisodeMatcher.Candidate(it.title.orEmpty(), it.description, it.datePublished * 1000)
-        }
-        val rescued = mutableMapOf<Int, String>()
-        val toInsert = mutableListOf<EpisodeEntity>()
-        for ((index, p) in missing) {
-            val idx = RecentEpisodeMatcher.bestMatch(
-                title = p.pick.episodeTitle,
-                publishedApprox = p.pick.publishedApprox,
-                candidates = candidates,
-            ) ?: continue
-            val item = items[idx]
-            val audioUrl = item.enclosureUrl ?: continue
-            val episode = EpisodeEntity(
-                id = stableId(item.guid ?: audioUrl),
-                podcastId = podcast.id,
-                podcastTitle = podcast.title,
-                guid = item.guid,
-                title = item.title ?: p.pick.episodeTitle,
-                description = item.description,
-                audioUrl = audioUrl,
-                pubDateMs = item.datePublished * 1000,
-                durationMs = item.duration?.times(1000),
-                artworkUrl = item.image?.ifBlank { null } ?: podcast.artworkUrl,
-            )
-            toInsert += episode
-            rescued[index] = episode.id
-        }
-        if (toInsert.isNotEmpty()) podcasts.insertEpisodes(toInsert)
-        return rescued
     }
 }
