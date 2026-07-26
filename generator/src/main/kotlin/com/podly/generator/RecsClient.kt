@@ -50,19 +50,76 @@ enum class RecentWindow(
     }
 }
 
+/** A topic area searched with its own small API call so every genre contributes. */
+internal data class TopicArea(val label: String, val political: Boolean = false)
+
+internal val TOPIC_AREAS = listOf(
+    TopicArea("narrative and investigative storytelling"),
+    TopicArea("science, technology, and health"),
+    TopicArea("culture, society, and history"),
+    TopicArea("interviews and conversations"),
+    TopicArea("business, economics, and money"),
+    TopicArea("comedy and casual chat shows"),
+    TopicArea("sports and games"),
+    TopicArea("arts and entertainment (music, film, TV, and books)"),
+    TopicArea("news and politics", political = true),
+)
+
 /**
- * Calls Claude for the recent-episode and acclaimed lists. The prompts moved
- * here verbatim from the app's `AiRecommender`; the app no longer builds them.
+ * Round-robins across each area's picks so the list interleaves genres, drops
+ * duplicate episodes, and keeps at most [maxPerShow] episodes per podcast. The
+ * variety rules live here, in code, because prompt-level rules proved unreliable.
+ */
+internal fun mergeAreaPicks(
+    perArea: List<List<RecentEpisodePick>>,
+    maxPerShow: Int = 2,
+): List<RecentEpisodePick> {
+    fun norm(s: String) = s.lowercase().replace(Regex("[^a-z0-9]"), "")
+    val seenEpisodes = mutableSetOf<String>()
+    val perShow = mutableMapOf<String, Int>()
+    val merged = mutableListOf<RecentEpisodePick>()
+    for (round in 0 until (perArea.maxOfOrNull { it.size } ?: 0)) {
+        for (area in perArea) {
+            val pick = area.getOrNull(round) ?: continue
+            if (!seenEpisodes.add(norm(pick.podcastTitle) + "|" + norm(pick.episodeTitle))) continue
+            val show = norm(pick.podcastTitle)
+            val count = perShow.getOrDefault(show, 0)
+            if (count >= maxPerShow) continue
+            perShow[show] = count + 1
+            merged += pick
+        }
+    }
+    return merged
+}
+
+/**
+ * Calls Claude for the recent-episode and acclaimed lists.
  *
- * Unlike on-device, there's no mobile radio to keep alive, so this could relax
- * the streaming/effort caps — but the proven on-device params already produce
- * good lists, so we keep them (minus the mobile-only MEDIUM effort override).
+ * Recent episodes are gathered with one small web-search call per [TOPIC_AREAS]
+ * entry and merged in [mergeAreaPicks]: a single mega-prompt asking for 20+
+ * episodes across every genre reliably under-delivered (3-7 picks, mostly
+ * political), while a focused "3 episodes about X" ask is consistently honored.
+ * Only the politics area may return political episodes, so the merged list's
+ * political share is capped structurally rather than by instruction.
  */
 class RecsClient(apiKey: String) {
     private val client = AnthropicOkHttpClient.builder().apiKey(apiKey).build()
 
-    fun recentEpisodes(window: RecentWindow): List<RecentEpisodePick> =
-        parseArray(ask(recentPrompt(window), webSearch = true))
+    fun recentEpisodes(window: RecentWindow): List<RecentEpisodePick> {
+        val perArea = TOPIC_AREAS.map { area ->
+            runCatching { parseArray<RecentEpisodePick>(ask(areaPrompt(window, area), webSearch = true)) }
+                .onSuccess { println("[generator] ${window.name} / ${area.label}: ${it.size} picks") }
+                .onFailure { System.err.println("[generator] ${window.name} / ${area.label} failed: ${it.message}") }
+                .getOrDefault(emptyList())
+        }
+        val merged = mergeAreaPicks(perArea)
+        // Better to keep the previously published list (Main's fallback) than to
+        // deploy a near-empty one when most area calls came back thin or broken.
+        if (merged.size < MIN_FRESH_PICKS) {
+            throw IOException("Only ${merged.size} picks for ${window.name}; not worth publishing")
+        }
+        return merged
+    }
 
     fun acclaimed(): List<AcclaimedItem> =
         parseArray(ask(acclaimedPrompt(), webSearch = false))
@@ -70,7 +127,7 @@ class RecsClient(apiKey: String) {
     private fun ask(prompt: String, webSearch: Boolean): String {
         val builder = MessageCreateParams.builder()
             .model("claude-opus-4-8")
-            .maxTokens(if (webSearch) 32000L else 16000L)
+            .maxTokens(if (webSearch) 12000L else 16000L)
             .thinking(
                 ThinkingConfigAdaptive.builder()
                     .display(ThinkingConfigAdaptive.Display.SUMMARIZED)
@@ -78,7 +135,7 @@ class RecsClient(apiKey: String) {
             )
             .addUserMessage(prompt)
         if (webSearch) {
-            builder.addTool(WebSearchTool20260209.builder().maxUses(WEB_SEARCH_MAX_USES).build())
+            builder.addTool(WebSearchTool20260209.builder().maxUses(AREA_WEB_SEARCHES).build())
         }
         val params = builder.build()
         // Stream so bytes keep flowing through the long web-search turn. Streams
@@ -97,34 +154,28 @@ class RecsClient(apiKey: String) {
         }
     }
 
-    private fun recentPrompt(window: RecentWindow): String = buildString {
+    private fun areaPrompt(window: RecentWindow, area: TopicArea): String = buildString {
         appendLine("You are an expert podcast critic and curator. Today's date is ${LocalDate.now()}.")
         appendLine(
-            "Find the most worthwhile individual podcast episodes released in ${window.dateRange}. These " +
-                "episodes are more recent than your training data, so you must use web search to find " +
-                "real, specific ones — do not rely on memory. Spend your budget of " +
-                "$WEB_SEARCH_MAX_USES searches running ONE focused search for standout recent episodes " +
-                "in each of these nine areas: (1) news and politics; (2) narrative and investigative " +
-                "storytelling; (3) interviews and conversations; (4) science, technology, and health; " +
-                "(5) business, economics, and money; (6) culture, society, and history; (7) comedy and " +
-                "casual chat shows; (8) sports and games; (9) arts and entertainment (music, film, TV, " +
-                "books)."
+            "Find the 3 most worthwhile individual podcast episodes about ${area.label} released in " +
+                "${window.dateRange}. These episodes are more recent than your training data, so you " +
+                "must use web search (you have up to $AREA_WEB_SEARCHES searches) to find real, " +
+                "specific ones — do not rely on memory."
         )
+        if (!area.political) {
+            appendLine(
+                "Skip episodes centered on politics or current political news, whoever the host or " +
+                    "guest is — politics is covered separately."
+            )
+        }
         appendLine(
-            "From each search's results take the 3 strongest episodes — ones that were widely " +
-                "discussed, critically praised, deeply reported, exceptionally useful, unusually moving, " +
-                "culturally important, or (for the lighter categories) genuinely funny or fun to " +
-                "listen to. Only include an episode when the search results give you its " +
-                "real, specific title: never invent a placeholder like \"recent episode\", and never " +
-                "list a whole show or limited series as if it were a single episode. Your final list " +
-                "must contain at least 20 episodes (ideally 24-27): three from each of the nine areas " +
-                "gets you there. Keep the list genuinely varied — every area should be represented " +
-                "when its search surfaced real episodes, at most 3 episodes may be about politics or " +
-                "current political news (an interview or comedy episode centered on a politician counts " +
-                "toward that 3), and no more than 2 episodes may come from the same podcast. Every " +
-                "episode must be real and verifiable from your searches — never invent titles to reach " +
-                "the count; if one area is thin, take more from the other areas instead. Do not " +
-                "re-search to verify titles."
+            "Choose episodes that were widely discussed, critically praised, deeply reported, " +
+                "exceptionally useful, unusually moving, or genuinely fun to listen to. Only include " +
+                "an episode when the search results give you its real, specific title: never invent a " +
+                "placeholder like \"recent episode\", and never list a whole show or limited series " +
+                "as if it were a single episode. If your searches surface fewer than 3 verifiable " +
+                "episodes, return just the ones you can verify (even an empty array) rather than " +
+                "inventing any. Do not re-search to verify titles."
         )
         appendLine()
         appendLine(
@@ -162,9 +213,12 @@ class RecsClient(apiKey: String) {
     }
 
     companion object {
-        // Stays at 9 to remain under Anthropic's server-side tool-loop limit (~10),
-        // beyond which the turn pauses with pause_turn and never emits the final JSON.
-        private const val WEB_SEARCH_MAX_USES = 9L
+        // Per-area budget; must stay well under Anthropic's server-side tool-loop
+        // limit (~10), beyond which the turn pauses and never emits the final JSON.
+        private const val AREA_WEB_SEARCHES = 2L
+
+        // Below this a run isn't worth deploying over the previously published list.
+        private const val MIN_FRESH_PICKS = 12
 
         /** Tolerates code fences or stray prose around the JSON array. */
         inline fun <reified T> parseArray(raw: String): List<T> {

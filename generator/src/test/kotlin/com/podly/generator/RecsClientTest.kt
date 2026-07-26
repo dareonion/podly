@@ -46,6 +46,49 @@ class RecsClientTest {
         }
     }
 
+    private fun pick(show: String, ep: String) =
+        RecentEpisodePick(podcastTitle = show, episodeTitle = ep, reason = "Good.")
+
+    @Test
+    fun `merge interleaves areas round-robin`() {
+        val merged = mergeAreaPicks(
+            listOf(
+                listOf(pick("A", "a1"), pick("A", "a2")),
+                listOf(pick("B", "b1")),
+                listOf(pick("C", "c1"), pick("C", "c2")),
+            ),
+        )
+        assertEquals(listOf("a1", "b1", "c1", "a2", "c2"), merged.map { it.episodeTitle })
+    }
+
+    @Test
+    fun `merge drops duplicate episodes across areas`() {
+        val merged = mergeAreaPicks(
+            listOf(
+                listOf(pick("Show", "Same Episode!")),
+                listOf(pick("show", "same episode")), // differs only in case/punctuation
+            ),
+        )
+        assertEquals(1, merged.size)
+    }
+
+    @Test
+    fun `merge caps picks per show`() {
+        val merged = mergeAreaPicks(
+            listOf(
+                listOf(pick("Busy Show", "e1"), pick("Busy Show", "e2"), pick("Busy Show", "e3")),
+                listOf(pick("Other", "o1")),
+            ),
+            maxPerShow = 2,
+        )
+        assertEquals(listOf("e1", "o1", "e2"), merged.map { it.episodeTitle })
+    }
+
+    @Test
+    fun `merge of empty areas is empty`() {
+        assertEquals(0, mergeAreaPicks(listOf(emptyList(), emptyList())).size)
+    }
+
     @Test
     fun `retries transient stream errors with backoff then succeeds`() {
         val sleeps = mutableListOf<Long>()
