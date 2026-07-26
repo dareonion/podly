@@ -400,8 +400,16 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
     private suspend fun resolveEpisodeId(resolved: ResolvedRecentEpisode): String? {
         val podcast = resolved.podcast
             ?: graph.podcasts.resolveByTitle(resolved.pick.podcastTitle)
-            ?: return null
-        val loaded = runCatching { graph.podcasts.openPodcast(podcast) }.getOrNull() ?: return null
+            ?: run {
+                Log.w(TAG, "Couldn't resolve show \"${resolved.pick.podcastTitle}\" via iTunes")
+                return null
+            }
+        // A failed feed pull (offline, or an http-only host like feeds.pbs.org that
+        // Android's cleartext block makes unfetchable) mustn't skip the archive
+        // rescue below — the archives can still supply playable episodes.
+        val loaded = runCatching { graph.podcasts.openPodcast(podcast) }
+            .onFailure { Log.w(TAG, "Feed pull failed for ${podcast.title}: ${it.message}") }
+            .getOrNull() ?: podcast
         val episodes = graph.podcasts.episodesForPodcastOnce(loaded.id)
         val idx = RecentEpisodeMatcher.bestMatch(
             title = resolved.pick.episodeTitle,
