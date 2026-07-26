@@ -36,6 +36,7 @@ import com.podly.data.AiProvider
 import com.podly.data.OpmlImportResult
 import com.podly.data.PicksImportResult
 import com.podly.data.Settings
+import com.podly.network.TrendingPeriod
 import com.podly.ui.appViewModel
 import com.podly.ui.util.formatDate
 import java.io.StringReader
@@ -53,10 +54,35 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
     fun setProvider(provider: AiProvider) = viewModelScope.launch { graph.settings.setAiProvider(provider) }
     fun setAnthropicKey(key: String) = viewModelScope.launch { graph.settings.setAnthropicApiKey(key) }
     fun setOpenAiKey(key: String) = viewModelScope.launch { graph.settings.setOpenAiApiKey(key) }
-    fun setPodcastIndexCreds(key: String, secret: String) =
-        viewModelScope.launch { graph.settings.setPodcastIndexCreds(key, secret) }
-    fun setTaddyCreds(userId: String, apiKey: String) =
-        viewModelScope.launch { graph.settings.setTaddyCreds(userId, apiKey) }
+    /** Saves the creds, then proves them with a live API call; returns a status line. */
+    suspend fun saveAndVerifyPodcastIndex(key: String, secret: String): String {
+        graph.settings.setPodcastIndexCreds(key, secret)
+        if (key.isBlank() || secret.isBlank()) return "Cleared PodcastIndex keys."
+        return runCatching {
+            graph.podcastIndex.trending(key.trim(), secret.trim(), TrendingPeriod.NOW)
+        }.fold(
+            { "Saved — PodcastIndex accepted the keys." },
+            { "Saved, but the key check failed: ${it.message ?: "unknown error"}" },
+        )
+    }
+
+    suspend fun saveAndVerifyTaddy(userId: String, apiKey: String): String {
+        graph.settings.setTaddyCreds(userId, apiKey)
+        if (userId.isBlank() || apiKey.isBlank()) return "Cleared Taddy keys."
+        return runCatching {
+            graph.taddy.episodesByFeedUrl(userId.trim(), apiKey.trim(), TADDY_TEST_FEED, limit = 1)
+        }.fold(
+            { "Saved — Taddy accepted the key." },
+            {
+                val hint = if (!userId.trim().all(Char::isDigit)) {
+                    " (The user ID is the number on your taddy.org dashboard, not your email.)"
+                } else {
+                    ""
+                }
+                "Saved, but the key check failed: ${it.message ?: "unknown error"}$hint"
+            },
+        )
+    }
     fun setSeekIncrements(back: Int, forward: Int) =
         viewModelScope.launch { graph.settings.setSeekIncrements(back, forward) }
     fun setDownloadWifiOnly(wifiOnly: Boolean) =
@@ -77,6 +103,11 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
             json = text,
             fallbackName = "Imported picks · ${formatDate(System.currentTimeMillis())}",
         )
+
+    companion object {
+        // Any feed Taddy knows works here: bad creds error before the lookup happens.
+        const val TADDY_TEST_FEED = "https://feeds.simplecast.com/54nAGcIl" // The Daily
+    }
 }
 
 @Composable
@@ -92,6 +123,9 @@ fun SettingsScreen() {
     var piSecret by remember { mutableStateOf("") }
     var taddyUserId by remember { mutableStateOf("") }
     var taddyApiKey by remember { mutableStateOf("") }
+    var aiKeysStatus by remember { mutableStateOf<String?>(null) }
+    var piStatus by remember { mutableStateOf<String?>(null) }
+    var taddyStatus by remember { mutableStateOf<String?>(null) }
     var opmlStatus by remember { mutableStateOf<String?>(null) }
     var pendingOpmlExport by remember { mutableStateOf<String?>(null) }
     val exportOpmlLauncher = rememberLauncherForActivityResult(
@@ -220,7 +254,11 @@ fun SettingsScreen() {
         Button(onClick = {
             viewModel.setAnthropicKey(anthropicKey)
             viewModel.setOpenAiKey(openAiKey)
+            aiKeysStatus = "Saved."
         }) { Text("Save AI keys") }
+        aiKeysStatus?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
 
         HorizontalDivider()
 
@@ -244,23 +282,32 @@ fun SettingsScreen() {
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        Button(onClick = { viewModel.setPodcastIndexCreds(piKey, piSecret) }) {
+        Button(onClick = {
+            scope.launch {
+                piStatus = "Checking keys with PodcastIndex…"
+                piStatus = viewModel.saveAndVerifyPodcastIndex(piKey, piSecret)
+            }
+        }) {
             Text("Save PodcastIndex keys")
+        }
+        piStatus?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         HorizontalDivider()
 
         Text("Taddy (recover rolled-off episodes)", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Sign up free at taddy.org for a user ID and API key. Used to find recommended " +
-                "episodes that a show has dropped from its RSS feed.",
+            "Sign up free at taddy.org for a user ID and API key. The user ID is the number " +
+                "on your Taddy dashboard, not your email. Used to find recommended episodes " +
+                "that a show has dropped from its RSS feed.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OutlinedTextField(
             value = taddyUserId,
             onValueChange = { taddyUserId = it },
-            label = { Text("User ID") },
+            label = { Text("User ID (numeric)") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -271,8 +318,16 @@ fun SettingsScreen() {
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        Button(onClick = { viewModel.setTaddyCreds(taddyUserId, taddyApiKey) }) {
+        Button(onClick = {
+            scope.launch {
+                taddyStatus = "Checking key with Taddy…"
+                taddyStatus = viewModel.saveAndVerifyTaddy(taddyUserId, taddyApiKey)
+            }
+        }) {
             Text("Save Taddy keys")
+        }
+        taddyStatus?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         HorizontalDivider()

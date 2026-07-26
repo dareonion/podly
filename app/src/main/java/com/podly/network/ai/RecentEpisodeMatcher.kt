@@ -51,7 +51,14 @@ object RecentEpisodeMatcher {
                 overlap(wantedTokens, tokens(c.title)),
                 descOverlap,
             )
-            val score = titleScore + (approx?.let { dateScore(it, c.pubDateMs) } ?: 0.0)
+            // Date proximity boosts a plausible title but can never carry a match alone:
+            // a short-window weekly show publishes every episode "near" the pick's date,
+            // so date-only scoring swaps in whatever unrelated episode ran that week.
+            val score = if (titleScore > 0) {
+                titleScore + (approx?.let { dateScore(it, c.pubDateMs) } ?: 0.0)
+            } else {
+                0.0
+            }
             if (score > bestScore) {
                 bestScore = score
                 bestIdx = i

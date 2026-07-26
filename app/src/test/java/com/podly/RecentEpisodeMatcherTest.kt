@@ -86,6 +86,23 @@ class RecentEpisodeMatcherTest {
     }
 
     @Test
+    fun `same-day date alone with no title overlap is rejected`() {
+        // Real regression: the Robby Hoffman pick had rolled off The Interview's feed,
+        // and same-day date proximity alone (0.5 > threshold) matched the unrelated
+        // Mick Jagger episode that was still in the feed.
+        val candidates = listOf(
+            Candidate("Mick Jagger Can't Stop Moving", null, dayMs("2026-07-18")),
+            Candidate("A Conversation About the Economy", null, dayMs("2026-07-11")),
+        )
+        val idx = RecentEpisodeMatcher.bestMatch(
+            "Robby Hoffman Is Trying Her Best",
+            "2026-07-18",
+            candidates,
+        )
+        assertNull(idx)
+    }
+
+    @Test
     fun `unrelated episodes far from the date are rejected`() {
         val candidates = listOf(
             Candidate("A totally different show topic about gardening", null, dayMs("2026-01-01")),

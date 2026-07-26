@@ -1,8 +1,11 @@
 package com.podly.data
 
+import android.util.Log
 import com.podly.network.PodcastIndexApi
 import com.podly.network.TaddyApi
 import kotlinx.coroutines.flow.first
+
+private const val TAG = "EpisodeArchive"
 
 /** A podcast episode from an archive provider, normalized across providers. Times in ms. */
 data class ArchiveEpisode(
@@ -35,8 +38,13 @@ class TaddyArchive(
 
     override suspend fun episodesByFeedUrl(feedUrl: String): List<ArchiveEpisode>? {
         val s = settings.settings.first()
-        if (s.taddyUserId.isBlank() || s.taddyApiKey.isBlank()) return null
+        if (s.taddyUserId.isBlank() || s.taddyApiKey.isBlank()) {
+            Log.i(TAG, "Taddy skipped for $feedUrl: no creds configured")
+            return null
+        }
         return runCatching { api.episodesByFeedUrl(s.taddyUserId, s.taddyApiKey, feedUrl) }
+            .onSuccess { Log.i(TAG, "Taddy returned ${it.size} episodes for $feedUrl") }
+            .onFailure { Log.w(TAG, "Taddy lookup failed for $feedUrl: ${it.message}") }
             .getOrNull()
             ?.map {
                 ArchiveEpisode(
@@ -61,8 +69,13 @@ class PodcastIndexArchive(
 
     override suspend fun episodesByFeedUrl(feedUrl: String): List<ArchiveEpisode>? {
         val s = settings.settings.first()
-        if (s.podcastIndexKey.isBlank() || s.podcastIndexSecret.isBlank()) return null
+        if (s.podcastIndexKey.isBlank() || s.podcastIndexSecret.isBlank()) {
+            Log.i(TAG, "PodcastIndex skipped for $feedUrl: no creds configured")
+            return null
+        }
         return runCatching { api.episodesByFeedUrl(s.podcastIndexKey, s.podcastIndexSecret, feedUrl) }
+            .onSuccess { Log.i(TAG, "PodcastIndex returned ${it.size} episodes for $feedUrl") }
+            .onFailure { Log.w(TAG, "PodcastIndex lookup failed for $feedUrl: ${it.message}") }
             .getOrNull()
             ?.map {
                 ArchiveEpisode(

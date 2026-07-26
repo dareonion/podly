@@ -24,7 +24,13 @@ data class TaddyEpisode(
 )
 
 @Serializable
-private data class TaddyResponse(val data: TaddyData? = null)
+private data class TaddyError(val message: String? = null, val code: String? = null)
+
+@Serializable
+private data class TaddyResponse(
+    val data: TaddyData? = null,
+    val errors: List<TaddyError> = emptyList(),
+)
 
 @Serializable
 private data class TaddyData(val getPodcastSeries: TaddySeries? = null)
@@ -72,8 +78,17 @@ class TaddyApi {
     }
 
     companion object {
-        /** Extracts the episode list from a Taddy GraphQL response body. */
-        fun parse(json: String): List<TaddyEpisode> =
-            Http.json.decodeFromString<TaddyResponse>(json).data?.getPodcastSeries?.episodes.orEmpty()
+        /**
+         * Extracts the episode list from a Taddy GraphQL response body. GraphQL errors
+         * arrive as HTTP 200 + an `errors` array (e.g. API_KEY_INVALID for bad creds),
+         * so they must throw here — an empty list means "Taddy doesn't know this feed".
+         */
+        fun parse(json: String): List<TaddyEpisode> {
+            val response = Http.json.decodeFromString<TaddyResponse>(json)
+            response.errors.firstOrNull()?.let {
+                throw IOException("Taddy ${it.code ?: "error"}: ${it.message ?: "unknown error"}")
+            }
+            return response.data?.getPodcastSeries?.episodes.orEmpty()
+        }
     }
 }

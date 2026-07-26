@@ -1,8 +1,10 @@
 package com.podly
 
 import com.podly.network.TaddyApi
+import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -30,6 +32,18 @@ class TaddyApiTest {
     fun `returns empty when the series is not found`() {
         assertTrue(TaddyApi.parse("""{"data":{"getPodcastSeries":null}}""").isEmpty())
         assertTrue(TaddyApi.parse("""{"data":null}""").isEmpty())
+    }
+
+    @Test
+    fun `throws on a graphql error response`() {
+        // Taddy reports bad creds as HTTP 200 + errors; parse must not read that as
+        // "no episodes" or the archive fallback chain hides the misconfiguration.
+        val json = """
+            {"errors":[{"message":"The X-API-KEY or X-USER-ID headers are missing or invalid.",
+              "code":"API_KEY_INVALID"}]}
+        """.trimIndent()
+        val e = assertThrows(IOException::class.java) { TaddyApi.parse(json) }
+        assertTrue(e.message!!.contains("API_KEY_INVALID"))
     }
 
     @Test
