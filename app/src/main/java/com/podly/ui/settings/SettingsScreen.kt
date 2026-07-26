@@ -36,11 +36,14 @@ import androidx.lifecycle.viewModelScope
 import com.podly.AppGraph
 import com.podly.data.AiProvider
 import com.podly.data.OpmlImportResult
+import com.podly.data.PicksImportFile
 import com.podly.data.PicksImportResult
 import com.podly.data.Settings
+import com.podly.network.Http
 import com.podly.network.TrendingPeriod
 import com.podly.ui.appViewModel
 import com.podly.ui.util.formatDate
+import java.io.File
 import java.io.StringReader
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.Dispatchers
@@ -106,7 +109,40 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
             fallbackName = "Imported picks · ${formatDate(System.currentTimeMillis())}",
         )
 
+    /** One previously pasted picks JSON, reloadable into the paste box. */
+    data class PasteEntry(val fileName: String, val label: String)
+
+    private val pasteDir get() = File(graph.appContext.filesDir, "picks_pastes")
+
+    suspend fun pasteHistory(): List<PasteEntry> = withContext(Dispatchers.IO) {
+        pasteDir.listFiles().orEmpty()
+            .sortedByDescending { it.name }
+            .map { file ->
+                val date = file.name.removeSuffix(".json").toLongOrNull()?.let { formatDate(it) }
+                val name = runCatching {
+                    Http.json.decodeFromString<PicksImportFile>(file.readText()).name
+                }.getOrNull()?.takeIf { it.isNotBlank() }
+                PasteEntry(file.name, listOfNotNull(name ?: "Pasted picks", date).joinToString(" · "))
+            }
+    }
+
+    suspend fun readPaste(fileName: String): String = withContext(Dispatchers.IO) {
+        File(pasteDir, fileName).readText()
+    }
+
+    /** Records a paste before import (kept even if the import fails), pruned to the newest [MAX_PASTES]. */
+    suspend fun savePaste(text: String): Unit = withContext(Dispatchers.IO) {
+        pasteDir.mkdirs()
+        File(pasteDir, "${System.currentTimeMillis()}.json").writeText(text)
+        pasteDir.listFiles().orEmpty()
+            .sortedByDescending { it.name }
+            .drop(MAX_PASTES)
+            .forEach { it.delete() }
+    }
+
     companion object {
+        private const val MAX_PASTES = 20
+
         // Any feed Taddy knows works here: bad creds error before the lookup happens.
         const val TADDY_TEST_FEED = "https://feeds.simplecast.com/54nAGcIl" // The Daily
     }
@@ -214,6 +250,7 @@ fun SettingsScreen() {
     }
     var showPastePicksDialog by remember { mutableStateOf(false) }
     var pastedPicks by remember { mutableStateOf("") }
+    var pasteHistory by remember { mutableStateOf<List<SettingsViewModel.PasteEntry>>(emptyList()) }
     LaunchedEffect(settings) {
         anthropicKey = settings.anthropicApiKey
         openAiKey = settings.openAiApiKey
@@ -389,7 +426,11 @@ fun SettingsScreen() {
             Button(onClick = { importPicksLauncher.launch(arrayOf("application/json", "text/*", "*/*")) }) {
                 Text("Import picks JSON")
             }
-            Button(onClick = { showPastePicksDialog = true }) {
+            Button(onClick = {
+                pastedPicks = "" // fresh box each open; earlier pastes live in the history below
+                showPastePicksDialog = true
+                scope.launch { pasteHistory = viewModel.pasteHistory() }
+            }) {
                 Text("Paste picks JSON")
             }
         }
@@ -398,23 +439,41 @@ fun SettingsScreen() {
                 onDismissRequest = { showPastePicksDialog = false },
                 title = { Text("Paste picks JSON") },
                 text = {
-                    OutlinedTextField(
-                        value = pastedPicks,
-                        onValueChange = { pastedPicks = it },
-                        label = { Text("Picks JSON") },
-                        minLines = 6,
-                        maxLines = 12,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        OutlinedTextField(
+                            value = pastedPicks,
+                            onValueChange = { pastedPicks = it },
+                            label = { Text("Picks JSON") },
+                            minLines = 6,
+                            maxLines = 10,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        if (pasteHistory.isNotEmpty()) {
+                            Text(
+                                "Previous pastes",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            pasteHistory.take(5).forEach { entry ->
+                                TextButton(onClick = {
+                                    scope.launch { pastedPicks = viewModel.readPaste(entry.fileName) }
+                                }) {
+                                    Text(entry.label, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
                 },
                 confirmButton = {
                     TextButton(
                         enabled = pastedPicks.isNotBlank(),
                         onClick = {
                             showPastePicksDialog = false
-                            // Kept on failure so a fix-and-retry doesn't need re-pasting.
                             val text = pastedPicks
-                            runPicksImport { text }
+                            runPicksImport {
+                                viewModel.savePaste(text)
+                                text
+                            }
                         },
                     ) { Text("Import") }
                 },

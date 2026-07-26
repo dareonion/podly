@@ -51,14 +51,24 @@ class PodcastRepository(
      * silently attached to AI picks, linking them to the wrong show.
      */
     suspend fun resolveByTitle(title: String): PodcastEntity? =
-        runCatching { search(title) }.getOrNull()?.let { results ->
-            val wanted = title.trim().lowercase()
-            results.firstOrNull { it.title.trim().lowercase() == wanted }
-                ?: results.firstOrNull {
-                    val have = it.title.trim().lowercase()
-                    have.contains(wanted) || wanted.contains(have)
-                }
+        resolveCandidatesByTitle(title, limit = 1).firstOrNull()
+
+    /**
+     * All plausible directory matches for [title], exact title matches first.
+     * Unrelated shows can share a title verbatim (three different podcasts are
+     * named "Buried"), so callers with episode context should try each candidate
+     * until one's feed actually contains the episodes they expect.
+     */
+    suspend fun resolveCandidatesByTitle(title: String, limit: Int = 3): List<PodcastEntity> {
+        val results = runCatching { search(title) }.getOrNull().orEmpty()
+        val wanted = title.trim().lowercase()
+        val (exact, rest) = results.partition { it.title.trim().lowercase() == wanted }
+        val containment = rest.filter {
+            val have = it.title.trim().lowercase()
+            have.contains(wanted) || wanted.contains(have)
         }
+        return (exact + containment).take(limit)
+    }
 
     /**
      * Ensures the podcast row exists locally (e.g. after tapping a search result)

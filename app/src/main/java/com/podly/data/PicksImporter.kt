@@ -1,5 +1,6 @@
 package com.podly.data
 
+import com.podly.data.db.PodcastEntity
 import com.podly.network.Http
 import com.podly.network.ai.RecentEpisodeMatcher
 import kotlinx.coroutines.async
@@ -74,17 +75,43 @@ class PicksImporter(
         group: List<IndexedValue<CachedRecentEpisodePick>>,
     ): List<Pair<Int, String?>> {
         val first = group.first().value
-        val podcast = first.toPodcastOrNull()
-            ?: podcasts.resolveByTitle(first.pick.podcastTitle)
-            ?: return group.map { it.index to null }
-        // A failed refresh (offline, blocked or vanished feed) shouldn't sink the
-        // group when earlier pulls already cached the episodes.
-        val loaded = runCatching { podcasts.openPodcast(podcast) }.getOrNull() ?: podcast
-        val episodes = podcasts.episodesForPodcastOnce(loaded.id)
+        // Unrelated shows can share an exact title, so when the pick doesn't embed
+        // its podcast, try each directory candidate and keep the first whose feed
+        // actually contains a picked episode.
+        val candidates = first.toPodcastOrNull()?.let(::listOf)
+            ?: podcasts.resolveCandidatesByTitle(first.pick.podcastTitle)
+        for (candidate in candidates) {
+            // A failed refresh (offline, blocked or vanished feed) shouldn't sink
+            // the group when earlier pulls already cached the episodes.
+            val loaded = runCatching { podcasts.openPodcast(candidate) }.getOrNull() ?: candidate
+            val fromFeed = matchAgainstFeed(group, loaded)
+            if (fromFeed.any { (_, id) -> id != null }) {
+                return rescueMissing(loaded, group, fromFeed)
+            }
+        }
+        // No candidate's feed matched anything (short window, or the feed is
+        // unfetchable); rescue against each candidate's archive in turn.
+        for (candidate in candidates) {
+            val rescued = rescuer.rescue(
+                candidate,
+                group.map { (index, p) ->
+                    index to ArchiveRescuer.Query(p.pick.episodeTitle, p.pick.publishedApprox)
+                },
+            )
+            if (rescued.isNotEmpty()) return group.map { (index, _) -> index to rescued[index] }
+        }
+        return group.map { it.index to null }
+    }
+
+    private suspend fun matchAgainstFeed(
+        group: List<IndexedValue<CachedRecentEpisodePick>>,
+        podcast: PodcastEntity,
+    ): List<Pair<Int, String?>> {
+        val episodes = podcasts.episodesForPodcastOnce(podcast.id)
         val candidates = episodes.map {
             RecentEpisodeMatcher.Candidate(it.title, it.description, it.pubDateMs)
         }
-        val fromFeed = group.map { (index, p) ->
+        return group.map { (index, p) ->
             val match = RecentEpisodeMatcher.bestMatch(
                 title = p.pick.episodeTitle,
                 publishedApprox = p.pick.publishedApprox,
@@ -92,10 +119,17 @@ class PicksImporter(
             )
             index to match?.let { episodes[it].id }
         }
+    }
+
+    private suspend fun rescueMissing(
+        podcast: PodcastEntity,
+        group: List<IndexedValue<CachedRecentEpisodePick>>,
+        fromFeed: List<Pair<Int, String?>>,
+    ): List<Pair<Int, String?>> {
         val missing = group.filter { (index, _) -> fromFeed.first { it.first == index }.second == null }
         if (missing.isEmpty()) return fromFeed
         val rescued = rescuer.rescue(
-            loaded,
+            podcast,
             missing.map { (index, p) ->
                 index to ArchiveRescuer.Query(p.pick.episodeTitle, p.pick.publishedApprox)
             },
