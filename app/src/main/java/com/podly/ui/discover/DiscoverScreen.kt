@@ -46,7 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import coil.compose.AsyncImage
 import com.podly.AppGraph
-import com.podly.data.PodcastIndexRescuer
+import com.podly.data.ArchiveRescuer
 import com.podly.data.db.PodcastEntity
 import com.podly.data.db.stableId
 import com.podly.network.TrendingPeriod
@@ -106,6 +106,8 @@ data class DiscoverUiState(
     val trending: List<TrendingPodcast> = emptyList(),
     val trendingLoading: Boolean = false,
     val hasPodcastIndexCreds: Boolean = false,
+    // Any archive provider (Taddy or PodcastIndex) configured — drives the rescue hint.
+    val hasArchiveCreds: Boolean = false,
     val recommendations: List<ResolvedRecommendation>? = null,
     val recsLoading: Boolean = false,
     val recsGeneratedAtMs: Long = 0,
@@ -134,11 +136,10 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
     init {
         viewModelScope.launch {
             graph.settings.settings.collect { settings ->
+                val hasPi = settings.podcastIndexKey.isNotBlank() && settings.podcastIndexSecret.isNotBlank()
+                val hasTaddy = settings.taddyUserId.isNotBlank() && settings.taddyApiKey.isNotBlank()
                 _state.update {
-                    it.copy(
-                        hasPodcastIndexCreds =
-                            settings.podcastIndexKey.isNotBlank() && settings.podcastIndexSecret.isNotBlank()
-                    )
+                    it.copy(hasPodcastIndexCreds = hasPi, hasArchiveCreds = hasPi || hasTaddy)
                 }
             }
         }
@@ -414,7 +415,7 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
         // newest episodes. Fall back to PodcastIndex's archive (needs the user's creds).
         val rescued = graph.picksRescuer.rescue(
             loaded,
-            listOf(Unit to PodcastIndexRescuer.Query(resolved.pick.episodeTitle, resolved.pick.publishedApprox)),
+            listOf(Unit to ArchiveRescuer.Query(resolved.pick.episodeTitle, resolved.pick.publishedApprox)),
         )[Unit]
         if (rescued == null) {
             Log.w(TAG, "No feed or archive match for \"${resolved.pick.episodeTitle}\" in ${loaded.title}")
@@ -731,10 +732,10 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit, onOpenPlaylist: (Long) -> Un
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    if (!state.hasPodcastIndexCreds) {
+                                    if (!state.hasArchiveCreds) {
                                         Text(
-                                            "Some shows only publish their newest episodes. Add free " +
-                                                "PodcastIndex API keys in Settings to pull older ones from its archive.",
+                                            "Some shows only publish their newest episodes. Add a free " +
+                                                "Taddy or PodcastIndex API key in Settings to pull older ones from an archive.",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )

@@ -40,7 +40,7 @@ data class PicksImportResult(
 class PicksImporter(
     private val podcasts: PodcastRepository,
     private val playlists: PlaylistRepository,
-    private val rescuer: PodcastIndexRescuer,
+    private val rescuer: ArchiveRescuer,
 ) {
     suspend fun import(json: String, fallbackName: String): PicksImportResult {
         val file = Http.json.decodeFromString<PicksImportFile>(json)
@@ -97,7 +97,7 @@ class PicksImporter(
         val rescued = rescuer.rescue(
             loaded,
             missing.map { (index, p) ->
-                index to PodcastIndexRescuer.Query(p.pick.episodeTitle, p.pick.publishedApprox)
+                index to ArchiveRescuer.Query(p.pick.episodeTitle, p.pick.publishedApprox)
             },
         )
         return fromFeed.map { (index, id) -> index to (id ?: rescued[index]) }

@@ -18,6 +18,8 @@ data class Settings(
     val openAiApiKey: String = "",
     val podcastIndexKey: String = "",
     val podcastIndexSecret: String = "",
+    val taddyUserId: String = "",
+    val taddyApiKey: String = "",
     val seekBackSeconds: Int = 10,
     val seekForwardSeconds: Int = 30,
     val downloadWifiOnly: Boolean = false,
@@ -36,6 +38,8 @@ class SettingsRepository(private val context: Context) {
         val OPENAI_KEY = stringPreferencesKey("openai_api_key")
         val PI_KEY = stringPreferencesKey("podcastindex_key")
         val PI_SECRET = stringPreferencesKey("podcastindex_secret")
+        val TADDY_USER_ID = stringPreferencesKey("taddy_user_id")
+        val TADDY_API_KEY = stringPreferencesKey("taddy_api_key")
         val SEEK_BACK = intPreferencesKey("seek_back_seconds")
         val SEEK_FORWARD = intPreferencesKey("seek_forward_seconds")
         val DOWNLOAD_WIFI_ONLY = booleanPreferencesKey("download_wifi_only")
@@ -51,6 +55,8 @@ class SettingsRepository(private val context: Context) {
             openAiApiKey = prefs[Keys.OPENAI_KEY] ?: "",
             podcastIndexKey = prefs[Keys.PI_KEY] ?: "",
             podcastIndexSecret = prefs[Keys.PI_SECRET] ?: "",
+            taddyUserId = prefs[Keys.TADDY_USER_ID] ?: "",
+            taddyApiKey = prefs[Keys.TADDY_API_KEY] ?: "",
             seekBackSeconds = prefs[Keys.SEEK_BACK] ?: 10,
             seekForwardSeconds = prefs[Keys.SEEK_FORWARD] ?: 30,
             downloadWifiOnly = prefs[Keys.DOWNLOAD_WIFI_ONLY] ?: false,
@@ -74,6 +80,12 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit {
             it[Keys.PI_KEY] = key.trim()
             it[Keys.PI_SECRET] = secret.trim()
+        }
+
+    suspend fun setTaddyCreds(userId: String, apiKey: String) =
+        context.dataStore.edit {
+            it[Keys.TADDY_USER_ID] = userId.trim()
+            it[Keys.TADDY_API_KEY] = apiKey.trim()
         }
 
     suspend fun setSeekIncrements(backSeconds: Int, forwardSeconds: Int) =

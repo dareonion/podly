@@ -2,8 +2,11 @@ package com.podly
 
 import android.content.Context
 import com.podly.data.AiPicksCache
+import com.podly.data.ArchiveRescuer
 import com.podly.data.PicksImporter
-import com.podly.data.PodcastIndexRescuer
+import com.podly.data.PodcastIndexArchive
+import com.podly.data.TaddyArchive
+import com.podly.network.TaddyApi
 import com.podly.data.PlaybackStateStore
 import com.podly.data.PlaylistRepository
 import com.podly.data.PodcastRepository
@@ -40,8 +43,13 @@ class AppGraph(private val context: Context) {
         Downloader(context, settings, database.podcastDao(), database.episodeDao())
     val appleCharts: AppleChartsApi = AppleChartsApi()
     val podcastIndex: PodcastIndexApi = PodcastIndexApi()
-    // Looks rolled-off picks up in PodcastIndex's archive; shared by import + Discover save.
-    val picksRescuer: PodcastIndexRescuer = PodcastIndexRescuer(podcasts, podcastIndex, settings)
+    val taddy: TaddyApi = TaddyApi()
+    // Recovers picks that rolled off a short feed. Tries whichever archive is configured
+    // (Taddy first, then PodcastIndex), falling through on missing creds / errors / limits.
+    val picksRescuer: ArchiveRescuer = ArchiveRescuer(
+        podcasts,
+        listOf(TaddyArchive(taddy, settings), PodcastIndexArchive(podcastIndex, settings)),
+    )
     val picksImporter: PicksImporter = PicksImporter(podcasts, playlists, picksRescuer)
     val aiRecommender: AiRecommender =
         AiRecommender(settings, database.podcastDao(), database.episodeDao())

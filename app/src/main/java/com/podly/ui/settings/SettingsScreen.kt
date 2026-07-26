@@ -55,6 +55,8 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
     fun setOpenAiKey(key: String) = viewModelScope.launch { graph.settings.setOpenAiApiKey(key) }
     fun setPodcastIndexCreds(key: String, secret: String) =
         viewModelScope.launch { graph.settings.setPodcastIndexCreds(key, secret) }
+    fun setTaddyCreds(userId: String, apiKey: String) =
+        viewModelScope.launch { graph.settings.setTaddyCreds(userId, apiKey) }
     fun setSeekIncrements(back: Int, forward: Int) =
         viewModelScope.launch { graph.settings.setSeekIncrements(back, forward) }
     fun setDownloadWifiOnly(wifiOnly: Boolean) =
@@ -88,6 +90,8 @@ fun SettingsScreen() {
     var openAiKey by remember { mutableStateOf("") }
     var piKey by remember { mutableStateOf("") }
     var piSecret by remember { mutableStateOf("") }
+    var taddyUserId by remember { mutableStateOf("") }
+    var taddyApiKey by remember { mutableStateOf("") }
     var opmlStatus by remember { mutableStateOf<String?>(null) }
     var pendingOpmlExport by remember { mutableStateOf<String?>(null) }
     val exportOpmlLauncher = rememberLauncherForActivityResult(
@@ -173,6 +177,8 @@ fun SettingsScreen() {
         openAiKey = settings.openAiApiKey
         piKey = settings.podcastIndexKey
         piSecret = settings.podcastIndexSecret
+        taddyUserId = settings.taddyUserId
+        taddyApiKey = settings.taddyApiKey
     }
 
     Column(
@@ -240,6 +246,33 @@ fun SettingsScreen() {
         )
         Button(onClick = { viewModel.setPodcastIndexCreds(piKey, piSecret) }) {
             Text("Save PodcastIndex keys")
+        }
+
+        HorizontalDivider()
+
+        Text("Taddy (recover rolled-off episodes)", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Sign up free at taddy.org for a user ID and API key. Used to find recommended " +
+                "episodes that a show has dropped from its RSS feed.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = taddyUserId,
+            onValueChange = { taddyUserId = it },
+            label = { Text("User ID") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = taddyApiKey,
+            onValueChange = { taddyApiKey = it },
+            label = { Text("API key") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Button(onClick = { viewModel.setTaddyCreds(taddyUserId, taddyApiKey) }) {
+            Text("Save Taddy keys")
         }
 
         HorizontalDivider()
