@@ -56,9 +56,12 @@ class TaddyApi {
         limit: Int = 25,
     ): List<TaddyEpisode> = withContext(Dispatchers.IO) {
         // Pass the feed URL as a variable so it needn't be escaped into the query.
-        val query = "query(\$url:String!){getPodcastSeries(rssUrl:\$url){" +
+        // Taddy requires every type's selection to include `uuid` ("The type
+        // PodcastSeries is required to return the property uuid"), so both levels
+        // select it even though we only parse the episode fields we use.
+        val query = "query(\$url:String!){getPodcastSeries(rssUrl:\$url){uuid " +
             "episodes(sortOrder:LATEST,limitPerPage:$limit){" +
-            "name description audioUrl datePublished duration guid imageUrl}}}"
+            "uuid name description audioUrl datePublished duration guid imageUrl}}}"
         val payload = buildJsonObject {
             put("query", query)
             putJsonObject("variables") { put("url", feedUrl) }
