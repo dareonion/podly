@@ -23,6 +23,15 @@ data class TaddyEpisode(
     val imageUrl: String? = null,
 )
 
+/** A series as Taddy knows it; [rssUrl] may differ from the URL we looked up. */
+@Serializable
+data class TaddySeries(
+    val uuid: String? = null,
+    val name: String? = null,
+    val rssUrl: String? = null,
+    val episodes: List<TaddyEpisode> = emptyList(),
+)
+
 @Serializable
 private data class TaddyError(val message: String? = null, val code: String? = null)
 
@@ -35,36 +44,49 @@ private data class TaddyResponse(
 @Serializable
 private data class TaddyData(val getPodcastSeries: TaddySeries? = null)
 
-@Serializable
-private data class TaddySeries(val episodes: List<TaddyEpisode> = emptyList())
-
 /**
  * Taddy podcast API (GraphQL). Used to look up a show's recent episodes — including
- * ones that have rolled off its RSS feed — by feed URL. Creds (a numeric user id and
- * an API key from taddy.org) are user-supplied; auth is the `X-USER-ID` / `X-API-KEY`
- * headers.
+ * ones that have rolled off its RSS feed — by feed URL or by name. Creds (a numeric
+ * user id and an API key from taddy.org) are user-supplied; auth is the `X-USER-ID` /
+ * `X-API-KEY` headers.
  */
 class TaddyApi {
     /**
-     * Latest [limit] episodes for [feedUrl] from Taddy's archive (newest first).
-     * Throws on HTTP/GraphQL errors so the caller can fall back to another provider.
+     * The series (with its latest [limit] episodes, newest first) for [feedUrl], or
+     * null if Taddy doesn't index that URL. Throws on HTTP/GraphQL errors so the
+     * caller can fall back to another provider.
      */
-    suspend fun episodesByFeedUrl(
+    suspend fun seriesByFeedUrl(
         userId: String,
         apiKey: String,
         feedUrl: String,
         limit: Int = 25,
-    ): List<TaddyEpisode> = withContext(Dispatchers.IO) {
-        // Pass the feed URL as a variable so it needn't be escaped into the query.
+    ): TaddySeries? = lookup(userId, apiKey, "rssUrl", feedUrl, limit)
+
+    /** As [seriesByFeedUrl], but by show name (Taddy picks the most popular match). */
+    suspend fun seriesByName(
+        userId: String,
+        apiKey: String,
+        name: String,
+        limit: Int = 25,
+    ): TaddySeries? = lookup(userId, apiKey, "name", name, limit)
+
+    private suspend fun lookup(
+        userId: String,
+        apiKey: String,
+        argName: String,
+        argValue: String,
+        limit: Int,
+    ): TaddySeries? = withContext(Dispatchers.IO) {
+        // Pass the lookup value as a variable so it needn't be escaped into the query.
         // Taddy requires every type's selection to include `uuid` ("The type
-        // PodcastSeries is required to return the property uuid"), so both levels
-        // select it even though we only parse the episode fields we use.
-        val query = "query(\$url:String!){getPodcastSeries(rssUrl:\$url){uuid " +
+        // PodcastSeries is required to return the property uuid").
+        val query = "query(\$v:String!){getPodcastSeries($argName:\$v){uuid name rssUrl " +
             "episodes(sortOrder:LATEST,limitPerPage:$limit){" +
             "uuid name description audioUrl datePublished duration guid imageUrl}}}"
         val payload = buildJsonObject {
             put("query", query)
-            putJsonObject("variables") { put("url", feedUrl) }
+            putJsonObject("variables") { put("v", argValue) }
         }
         val request = Request.Builder()
             .url("https://api.taddy.org")
@@ -82,16 +104,17 @@ class TaddyApi {
 
     companion object {
         /**
-         * Extracts the episode list from a Taddy GraphQL response body. GraphQL errors
-         * arrive as HTTP 200 + an `errors` array (e.g. API_KEY_INVALID for bad creds),
-         * so they must throw here — an empty list means "Taddy doesn't know this feed".
+         * Extracts the series from a Taddy GraphQL response body; null means Taddy
+         * doesn't know the show. GraphQL errors arrive as HTTP 200 + an `errors`
+         * array (e.g. API_KEY_INVALID for bad creds), so they must throw here rather
+         * than read as "not found".
          */
-        fun parse(json: String): List<TaddyEpisode> {
+        fun parse(json: String): TaddySeries? {
             val response = Http.json.decodeFromString<TaddyResponse>(json)
             response.errors.firstOrNull()?.let {
                 throw IOException("Taddy ${it.code ?: "error"}: ${it.message ?: "unknown error"}")
             }
-            return response.data?.getPodcastSeries?.episodes.orEmpty()
+            return response.data?.getPodcastSeries
         }
     }
 }

@@ -29,7 +29,7 @@ class ArchiveRescuer(
     suspend fun <K> rescue(podcast: PodcastEntity, missing: List<Pair<K, Query>>): Map<K, String> {
         if (missing.isEmpty()) return emptyMap()
         val items = archives.firstNotNullOfOrNull { archive ->
-            archive.episodesByFeedUrl(podcast.feedUrl)?.takeIf { it.isNotEmpty() }
+            archive.episodesFor(podcast.feedUrl, podcast.title)?.takeIf { it.isNotEmpty() }
         } ?: return emptyMap()
         val candidates = items.map {
             RecentEpisodeMatcher.Candidate(it.title.orEmpty(), it.description, it.datePublishedMs)

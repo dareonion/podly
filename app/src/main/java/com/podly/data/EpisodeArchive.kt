@@ -3,6 +3,7 @@ package com.podly.data
 import android.util.Log
 import com.podly.network.PodcastIndexApi
 import com.podly.network.TaddyApi
+import com.podly.network.TaddySeries
 import kotlinx.coroutines.flow.first
 
 private const val TAG = "EpisodeArchive"
@@ -26,7 +27,9 @@ data class ArchiveEpisode(
  */
 interface EpisodeArchive {
     val name: String
-    suspend fun episodesByFeedUrl(feedUrl: String): List<ArchiveEpisode>?
+
+    /** [title] is the show's display title, for providers that can fall back to a name lookup. */
+    suspend fun episodesFor(feedUrl: String, title: String): List<ArchiveEpisode>?
 }
 
 /** Taddy provider (GraphQL). Configured via a user id + API key from taddy.org. */
@@ -36,14 +39,18 @@ class TaddyArchive(
 ) : EpisodeArchive {
     override val name = "Taddy"
 
-    override suspend fun episodesByFeedUrl(feedUrl: String): List<ArchiveEpisode>? {
+    override suspend fun episodesFor(feedUrl: String, title: String): List<ArchiveEpisode>? {
         val s = settings.settings.first()
         if (s.taddyUserId.isBlank() || s.taddyApiKey.isBlank()) {
             Log.i(TAG, "Taddy skipped for $feedUrl: no creds configured")
             return null
         }
-        return runCatching { api.episodesByFeedUrl(s.taddyUserId, s.taddyApiKey, feedUrl) }
-            .onSuccess { Log.i(TAG, "Taddy returned ${it.size} episodes for $feedUrl") }
+        return runCatching {
+            val series = api.seriesByFeedUrl(s.taddyUserId, s.taddyApiKey, feedUrl)
+                ?.also { Log.i(TAG, "Taddy knows $feedUrl as \"${it.name}\" (${it.episodes.size} episodes)") }
+                ?: findByName(s.taddyUserId, s.taddyApiKey, title, feedUrl)
+            series?.episodes.orEmpty()
+        }
             .onFailure { Log.w(TAG, "Taddy lookup failed for $feedUrl: ${it.message}") }
             .getOrNull()
             ?.map {
@@ -58,6 +65,39 @@ class TaddyArchive(
                 )
             }
     }
+
+    /**
+     * Taddy's rssUrl match is exact-string against the URL it crawled, so a show it
+     * knows under a slightly different URL looks missing; retry by name, accepting
+     * only a same-titled series so a popular unrelated show can't stand in.
+     */
+    private suspend fun findByName(
+        userId: String,
+        apiKey: String,
+        title: String,
+        feedUrl: String,
+    ): TaddySeries? {
+        val series = api.seriesByName(userId, apiKey, title)
+        if (series == null || !sameTitle(series.name, title)) {
+            Log.i(
+                TAG,
+                "Taddy doesn't know $feedUrl; name lookup for \"$title\" got " +
+                    (series?.name?.let { "\"$it\"" } ?: "nothing"),
+            )
+            return null
+        }
+        Log.i(
+            TAG,
+            "Taddy found \"$title\" by name with ${series.episodes.size} episodes " +
+                "(its rssUrl=${series.rssUrl})",
+        )
+        return series
+    }
+
+    private fun sameTitle(a: String?, b: String): Boolean {
+        fun norm(s: String) = s.lowercase().replace(Regex("[^a-z0-9]"), "")
+        return a != null && norm(a) == norm(b)
+    }
 }
 
 /** PodcastIndex provider. Configured via a key + secret from api.podcastindex.org. */
@@ -67,7 +107,7 @@ class PodcastIndexArchive(
 ) : EpisodeArchive {
     override val name = "PodcastIndex"
 
-    override suspend fun episodesByFeedUrl(feedUrl: String): List<ArchiveEpisode>? {
+    override suspend fun episodesFor(feedUrl: String, title: String): List<ArchiveEpisode>? {
         val s = settings.settings.first()
         if (s.podcastIndexKey.isBlank() || s.podcastIndexSecret.isBlank()) {
             Log.i(TAG, "PodcastIndex skipped for $feedUrl: no creds configured")

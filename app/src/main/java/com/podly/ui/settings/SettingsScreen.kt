@@ -70,7 +70,7 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
         graph.settings.setTaddyCreds(userId, apiKey)
         if (userId.isBlank() || apiKey.isBlank()) return "Cleared Taddy keys."
         return runCatching {
-            graph.taddy.episodesByFeedUrl(userId.trim(), apiKey.trim(), TADDY_TEST_FEED, limit = 1)
+            graph.taddy.seriesByFeedUrl(userId.trim(), apiKey.trim(), TADDY_TEST_FEED, limit = 1)
         }.fold(
             { "Saved — Taddy accepted the key." },
             {
