@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -17,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -175,20 +177,12 @@ fun SettingsScreen() {
         }
     }
     var picksStatus by remember { mutableStateOf<String?>(null) }
-    val importPicksLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri == null) {
-            picksStatus = "Import canceled"
-            return@rememberLauncherForActivityResult
-        }
+    // Shared by the file-import and paste paths; readText runs on IO.
+    fun runPicksImport(readText: suspend () -> String) {
         scope.launch {
             picksStatus = "Importing picks..."
             runCatching {
-                val text = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                        ?: error("Could not open picks file")
-                }
+                val text = withContext(Dispatchers.IO) { readText() }
                 withContext(Dispatchers.IO) { viewModel.importPicks(text) }
             }.onSuccess { result ->
                 picksStatus = buildString {
@@ -206,6 +200,20 @@ fun SettingsScreen() {
             }
         }
     }
+    val importPicksLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) {
+            picksStatus = "Import canceled"
+            return@rememberLauncherForActivityResult
+        }
+        runPicksImport {
+            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                ?: error("Could not open picks file")
+        }
+    }
+    var showPastePicksDialog by remember { mutableStateOf(false) }
+    var pastedPicks by remember { mutableStateOf("") }
     LaunchedEffect(settings) {
         anthropicKey = settings.anthropicApiKey
         openAiKey = settings.openAiApiKey
@@ -370,13 +378,50 @@ fun SettingsScreen() {
 
         Text("Playlists", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Import a JSON file of episode picks as a playlist. Each pick is matched " +
-                "against its show's feed; unmatched picks are skipped.",
+            "Import episode picks as a playlist, from a JSON file or pasted straight from a " +
+                "chatbot (see docs/manual-recs-prompt.md in the repo for a prompt that emits " +
+                "the right JSON). Each pick is matched against its show's feed; unmatched " +
+                "picks are skipped.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Button(onClick = { importPicksLauncher.launch(arrayOf("application/json", "text/*", "*/*")) }) {
-            Text("Import picks JSON")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { importPicksLauncher.launch(arrayOf("application/json", "text/*", "*/*")) }) {
+                Text("Import picks JSON")
+            }
+            Button(onClick = { showPastePicksDialog = true }) {
+                Text("Paste picks JSON")
+            }
+        }
+        if (showPastePicksDialog) {
+            AlertDialog(
+                onDismissRequest = { showPastePicksDialog = false },
+                title = { Text("Paste picks JSON") },
+                text = {
+                    OutlinedTextField(
+                        value = pastedPicks,
+                        onValueChange = { pastedPicks = it },
+                        label = { Text("Picks JSON") },
+                        minLines = 6,
+                        maxLines = 12,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = pastedPicks.isNotBlank(),
+                        onClick = {
+                            showPastePicksDialog = false
+                            // Kept on failure so a fix-and-retry doesn't need re-pasting.
+                            val text = pastedPicks
+                            runPicksImport { text }
+                        },
+                    ) { Text("Import") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showPastePicksDialog = false }) { Text("Cancel") }
+                },
+            )
         }
         picksStatus?.let {
             Text(

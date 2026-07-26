@@ -2,10 +2,10 @@ name: Generate recommendations
 
 # Generates the static recent-episode + acclaimed recommendation JSON with Claude
 # and publishes it to GitHub Pages. The app fetches these files instead of calling
-# Claude on-device. Runs weekly; trigger manually for the first publish.
+# Claude on-device. Needs a funded ANTHROPIC_API_KEY, so the weekly cron is
+# disabled while the account has no credits (docs/manual-recs-prompt.md is the
+# manual alternative) — dispatch manually to regenerate.
 on:
-  schedule:
-    - cron: "0 8 * * 1" # Mondays at 08:00 UTC — adjust cadence here
   workflow_dispatch:
 
 permissions:
