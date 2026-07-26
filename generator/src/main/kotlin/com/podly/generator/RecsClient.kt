@@ -102,25 +102,29 @@ class RecsClient(apiKey: String) {
         appendLine(
             "Find the most worthwhile individual podcast episodes released in ${window.dateRange}. These " +
                 "episodes are more recent than your training data, so you must use web search to find " +
-                "real, specific ones — do not rely on memory. Spend your budget of up to " +
+                "real, specific ones — do not rely on memory. Spend your budget of " +
                 "$WEB_SEARCH_MAX_USES searches running ONE focused search for standout recent episodes " +
-                "in each of these areas: (1) news and politics; (2) narrative and investigative " +
+                "in each of these nine areas: (1) news and politics; (2) narrative and investigative " +
                 "storytelling; (3) interviews and conversations; (4) science, technology, and health; " +
                 "(5) business, economics, and money; (6) culture, society, and history; (7) comedy and " +
-                "casual chat shows. Use any remaining searches for a broad best-of-the-period roundup."
+                "casual chat shows; (8) sports and games; (9) arts and entertainment (music, film, TV, " +
+                "books)."
         )
         appendLine(
-            "From each search's results take the 2-3 strongest episodes — ones that were widely " +
+            "From each search's results take the 3 strongest episodes — ones that were widely " +
                 "discussed, critically praised, deeply reported, exceptionally useful, unusually moving, " +
-                "culturally important, or (for the comedy and casual category) genuinely funny or fun to " +
+                "culturally important, or (for the lighter categories) genuinely funny or fun to " +
                 "listen to. Only include an episode when the search results give you its " +
                 "real, specific title: never invent a placeholder like \"recent episode\", and never " +
                 "list a whole show or limited series as if it were a single episode. Your final list " +
-                "must contain at least 10 episodes (ideally 12-15): take the two strongest from each of " +
-                "the seven areas — that alone is about 14 — and include at least one lighter comedic or " +
-                "casual pick rather than only serious ones. Every episode must be real and verifiable " +
-                "from your searches — never invent titles to reach the count; if one area is thin, take " +
-                "more from a stronger area or run another roundup search. Do not re-search to verify titles."
+                "must contain at least 20 episodes (ideally 24-27): three from each of the nine areas " +
+                "gets you there. Keep the list genuinely varied — every area should be represented " +
+                "when its search surfaced real episodes, at most 3 episodes may be about politics or " +
+                "current political news (an interview or comedy episode centered on a politician counts " +
+                "toward that 3), and no more than 2 episodes may come from the same podcast. Every " +
+                "episode must be real and verifiable from your searches — never invent titles to reach " +
+                "the count; if one area is thin, take more from the other areas instead. Do not " +
+                "re-search to verify titles."
         )
         appendLine()
         appendLine(
