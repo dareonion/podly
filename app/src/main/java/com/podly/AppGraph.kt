@@ -1,8 +1,10 @@
 package com.podly
 
 import android.content.Context
+import android.util.Log
 import com.podly.data.AiPicksCache
 import com.podly.data.ArchiveRescuer
+import com.podly.data.CachedArchive
 import com.podly.data.PicksImporter
 import com.podly.data.PodcastIndexArchive
 import com.podly.data.TaddyArchive
@@ -46,9 +48,12 @@ class AppGraph(private val context: Context) {
     val taddy: TaddyApi = TaddyApi()
     // Recovers picks that rolled off a short feed. Tries whichever archive is configured
     // (Taddy first, then PodcastIndex), falling through on missing creds / errors / limits.
+    // Each provider's real answers are cached in memory so repeated rescues of the same
+    // shows don't re-issue identical requests.
     val picksRescuer: ArchiveRescuer = ArchiveRescuer(
         podcasts,
-        listOf(TaddyArchive(taddy, settings), PodcastIndexArchive(podcastIndex, settings)),
+        listOf(TaddyArchive(taddy, settings), PodcastIndexArchive(podcastIndex, settings))
+            .map { CachedArchive(it, log = { msg -> Log.i("EpisodeArchive", msg) }) },
     )
     val picksImporter: PicksImporter = PicksImporter(podcasts, playlists, picksRescuer)
     val aiRecommender: AiRecommender =
