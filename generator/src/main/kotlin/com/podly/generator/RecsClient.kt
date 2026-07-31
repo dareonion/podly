@@ -179,6 +179,10 @@ class RecsClient(apiKey: String) {
         )
         appendLine()
         appendLine(
+            "List the episodes strongest first: put the one you are most confident is worth a " +
+                "listener's time at the start of the array, down to the weakest at the end."
+        )
+        appendLine(
             "When you are done searching, respond with ONLY a JSON array as your final message — no " +
                 "prose, no code fences, and no citation markers or footnotes outside the array. Each " +
                 "element is " +
