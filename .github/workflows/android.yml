@@ -12,6 +12,12 @@ on:
   pull_request:
     branches: [main]
 
+# Rapid pushes supersede each other: cancel the in-flight run instead of queueing
+# a stale build — the newest push republishes the APK anyway.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
