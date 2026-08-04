@@ -1,0 +1,19 @@
+# Weekly dependency-update PRs. The gradle ecosystem reads gradle/libs.versions.toml;
+# minor/patch bumps arrive grouped as one PR so a quiet week is a single merge,
+# majors (AGP, Kotlin) come individually since they usually need real attention.
+version: 2
+updates:
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
