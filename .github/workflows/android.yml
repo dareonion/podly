@@ -1,7 +1,9 @@
 name: Build and test
 
-# Builds the app and runs all JVM unit tests (app + generator) so regressions
-# surface on push instead of at the next local build. Pushes to main also
+# Builds the app, runs Android Lint, and runs all JVM unit tests (app +
+# generator) so regressions surface on push instead of at the next local build.
+# Known lint issues live in app/lint-baseline.xml; only new ones fail the build.
+# Pushes to main also
 # publish the debug APK to the rolling "latest" release, so the newest build
 # is always at .../releases/latest/download/podly-debug.apk.
 on:
@@ -26,8 +28,8 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
-      - name: Build and run unit tests
-        run: ./gradlew assembleDebug testDebugUnitTest :generator:test --no-daemon
+      - name: Build, lint, and run unit tests
+        run: ./gradlew assembleDebug lintDebug testDebugUnitTest :generator:test --no-daemon
 
       - name: Publish APK to rolling "latest" release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

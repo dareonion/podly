@@ -69,6 +69,10 @@ android {
     buildFeatures {
         compose = true
     }
+    lint {
+        // CI runs lintDebug; known issues live in the baseline so only new ones fail.
+        baseline = file("lint-baseline.xml")
+    }
     packaging {
         resources {
             excludes += setOf(
