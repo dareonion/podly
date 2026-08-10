@@ -110,9 +110,12 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                     }
                 }
             }
+            // No fetch button in the UI anymore — refresh here. Must run after the
+            // cache load above so a fresh cache short-circuits the network call.
+            loadAcclaimed()
         }
-        // Surface the default window's cached picks without kicking off a fetch.
-        observeRecentEpisodes(RecentEpisodeWindow.MONTH)
+        // Cache-aware: surfaces the cached picks and only downloads when stale.
+        loadRecentEpisodes(RecentEpisodeWindow.MONTH)
         loadTrending(TrendingPeriod.NOW)
     }
 
