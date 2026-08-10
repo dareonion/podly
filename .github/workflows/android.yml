@@ -34,6 +34,19 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6.2.0
 
+      # Sign with the shared debug keystore so published APKs can update
+      # existing installs (a runner-generated keystore changes every run,
+      # making the rolling release install-once-only). Skipped when the
+      # secret is unavailable (e.g. PRs from forks) — those builds still
+      # work, they just sign with a throwaway key.
+      - name: Restore shared debug keystore
+        if: ${{ secrets.DEBUG_KEYSTORE_B64 != '' }}
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          mkdir -p ~/.android
+          printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+
       - name: Build, lint, and run unit tests
         run: ./gradlew assembleDebug lintDebug testDebugUnitTest :generator:test --no-daemon
 
