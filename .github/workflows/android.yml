@@ -24,6 +24,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Job-level because the secrets context is not allowed in a step's `if`.
+    env:
+      DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
     steps:
       - uses: actions/checkout@v7
 
@@ -40,9 +43,7 @@ jobs:
       # secret is unavailable (e.g. PRs from forks) — those builds still
       # work, they just sign with a throwaway key.
       - name: Restore shared debug keystore
-        if: ${{ secrets.DEBUG_KEYSTORE_B64 != '' }}
-        env:
-          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        if: env.DEBUG_KEYSTORE_B64 != ''
         run: |
           mkdir -p ~/.android
           printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
