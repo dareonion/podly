@@ -2,17 +2,23 @@ package com.podly.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Player.PositionInfo
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.LibraryResult
@@ -28,12 +34,15 @@ import com.podly.network.Http
 import com.podly.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /**
  * Media3 library service used both by the in-app player UI and Android Auto.
@@ -51,6 +60,9 @@ class PlaybackService : MediaLibraryService() {
     /** Episode whose saved position is about to be restored; saveProgress must not clobber it. */
     private var pendingResumeEpisodeId: String? = null
 
+    private var recoveryJob: Job? = null
+    private var recoveryAttempts = 0
+
     override fun onCreate() {
         super.onCreate()
         val graph = appGraph
@@ -66,6 +78,19 @@ class PlaybackService : MediaLibraryService() {
 
         val exoPlayer = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            // Audio is cheap to buffer (~10 MB per 10 min at 128 kbps): keeping
+            // 5-10 minutes ahead rides out dead zones like leaving home Wi-Fi,
+            // instead of failing 50 seconds after the network goes bad.
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                        /* minBufferMs = */ 300_000,
+                        /* maxBufferMs = */ 600_000,
+                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+                    )
+                    .build()
+            )
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -89,6 +114,63 @@ class PlaybackService : MediaLibraryService() {
             .build()
 
         startProgressPersistence(player)
+        startNetworkErrorRecovery(player)
+    }
+
+    /**
+     * Streaming dies permanently on a few seconds of bad network (e.g. the
+     * Wi-Fi → cellular handoff when leaving home): the default load policy
+     * retries only briefly, then parks the player in IDLE with a fatal source
+     * error. For network-flavored errors, wait until the OS reports validated
+     * internet again and re-prepare — the player keeps its queue, position,
+     * and playWhenReady, so playback resumes on its own. The "press play to
+     * retry" path in PlayerConnection stays as the fallback for everything else.
+     */
+    private fun startNetworkErrorRecovery(player: Player) {
+        player.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                if (error.errorCode !in RECOVERABLE_ERROR_CODES) return
+                if (recoveryAttempts >= MAX_RECOVERY_ATTEMPTS) return
+                recoveryAttempts++
+                recoveryJob?.cancel()
+                recoveryJob = scope.launch {
+                    awaitInternet()
+                    delay(1_000L * recoveryAttempts)
+                    // prepare() alone resumes playback: playWhenReady survives
+                    // the error, and a repeat failure lands back here.
+                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                }
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) recoveryAttempts = 0
+            }
+        })
+    }
+
+    /** Suspends until the OS reports a validated internet connection. */
+    private suspend fun awaitInternet() {
+        val connectivity = getSystemService(ConnectivityManager::class.java) ?: return
+        val validatedNow = connectivity.activeNetwork
+            ?.let(connectivity::getNetworkCapabilities)
+            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        if (validatedNow) return
+        suspendCancellableCoroutine { continuation ->
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                .build()
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    runCatching { connectivity.unregisterNetworkCallback(this) }
+                    if (continuation.isActive) continuation.resume(Unit)
+                }
+            }
+            connectivity.registerNetworkCallback(request, callback)
+            continuation.invokeOnCancellation {
+                runCatching { connectivity.unregisterNetworkCallback(callback) }
+            }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
@@ -472,6 +554,12 @@ class PlaybackService : MediaLibraryService() {
         private const val MAX_BROWSE_CHILDREN = 100
         private const val MIN_LISTEN_SEGMENT_MS = 1_000L
         private const val CONTINUOUS_POSITION_TOLERANCE_MS = 12_000L
+        private const val MAX_RECOVERY_ATTEMPTS = 5
+        private val RECOVERABLE_ERROR_CODES = setOf(
+            PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+        )
     }
 
     private data class ActiveListenSegment(
