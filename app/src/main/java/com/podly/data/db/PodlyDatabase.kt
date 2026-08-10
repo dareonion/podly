@@ -72,9 +72,12 @@ abstract class PodlyDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATIONS =
+            arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+
         fun build(context: Context): PodlyDatabase =
             Room.databaseBuilder(context, PodlyDatabase::class.java, "podly.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(*MIGRATIONS)
                 .build()
     }
 }

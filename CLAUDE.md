@@ -37,7 +37,7 @@ CI: `.github/workflows/android.yml` runs the build, Android Lint (`lintDebug` �
 ## Conventions
 
 - Kotlin, 4-space indent, trailing commas in multiline declarations. Compose screens are PascalCase (`LibraryScreen`); other classes use descriptive suffixes (`PodcastRepository`, `FeedRefreshWorker`, `PlaybackService`). Prefer the existing `Context.appGraph` / `appViewModel { ... }` helpers over introducing a DI pattern.
-- Tests are JVM JUnit under `app/src/test/java/com/podly/` (`*Test.kt`). Keep parsing and business logic JVM-testable; add focused tests for repository sorting, parser changes, auth/header logic, and AI response parsing. Run `./gradlew testDebugUnitTest` before submitting changes.
+- Tests are JVM JUnit under `app/src/test/java/com/podly/` (`*Test.kt`). Keep parsing and business logic JVM-testable; add focused tests for repository sorting, parser changes, auth/header logic, and AI response parsing. Robolectric is available for Android-dependent tests (use `@Config(application = Application::class)` — `PodlyApp.onCreate` starts WorkManager). Run `./gradlew testDebugUnitTest` before submitting changes.
 - Commits: short imperative subjects, one behavior change each. PRs: describe the user-visible change, list tests run, call out Android Auto/playback impact, include screenshots for UI changes.
 - Never commit secrets or signing material. Release signing is read from `PODLY_RELEASE_*` keys in the untracked `local.properties`; API keys are user settings, not source constants.
 
@@ -45,7 +45,7 @@ CI: `.github/workflows/android.yml` runs the build, Android Lint (`lintDebug` �
 
 - The Anthropic SDK pulls Apache HttpComponents; the `packaging { resources.excludes }` block in `app/build.gradle.kts` resolves META-INF merge conflicts — keep it.
 - `RssParser` deliberately uses `XmlPullParserFactory` (not `android.util.Xml`) so unit tests run on the JVM (kxml2 is a test dependency).
-- Room schema export is on: bumping the DB version regenerates `app/schemas/.../<N>.json` on the next build — commit it. Hand-written migration index names must match Room's generated names (`index_<table>_<column>`).
+- Room schema export is on: bumping the DB version regenerates `app/schemas/.../<N>.json` on the next build — commit it. Hand-written migration index names must match Room's generated names (`index_<table>_<column>`). `MigrationTest` guards this: it rebuilds a v5 database from the exported schema JSON (read from the repo — AGP doesn't package unit-test assets, so Room's `MigrationTestHelper` can't be used) and migrates it through `PodlyDatabase.build`, which validates the result against the current entities.
 - API keys are deliberately stored unencrypted in DataStore (androidx security-crypto is deprecated); the mitigation is the backup rules in `res/xml/` that exclude the settings DataStore and downloaded audio from cloud backups. Keep those rules in sync if DataStore file names change.
 - `gradle.properties` is machine-neutral (configuration cache enabled). Don't re-add `org.gradle.java.home` there.
 - Sideloaded builds only appear in Android Auto after enabling Developer settings → "Unknown sources" in the Android Auto app on the phone.

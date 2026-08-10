@@ -73,6 +73,13 @@ android {
         // CI runs lintDebug; known issues live in the baseline so only new ones fail.
         baseline = file("lint-baseline.xml")
     }
+    testOptions {
+        unitTests {
+            // Robolectric (MigrationTest and future DAO tests) needs the manifest
+            // and resources of the app under test.
+            isIncludeAndroidResources = true
+        }
+    }
     packaging {
         resources {
             excludes += setOf(
@@ -121,4 +128,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation("net.sf.kxml:kxml2:2.3.0")
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.test.junit)
 }
