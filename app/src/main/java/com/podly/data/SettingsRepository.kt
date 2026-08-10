@@ -26,6 +26,8 @@ data class Settings(
     /** Auto-download this many newest episodes per subscribed podcast; 0 = off. */
     val autoDownloadCount: Int = 0,
     val autoDeleteCompleted: Boolean = false,
+    /** Auto-download partially played episodes over Wi-Fi so they survive leaving it. */
+    val autoDownloadStarted: Boolean = true,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
@@ -45,6 +47,7 @@ class SettingsRepository(private val context: Context) {
         val DOWNLOAD_WIFI_ONLY = booleanPreferencesKey("download_wifi_only")
         val AUTO_DOWNLOAD_COUNT = intPreferencesKey("auto_download_count")
         val AUTO_DELETE_COMPLETED = booleanPreferencesKey("auto_delete_completed")
+        val AUTO_DOWNLOAD_STARTED = booleanPreferencesKey("auto_download_started")
     }
 
     val settings: Flow<Settings> = context.dataStore.data.map { prefs ->
@@ -62,6 +65,7 @@ class SettingsRepository(private val context: Context) {
             downloadWifiOnly = prefs[Keys.DOWNLOAD_WIFI_ONLY] ?: false,
             autoDownloadCount = prefs[Keys.AUTO_DOWNLOAD_COUNT] ?: 0,
             autoDeleteCompleted = prefs[Keys.AUTO_DELETE_COMPLETED] ?: false,
+            autoDownloadStarted = prefs[Keys.AUTO_DOWNLOAD_STARTED] ?: true,
         )
     }
 
@@ -102,4 +106,7 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setAutoDeleteCompleted(enabled: Boolean) =
         context.dataStore.edit { it[Keys.AUTO_DELETE_COMPLETED] = enabled }
+
+    suspend fun setAutoDownloadStarted(enabled: Boolean) =
+        context.dataStore.edit { it[Keys.AUTO_DOWNLOAD_STARTED] = enabled }
 }

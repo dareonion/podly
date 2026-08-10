@@ -96,6 +96,8 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
         viewModelScope.launch { graph.settings.setAutoDownloadCount(count) }
     fun setAutoDeleteCompleted(enabled: Boolean) =
         viewModelScope.launch { graph.settings.setAutoDeleteCompleted(enabled) }
+    fun setAutoDownloadStarted(enabled: Boolean) =
+        viewModelScope.launch { graph.settings.setAutoDownloadStarted(enabled) }
 
     suspend fun importOpml(text: String): OpmlImportResult =
         graph.podcasts.importOpml(StringReader(text))
@@ -538,6 +540,23 @@ fun SettingsScreen() {
             Switch(
                 checked = settings.autoDeleteCompleted,
                 onCheckedChange = viewModel::setAutoDeleteCompleted,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Download episodes you've started", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Partially played episodes download over Wi-Fi so they keep playing away from it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = settings.autoDownloadStarted,
+                onCheckedChange = viewModel::setAutoDownloadStarted,
             )
         }
 

@@ -266,6 +266,12 @@ class PlaybackService : MediaLibraryService() {
                 scope.launch {
                     if (isPlaying) {
                         beginListeningSegment(player)
+                        // A playing episode counts as "started": queue a Wi-Fi
+                        // download so it survives leaving the network (no-op
+                        // when disabled, downloaded, completed, or blocked).
+                        player.currentEpisodeIdOrNull()?.let {
+                            appGraph.downloader.autoDownloadStartedEpisode(it)
+                        }
                     } else {
                         recordListeningProgress(player)
                         flushListeningSegment()

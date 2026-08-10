@@ -146,6 +146,14 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE playbackPositionMs > 0 AND completed = 0 ORDER BY lastPlayedAt DESC LIMIT :limit")
     suspend fun continueListeningOnce(limit: Int): List<EpisodeEntity>
 
+    @Query(
+        """SELECT * FROM episodes
+           WHERE playbackPositionMs > 0 AND completed = 0 AND lastPlayedAt >= :since
+             AND downloadStatus = 'NONE' AND autoDownloadBlocked = 0
+           ORDER BY lastPlayedAt DESC LIMIT :limit"""
+    )
+    suspend fun startedUndownloadedOnce(since: Long, limit: Int): List<EpisodeEntity>
+
     /** Refresh inserts must never clobber library/download/progress state. */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnore(episodes: List<EpisodeEntity>)

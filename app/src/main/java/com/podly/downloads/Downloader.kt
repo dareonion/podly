@@ -27,9 +27,9 @@ class Downloader(
         enqueueKeepingBlock(episodeId)
     }
 
-    private suspend fun enqueueKeepingBlock(episodeId: String) {
+    private suspend fun enqueueKeepingBlock(episodeId: String, unmeteredOnly: Boolean = false) {
         val networkType =
-            if (settings.current().downloadWifiOnly) NetworkType.UNMETERED
+            if (unmeteredOnly || settings.current().downloadWifiOnly) NetworkType.UNMETERED
             else NetworkType.CONNECTED
         episodeDao.updateDownload(episodeId, DownloadStatus.QUEUED, null)
         val request = OneTimeWorkRequestBuilder<EpisodeDownloadWorker>()
@@ -51,10 +51,33 @@ class Downloader(
         episodeDao.setAutoDownloadBlocked(episodeId, true)
     }
 
-    /** Applies both download policies from Settings; called after feed refreshes. */
+    /** Applies the download policies from Settings; called after feed refreshes. */
     suspend fun applyPolicies() {
         autoDownloadNewest()
+        autoDownloadStarted()
         deleteCompletedDownloads()
+    }
+
+    /**
+     * Auto-downloads recently started (partially played, uncompleted) episodes.
+     * Always constrained to unmetered networks regardless of the Wi-Fi-only
+     * setting: the point is to grab an in-progress episode next time Wi-Fi is
+     * available, not to re-fetch over cellular something already streaming.
+     */
+    suspend fun autoDownloadStarted() {
+        if (!settings.current().autoDownloadStarted) return
+        val since = System.currentTimeMillis() - STARTED_WINDOW_MS
+        episodeDao.startedUndownloadedOnce(since, STARTED_LIMIT)
+            .forEach { enqueueKeepingBlock(it.id, unmeteredOnly = true) }
+    }
+
+    /** Single-episode fast path of [autoDownloadStarted], called when playback begins. */
+    suspend fun autoDownloadStartedEpisode(episodeId: String) {
+        if (!settings.current().autoDownloadStarted) return
+        val episode = episodeDao.byId(episodeId) ?: return
+        if (episode.downloadStatus == DownloadStatus.NONE && !episode.completed && !episode.autoDownloadBlocked) {
+            enqueueKeepingBlock(episode.id, unmeteredOnly = true)
+        }
     }
 
     /**
@@ -84,4 +107,10 @@ class Downloader(
     }
 
     private fun workName(episodeId: String) = "download_$episodeId"
+
+    private companion object {
+        /** How far back "recently started" reaches. */
+        val STARTED_WINDOW_MS = TimeUnit.DAYS.toMillis(30)
+        const val STARTED_LIMIT = 20
+    }
 }
