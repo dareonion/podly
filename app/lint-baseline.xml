@@ -25,7 +25,7 @@
 
     <issue
         id="AndroidGradlePluginVersion"
-        message="A newer version of Gradle than 9.4.1 is available: 9.6.1"
+        message="A newer version of Gradle than 9.4.1 is available: 9.7.0"
         errorLine1="distributionUrl=https\://services.gradle.org/distributions/gradle-9.4.1-bin.zip"
         errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -54,6 +54,39 @@
             file="$HOME/gitrepo/podcast_player/gradle/libs.versions.toml"
             line="8"
             column="14"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.media3:media3-datasource-okhttp than 1.10.1 is available: 1.11.0"
+        errorLine1="media3 = &quot;1.10.1&quot;"
+        errorLine2="         ~~~~~~~~">
+        <location
+            file="$HOME/gitrepo/podcast_player/gradle/libs.versions.toml"
+            line="12"
+            column="10"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.media3:media3-exoplayer than 1.10.1 is available: 1.11.0"
+        errorLine1="media3 = &quot;1.10.1&quot;"
+        errorLine2="         ~~~~~~~~">
+        <location
+            file="$HOME/gitrepo/podcast_player/gradle/libs.versions.toml"
+            line="12"
+            column="10"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.media3:media3-session than 1.10.1 is available: 1.11.0"
+        errorLine1="media3 = &quot;1.10.1&quot;"
+        errorLine2="         ~~~~~~~~">
+        <location
+            file="$HOME/gitrepo/podcast_player/gradle/libs.versions.toml"
+            line="12"
+            column="10"/>
     </issue>
 
     <issue
@@ -102,7 +135,7 @@
 
     <issue
         id="NewerVersionAvailable"
-        message="A newer version of com.anthropic:anthropic-java than 2.44.0 is available: 2.52.0"
+        message="A newer version of com.anthropic:anthropic-java than 2.44.0 is available: 2.53.0"
         errorLine1="anthropic = &quot;2.44.0&quot;"
         errorLine2="            ~~~~~~~~">
         <location
@@ -118,7 +151,7 @@
         errorLine2="         ~~~~~~~">
         <location
             file="src/main/AndroidManifest.xml"
-            line="49"
+            line="51"
             column="10"/>
     </issue>
 
@@ -136,7 +169,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="123"
+            line="130"
             column="24"/>
     </issue>
 
