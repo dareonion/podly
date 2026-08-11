@@ -48,8 +48,22 @@ jobs:
           mkdir -p ~/.android
           printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
 
+      - name: Keystore diagnostics (before build)
+        run: |
+          echo "HOME=$HOME  whoami=$(whoami)"
+          env | grep -iE "android|xdg" || true
+          ls -la ~/.android/ || true
+          sha256sum ~/.android/debug.keystore || true
+
       - name: Build, lint, and run unit tests
         run: ./gradlew assembleDebug lintDebug testDebugUnitTest :generator:test --no-daemon
+
+      - name: Keystore diagnostics (after build)
+        run: |
+          ls -la ~/.android/ || true
+          sha256sum ~/.android/debug.keystore || true
+          sudo find / -name "debug.keystore" -not -path "/proc/*" 2>/dev/null || true
+          "$ANDROID_HOME"/build-tools/36.0.0/apksigner verify --print-certs app/build/outputs/apk/debug/app-debug.apk | grep "SHA-256 digest" || true
 
       - name: Publish APK to rolling "latest" release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
