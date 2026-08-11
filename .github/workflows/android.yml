@@ -42,11 +42,15 @@ jobs:
       # making the rolling release install-once-only). Skipped when the
       # secret is unavailable (e.g. PRs from forks) — those builds still
       # work, they just sign with a throwaway key.
+      # AGP resolves its .android dir via XDG_CONFIG_HOME (set on GitHub
+      # runners) before falling back to ~/.android, so cover both.
       - name: Restore shared debug keystore
         if: env.DEBUG_KEYSTORE_B64 != ''
         run: |
-          mkdir -p ~/.android
-          printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+          for dir in "${XDG_CONFIG_HOME:-$HOME/.config}/.android" "$HOME/.android"; do
+            mkdir -p "$dir"
+            printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > "$dir/debug.keystore"
+          done
 
       - name: Build, lint, and run unit tests
         run: ./gradlew assembleDebug lintDebug testDebugUnitTest :generator:test --no-daemon
