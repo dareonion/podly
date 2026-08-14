@@ -27,14 +27,40 @@ object MediaIds {
 
 object MediaItemFactory {
 
-    /** Playable item carrying the resolved URI (local file when downloaded, else stream). */
-    fun playable(episode: EpisodeEntity): MediaItem {
-        val uri = localUriOrNull(episode) ?: episode.audioUrl.toUri()
+    /**
+     * Playable item carrying the resolved URI (local file when downloaded, else stream).
+     *
+     * With [forCast] the local file is deliberately skipped: a Cast device fetches
+     * the audio over the network itself and cannot reach the app's private download
+     * directory, so casting always streams the original enclosure URL.
+     */
+    fun playable(episode: EpisodeEntity, forCast: Boolean = false): MediaItem {
+        val uri = when {
+            forCast -> episode.audioUrl.toUri()
+            else -> localUriOrNull(episode) ?: episode.audioUrl.toUri()
+        }
         return MediaItem.Builder()
             .setMediaId(MediaIds.episode(episode.id))
             .setUri(uri)
+            // Cast's DefaultMediaItemConverter requires a MIME type; locally this
+            // matches what ExoPlayer would infer from the URL anyway.
+            .setMimeType(audioMimeType(episode.audioUrl))
             .setMediaMetadata(metadata(episode, isPlayable = true))
             .build()
+    }
+
+    /** Best-effort MIME type from the enclosure URL, defaulting to MP3. */
+    fun audioMimeType(url: String): String {
+        val path = url.substringBefore('?').substringBefore('#').lowercase()
+        return when {
+            path.endsWith(".m4a") || path.endsWith(".mp4") || path.endsWith(".m4b") -> "audio/mp4"
+            path.endsWith(".aac") -> "audio/aac"
+            path.endsWith(".opus") -> "audio/opus"
+            path.endsWith(".ogg") || path.endsWith(".oga") -> "audio/ogg"
+            path.endsWith(".wav") -> "audio/wav"
+            path.endsWith(".flac") -> "audio/flac"
+            else -> "audio/mpeg"
+        }
     }
 
     /** Metadata-only item (no URI) as served to browsers like Android Auto. */

@@ -18,6 +18,9 @@ coil = "2.7.0"
 reorderable = "3.1.0"
 anthropic = "2.44.0"
 junit = "4.13.2"
+mediarouter = "1.8.1"
+appcompat = "1.8.0"
+playServicesCast = "22.3.1"
 robolectric = "4.16.1"
 androidxTestCore = "1.7.0"
 androidxTestJunit = "1.3.0"
@@ -42,6 +45,10 @@ androidx-room-compiler = { group = "androidx.room", name = "room-compiler", vers
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 androidx-media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
 androidx-media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
+androidx-media3-cast = { group = "androidx.media3", name = "media3-cast", version.ref = "media3" }
+androidx-mediarouter = { group = "androidx.mediarouter", name = "mediarouter", version.ref = "mediarouter" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+play-services-cast-framework = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "playServicesCast" }
 androidx-work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }

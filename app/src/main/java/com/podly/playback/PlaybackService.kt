@@ -18,6 +18,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.cast.CastPlayer
+import androidx.media3.cast.SessionAvailabilityListener
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -25,6 +27,9 @@ import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionError
+import com.google.android.gms.cast.framework.CastContext
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.ListenableFuture
 import com.podly.appGraph
@@ -62,6 +67,14 @@ class PlaybackService : MediaLibraryService() {
 
     private var recoveryJob: Job? = null
     private var recoveryAttempts = 0
+
+    /** Always the local ExoPlayer; [castPlayer] takes over the session while casting. */
+    private lateinit var localPlayer: NudgingPlayer
+    private var castPlayer: NudgingPlayer? = null
+    private var rawCastPlayer: CastPlayer? = null
+
+    private var seekBackMs = 10_000L
+    private var seekForwardMs = 30_000L
 
     override fun onCreate() {
         super.onCreate()
@@ -102,11 +115,16 @@ class PlaybackService : MediaLibraryService() {
             .build()
 
         val player = NudgingPlayer(exoPlayer)
+        localPlayer = player
         // Nudge increments track Settings live (no runBlocking, no service restart).
         scope.launch {
             graph.settings.settings.collect { settings ->
-                player.seekBackMs = settings.seekBackSeconds * 1000L
-                player.seekForwardMs = settings.seekForwardSeconds * 1000L
+                seekBackMs = settings.seekBackSeconds * 1000L
+                seekForwardMs = settings.seekForwardSeconds * 1000L
+                player.seekBackMs = seekBackMs
+                player.seekForwardMs = seekForwardMs
+                castPlayer?.seekBackMs = seekBackMs
+                castPlayer?.seekForwardMs = seekForwardMs
             }
         }
         session = MediaLibrarySession.Builder(this, player, LibraryCallback())
@@ -115,7 +133,91 @@ class PlaybackService : MediaLibraryService() {
 
         startProgressPersistence(player)
         startNetworkErrorRecovery(player)
+        setUpCast()
     }
+
+    /**
+     * Wires up Chromecast when Play Services can provide it. A connected cast
+     * session takes over the MediaSession via [transferPlaybackTo], so the
+     * in-app UI and Android Auto keep talking to the same session either way.
+     */
+    private fun setUpCast() {
+        val playServices = GoogleApiAvailability.getInstance()
+        if (playServices.isGooglePlayServicesAvailable(this) != ConnectionResult.SUCCESS) return
+        // Direct executor: the callback only builds the player and must land on
+        // the main thread, which is where this runs.
+        runCatching { CastContext.getSharedInstance(this, Runnable::run) }
+            .getOrNull()
+            ?.addOnSuccessListener { castContext ->
+                if (session == null) return@addOnSuccessListener
+                val cast = CastPlayer(castContext)
+                rawCastPlayer = cast
+                castPlayer = NudgingPlayer(cast).apply {
+                    seekBackMs = this@PlaybackService.seekBackMs
+                    seekForwardMs = this@PlaybackService.seekForwardMs
+                }
+                cast.setSessionAvailabilityListener(object : SessionAvailabilityListener {
+                    override fun onCastSessionAvailable() {
+                        castPlayer?.let(::transferPlaybackTo)
+                    }
+
+                    override fun onCastSessionUnavailable() {
+                        transferPlaybackTo(localPlayer)
+                    }
+                })
+                if (cast.isCastSessionAvailable) castPlayer?.let(::transferPlaybackTo)
+            }
+    }
+
+    /**
+     * Moves the queue, index, position and play/pause state onto [target] and
+     * hands it the MediaSession. Items are rebuilt for the destination because
+     * a Cast device needs the streaming URL where local playback prefers the
+     * downloaded file.
+     */
+    private fun transferPlaybackTo(target: NudgingPlayer) {
+        val session = this.session ?: return
+        val source = session.player
+        if (source === target) return
+
+        val episodeIds = (0 until source.mediaItemCount).mapNotNull { index ->
+            MediaIds.episodeIdOrNull(source.getMediaItemAt(index).mediaId)
+        }
+        val index = source.currentMediaItemIndex.coerceAtLeast(0)
+        val position = source.currentPosition
+        val wasPlaying = source.playWhenReady
+
+        source.pause()
+        // Progress bookkeeping follows the session's player rather than firing
+        // from both; the inactive player would otherwise report its own stop.
+        source.removeListener(progressListener)
+        target.addListener(progressListener)
+        session.setPlayer(target)
+
+        if (episodeIds.isEmpty()) return
+        val toCast = target === castPlayer
+        scope.launch {
+            val dao = appGraph.database.episodeDao()
+            val episodes = episodeIds.mapNotNull { dao.byId(it) }
+            if (episodes.isEmpty()) return@launch
+            val items = episodes.map { MediaItemFactory.playable(it, forCast = toCast) }
+            target.setMediaItems(items, index.coerceAtMost(items.size - 1), position)
+            target.prepare()
+            target.playWhenReady = wasPlaying
+            if (toCast && episodes.any { MediaItemFactory.localUriOrNull(it) != null }) {
+                // Worth saying out loud: the user deliberately downloaded these.
+                appGraph.messages.post(
+                    "Casting streams over the network — a Cast device can't play downloaded audio."
+                )
+            }
+        }
+    }
+
+    /** The player currently driving the session (local, or the Cast player). */
+    private fun activePlayer(): Player = session?.player ?: localPlayer
+
+    /** True while a Cast device owns the session, so items must use streaming URLs. */
+    private fun isCasting(): Boolean = castPlayer != null && session?.player === castPlayer
 
     /**
      * Streaming dies permanently on a few seconds of bad network (e.g. the
@@ -192,10 +294,14 @@ class PlaybackService : MediaLibraryService() {
             }
         }
         scope.cancel()
-        session?.run {
-            player.release()
-            release()
-        }
+        rawCastPlayer?.setSessionAvailabilityListener(null)
+        session?.release()
+        // Release both players explicitly: while casting, session.player is the
+        // Cast player and the local ExoPlayer would otherwise leak.
+        castPlayer?.release()
+        if (::localPlayer.isInitialized) localPlayer.release()
+        castPlayer = null
+        rawCastPlayer = null
         session = null
         super.onDestroy()
     }
@@ -257,64 +363,76 @@ class PlaybackService : MediaLibraryService() {
         scope.launch {
             while (isActive) {
                 delay(5_000)
-                recordListeningProgress(player)
-                saveProgress(player)
+                val active = activePlayer()
+                recordListeningProgress(active)
+                saveProgress(active)
             }
         }
-        player.addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                scope.launch {
-                    if (isPlaying) {
-                        beginListeningSegment(player)
-                        // A playing episode counts as "started": queue a Wi-Fi
-                        // download so it survives leaving the network (no-op
-                        // when disabled, downloaded, completed, or blocked).
-                        player.currentEpisodeIdOrNull()?.let {
-                            appGraph.downloader.autoDownloadStartedEpisode(it)
-                        }
-                    } else {
-                        recordListeningProgress(player)
-                        flushListeningSegment()
-                        saveProgress(player)
-                    }
-                }
-            }
+        player.addListener(progressListener)
+    }
 
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                // Auto-advance and in-queue jumps start episodes at 0; restore the saved
-                // position instead. The initial queue set is handled by onSetMediaItems.
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
-                    reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
-                ) {
-                    mediaItem?.mediaId?.let(MediaIds::episodeIdOrNull)?.let { episodeId ->
-                        pendingResumeEpisodeId = episodeId
-                        scope.launch { resumeSavedPosition(player, episodeId) }
+    /**
+     * Progress and listening-segment bookkeeping. Held as a field because
+     * [transferPlaybackTo] moves it between the local and Cast players as the
+     * session changes hands, so it reads the active player instead of a
+     * captured one.
+     */
+    private val progressListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            val player = activePlayer()
+            scope.launch {
+                if (isPlaying) {
+                    beginListeningSegment(player)
+                    // A playing episode counts as "started": queue a Wi-Fi
+                    // download so it survives leaving the network (no-op
+                    // when disabled, downloaded, completed, or blocked).
+                    player.currentEpisodeIdOrNull()?.let {
+                        appGraph.downloader.autoDownloadStartedEpisode(it)
                     }
-                }
-                scope.launch {
+                } else {
+                    recordListeningProgress(player)
                     flushListeningSegment()
-                    if (player.isPlaying) beginListeningSegment(player)
-                    snapshotQueue(player)
-                    // Frees space right after an episode finishes (no-op unless enabled).
-                    appGraph.downloader.deleteCompletedDownloads()
+                    saveProgress(player)
                 }
             }
+        }
 
-            override fun onPositionDiscontinuity(
-                oldPosition: PositionInfo,
-                newPosition: PositionInfo,
-                reason: Int,
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val player = activePlayer()
+            // Auto-advance and in-queue jumps start episodes at 0; restore the saved
+            // position instead. The initial queue set is handled by onSetMediaItems.
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
             ) {
-                scope.launch {
-                    flushListeningSegment()
-                    if (player.isPlaying) beginListeningSegment(player)
+                mediaItem?.mediaId?.let(MediaIds::episodeIdOrNull)?.let { episodeId ->
+                    pendingResumeEpisodeId = episodeId
+                    scope.launch { resumeSavedPosition(player, episodeId) }
                 }
             }
-
-            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
-                scope.launch { snapshotQueue(player) }
+            scope.launch {
+                flushListeningSegment()
+                if (player.isPlaying) beginListeningSegment(player)
+                snapshotQueue(player)
+                // Frees space right after an episode finishes (no-op unless enabled).
+                appGraph.downloader.deleteCompletedDownloads()
             }
-        })
+        }
+
+        override fun onPositionDiscontinuity(
+            oldPosition: PositionInfo,
+            newPosition: PositionInfo,
+            reason: Int,
+        ) {
+            val player = activePlayer()
+            scope.launch {
+                flushListeningSegment()
+                if (player.isPlaying) beginListeningSegment(player)
+            }
+        }
+
+        override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+            scope.launch { snapshotQueue(activePlayer()) }
+        }
     }
 
     private fun beginListeningSegment(player: Player) {
@@ -498,10 +616,11 @@ class PlaybackService : MediaLibraryService() {
             startIndex: Int,
             startPositionMs: Long,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future(Dispatchers.IO) {
+            val forCast = isCasting()
             val resolvedPairs = mediaItems.mapNotNull { item ->
                 val episodeId = MediaIds.episodeIdOrNull(item.mediaId)
                 val episode = episodeId?.let { appGraph.podcasts.episodeById(it) }
-                if (episode != null) MediaItemFactory.playable(episode) to episode else null
+                if (episode != null) MediaItemFactory.playable(episode, forCast) to episode else null
             }
             val resolved = resolvedPairs.map { it.first }
             val safeIndex = startIndex.coerceIn(0, (resolved.size - 1).coerceAtLeast(0))
@@ -516,7 +635,7 @@ class PlaybackService : MediaLibraryService() {
         private suspend fun resolve(item: MediaItem): MediaItem? {
             val episodeId = MediaIds.episodeIdOrNull(item.mediaId) ?: return null
             val episode: EpisodeEntity = appGraph.podcasts.episodeById(episodeId) ?: return null
-            return MediaItemFactory.playable(episode)
+            return MediaItemFactory.playable(episode, forCast = isCasting())
         }
 
         /**

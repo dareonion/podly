@@ -288,6 +288,9 @@ fun PlayerScreen() {
                     Text(" Up next (${state.queueIndex + 1}/${state.queue.size})")
                 }
             }
+            // No size modifier: the button hides itself until a Cast receiver is
+            // on the network, and a forced size would leave a gap in this row.
+            CastButton()
         }
         episode?.let { currentEpisode ->
             Spacer(Modifier.height(8.dp))

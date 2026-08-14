@@ -118,6 +118,12 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.datasource.okhttp)
+    // Chromecast: media3-cast bridges ExoPlayer's Player API onto the Cast SDK;
+    // mediarouter + appcompat are what MediaRouteButton needs to inflate.
+    implementation(libs.androidx.media3.cast)
+    implementation(libs.androidx.mediarouter)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.play.services.cast.framework)
     implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.okhttp)
