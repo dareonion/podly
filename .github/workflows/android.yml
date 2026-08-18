@@ -35,7 +35,7 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - uses: gradle/actions/setup-gradle@v6.2.0
+      - uses: gradle/actions/setup-gradle@v6.3.0
 
       # Sign with the shared debug keystore so published APKs can update
       # existing installs (a runner-generated keystore changes every run,
