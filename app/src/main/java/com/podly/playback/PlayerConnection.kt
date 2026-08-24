@@ -68,8 +68,12 @@ class PlayerConnection(context: Context) {
 
     private fun syncState(player: Player, events: Player.Events? = null) {
         val metadata: MediaMetadata? = player.currentMediaItem?.mediaMetadata
-        // Rebuilding the queue list is only needed when the timeline itself changes.
-        val queue = if (events == null || events.contains(Player.EVENT_TIMELINE_CHANGED)) {
+        // Rebuilding the queue list is only needed when the timeline itself changes
+        // — plus a self-heal on size drift. Swapping players (casting) republishes
+        // the timeline in stages, and a stale cache left "Up next" showing the
+        // transient two-item queue while the session already held the full one.
+        val staleQueue = _state.value.queue.size != player.mediaItemCount
+        val queue = if (events == null || events.contains(Player.EVENT_TIMELINE_CHANGED) || staleQueue) {
             (0 until player.mediaItemCount).mapNotNull { index ->
                 val item = player.getMediaItemAt(index)
                 val episodeId = MediaIds.episodeIdOrNull(item.mediaId) ?: return@mapNotNull null
