@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.fragment.app.FragmentActivity
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import com.podly.appGraph
@@ -61,7 +61,11 @@ private val TABS = listOf(
     Tab("settings", "Settings", Icons.Filled.Settings),
 )
 
-class MainActivity : ComponentActivity() {
+// FragmentActivity (not ComponentActivity): the cast button's device picker is a
+// DialogFragment and needs a FragmentManager. FragmentActivity is a
+// ComponentActivity, so Compose/setContent/viewModels are unaffected, and unlike
+// AppCompatActivity it imposes no AppCompat theme requirement on Theme.Podly.
+class MainActivity : FragmentActivity() {
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {}

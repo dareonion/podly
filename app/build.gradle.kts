@@ -124,6 +124,9 @@ dependencies {
     implementation(libs.androidx.mediarouter)
     implementation(libs.androidx.appcompat)
     implementation(libs.play.services.cast.framework)
+    // MainActivity must be a FragmentActivity: MediaRouteButton shows its device
+    // picker as a DialogFragment and throws without a FragmentManager.
+    implementation(libs.androidx.fragment)
     implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.okhttp)

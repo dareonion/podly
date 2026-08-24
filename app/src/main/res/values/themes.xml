@@ -1,18 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Podly" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@android:color/black</item>
-    </style>
-
     <!--
-      MediaRouteButton is an AppCompat view and cannot inflate against
-      Theme.Podly (a framework Material theme), so the cast button wraps its
-      context in this one. Tinted for the app's dark player surface.
+      AppCompat-based (dark, matching the old android:Theme.Material) because the
+      cast button and its device-picker dialog are AppCompat/mediarouter views:
+      MediaRouterThemeHelper reads AppCompat attrs like colorPrimary off the
+      *activity's* theme, and on a framework theme they resolve to 0, which
+      crashes the picker with "background can not be translucent". Wrapping just
+      the button's context is not enough — the dialog uses the activity.
+      Visually equivalent here: all app colours come from Compose MaterialTheme.
     -->
-    <style name="Theme.Podly.Cast" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="Theme.Podly" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
         <item name="colorControlNormal">@android:color/white</item>
-        <!-- Theme.AppCompat doesn't carry mediarouter's attrs; without this the
-             button has no cast drawable to inflate. -->
+        <!-- AppCompat doesn't carry mediarouter's attrs; without this the cast
+             button has no drawable to inflate. -->
         <item name="mediaRouteButtonStyle">@style/Widget.MediaRouter.MediaRouteButton</item>
     </style>
 </resources>
