@@ -76,6 +76,12 @@ class PlaybackService : MediaLibraryService() {
     private var seekBackMs = 10_000L
     private var seekForwardMs = 30_000L
 
+    // Mirrors session.player. MediaSession's getters assert the application
+    // thread, but LibraryCallback resolves media items on Dispatchers.IO, so
+    // reading session.player there threw and failed the whole session operation.
+    @Volatile private var activePlayerOrNull: Player? = null
+    @Volatile private var casting = false
+
     override fun onCreate() {
         super.onCreate()
         val graph = appGraph
@@ -130,6 +136,7 @@ class PlaybackService : MediaLibraryService() {
         session = MediaLibrarySession.Builder(this, player, LibraryCallback())
             .setSessionActivity(mainActivityIntent())
             .build()
+        activePlayerOrNull = player
 
         startProgressPersistence(player)
         startNetworkErrorRecovery(player)
@@ -193,9 +200,11 @@ class PlaybackService : MediaLibraryService() {
         source.removeListener(progressListener)
         target.addListener(progressListener)
         session.setPlayer(target)
+        val toCast = target === castPlayer
+        activePlayerOrNull = target
+        casting = toCast
 
         if (episodeIds.isEmpty()) return
-        val toCast = target === castPlayer
         scope.launch {
             val dao = appGraph.database.episodeDao()
             val episodes = episodeIds.mapNotNull { dao.byId(it) }
@@ -214,10 +223,10 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /** The player currently driving the session (local, or the Cast player). */
-    private fun activePlayer(): Player = session?.player ?: localPlayer
+    private fun activePlayer(): Player = activePlayerOrNull ?: localPlayer
 
     /** True while a Cast device owns the session, so items must use streaming URLs. */
-    private fun isCasting(): Boolean = castPlayer != null && session?.player === castPlayer
+    private fun isCasting(): Boolean = casting
 
     /**
      * Streaming dies permanently on a few seconds of bad network (e.g. the
