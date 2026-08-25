@@ -6,6 +6,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -41,6 +42,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.future
@@ -149,31 +151,41 @@ class PlaybackService : MediaLibraryService() {
      * in-app UI and Android Auto keep talking to the same session either way.
      */
     private fun setUpCast() {
-        val playServices = GoogleApiAvailability.getInstance()
-        if (playServices.isGooglePlayServicesAvailable(this) != ConnectionResult.SUCCESS) return
-        // Direct executor: the callback only builds the player and must land on
-        // the main thread, which is where this runs.
-        runCatching { CastContext.getSharedInstance(this, Runnable::run) }
-            .getOrNull()
-            ?.addOnSuccessListener { castContext ->
-                if (session == null) return@addOnSuccessListener
-                val cast = CastPlayer(castContext)
-                rawCastPlayer = cast
-                castPlayer = NudgingPlayer(cast).apply {
-                    seekBackMs = this@PlaybackService.seekBackMs
-                    seekForwardMs = this@PlaybackService.seekForwardMs
-                }
-                cast.setSessionAvailabilityListener(object : SessionAvailabilityListener {
-                    override fun onCastSessionAvailable() {
-                        castPlayer?.let(::transferPlaybackTo)
-                    }
-
-                    override fun onCastSessionUnavailable() {
-                        transferPlaybackTo(localPlayer)
-                    }
-                })
-                if (cast.isCastSessionAvailable) castPlayer?.let(::transferPlaybackTo)
+        // getSharedInstance must be called from the main thread — off it the Cast
+        // SDK throws and casting silently never initialises. The Executor
+        // argument is what keeps the heavy work (a Play Services Dynamite module
+        // load, ~700ms observed) off the main thread, so onCreate still returns
+        // promptly for Android Auto's first browse request. Failures are logged
+        // rather than swallowed: a silent one looks exactly like "cast connects
+        // but audio stays on the phone".
+        val available = runCatching {
+            GoogleApiAvailability.getInstance()
+                .isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS
+        }.getOrDefault(false)
+        if (!available) return
+        val task = runCatching {
+            CastContext.getSharedInstance(applicationContext, Dispatchers.IO.asExecutor())
+        }.onFailure { Log.w(TAG, "Cast unavailable; playback stays local", it) }.getOrNull()
+        task?.addOnFailureListener { Log.w(TAG, "Cast init failed; playback stays local", it) }
+        task?.addOnSuccessListener { castContext ->
+            if (session == null) return@addOnSuccessListener
+            val cast = CastPlayer(castContext)
+            rawCastPlayer = cast
+            castPlayer = NudgingPlayer(cast).apply {
+                seekBackMs = this@PlaybackService.seekBackMs
+                seekForwardMs = this@PlaybackService.seekForwardMs
             }
+            cast.setSessionAvailabilityListener(object : SessionAvailabilityListener {
+                override fun onCastSessionAvailable() {
+                    castPlayer?.let(::transferPlaybackTo)
+                }
+
+                override fun onCastSessionUnavailable() {
+                    transferPlaybackTo(localPlayer)
+                }
+            })
+            if (cast.isCastSessionAvailable) castPlayer?.let(::transferPlaybackTo)
+        }
     }
 
     /**
@@ -231,6 +243,7 @@ class PlaybackService : MediaLibraryService() {
 
     /** True while a Cast device owns the session, so items must use streaming URLs. */
     private fun isCasting(): Boolean = casting
+
 
     /**
      * Streaming dies permanently on a few seconds of bad network (e.g. the
@@ -693,6 +706,7 @@ class PlaybackService : MediaLibraryService() {
         private const val MAX_BROWSE_CHILDREN = 100
         private const val MIN_LISTEN_SEGMENT_MS = 1_000L
         private const val CONTINUOUS_POSITION_TOLERANCE_MS = 12_000L
+        private const val TAG = "PodlyPlayback"
         private const val MAX_RECOVERY_ATTEMPTS = 5
         private val RECOVERABLE_ERROR_CODES = setOf(
             PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
