@@ -209,8 +209,12 @@ class PlaybackService : MediaLibraryService() {
             val dao = appGraph.database.episodeDao()
             val episodes = episodeIds.mapNotNull { dao.byId(it) }
             if (episodes.isEmpty()) return@launch
-            val items = episodes.map { MediaItemFactory.playable(it, forCast = toCast) }
-            target.setMediaItems(items, index.coerceAtMost(items.size - 1), position)
+            val resolved = episodes.map { MediaItemFactory.playable(it, forCast = toCast) }
+            val safeIndex = index.coerceIn(0, resolved.size - 1)
+            // Same 512 KB Cast message ceiling as onSetMediaItems.
+            val (items, startIndex) =
+                if (toCast) castQueueWindow(resolved, safeIndex) else resolved to safeIndex
+            target.setMediaItems(items, startIndex, position)
             target.prepare()
             target.playWhenReady = wasPlaying
             if (toCast && episodes.any { MediaItemFactory.localUriOrNull(it) != null }) {
@@ -638,7 +642,8 @@ class PlaybackService : MediaLibraryService() {
                 else -> resolvedPairs.getOrNull(safeIndex)?.second
                     ?.takeIf { !it.completed }?.playbackPositionMs ?: 0L
             }
-            MediaSession.MediaItemsWithStartPosition(resolved, safeIndex, resumePosition)
+            val (items, index) = if (forCast) castQueueWindow(resolved, safeIndex) else resolved to safeIndex
+            MediaSession.MediaItemsWithStartPosition(items, index, resumePosition)
         }
 
         private suspend fun resolve(item: MediaItem): MediaItem? {
