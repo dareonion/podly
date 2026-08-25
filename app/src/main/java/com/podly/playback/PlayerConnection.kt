@@ -53,6 +53,9 @@ class PlayerConnection(context: Context) {
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state
 
+    /** Timeline size behind the cached queue; -1 until the first sync. */
+    private var lastTimelineSize = -1
+
     init {
         scope.launch {
             val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
@@ -68,13 +71,21 @@ class PlayerConnection(context: Context) {
 
     private fun syncState(player: Player, events: Player.Events? = null) {
         val metadata: MediaMetadata? = player.currentMediaItem?.mediaMetadata
-        // Rebuilding the queue list is only needed when the timeline itself changes
-        // — plus a self-heal on size drift. Swapping players (casting) republishes
-        // the timeline in stages, and a stale cache left "Up next" showing the
-        // transient two-item queue while the session already held the full one.
-        val staleQueue = _state.value.queue.size != player.mediaItemCount
-        val queue = if (events == null || events.contains(Player.EVENT_TIMELINE_CHANGED) || staleQueue) {
-            (0 until player.mediaItemCount).mapNotNull { index ->
+        // Rebuild the queue list when the timeline changes, and also whenever its
+        // size moved since the last rebuild — swapping players (casting)
+        // republishes the timeline in stages and can drop the change event,
+        // which once left "Up next" stuck on a transient two-item queue.
+        // Compare against the previous timeline size rather than the cached
+        // list's size: the list is filtered to episodes, so a single non-episode
+        // item would make the two differ forever and rebuild on every event.
+        val timelineSize = player.mediaItemCount
+        val queue = if (
+            events == null ||
+            events.contains(Player.EVENT_TIMELINE_CHANGED) ||
+            timelineSize != lastTimelineSize
+        ) {
+            lastTimelineSize = timelineSize
+            (0 until timelineSize).mapNotNull { index ->
                 val item = player.getMediaItemAt(index)
                 val episodeId = MediaIds.episodeIdOrNull(item.mediaId) ?: return@mapNotNull null
                 QueueItem(
