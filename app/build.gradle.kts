@@ -40,6 +40,7 @@ android {
         targetSdk = 36
         versionCode = 2
         versionName = "1.1"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -140,4 +141,9 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.test.junit)
+
+    // On-device tests (connectedDebugAndroidTest): the legacy MediaBrowser
+    // handshake only deadlocks on a real main looper, so it cannot be unit-tested.
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.junit)
 }

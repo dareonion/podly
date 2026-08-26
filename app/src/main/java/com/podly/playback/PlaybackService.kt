@@ -32,6 +32,7 @@ import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.common.collect.ImmutableList
+import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.podly.appGraph
 import com.podly.data.db.EpisodeEntity
@@ -563,12 +564,21 @@ class PlaybackService : MediaLibraryService() {
             browser: MediaSession.ControllerInfo,
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<MediaItem>> =
-            scope.future(Dispatchers.IO) {
+            // Must already be complete. Legacy browsers (Android Auto, Bluetooth,
+            // system media resumption) reach this through Media3's
+            // MediaLibraryServiceLegacyStub.onGetRoot, which blocks the main
+            // thread until this future completes and — since media3 1.11 —
+            // observes completion via a callback posted to that same, blocked
+            // main thread. A future finishing on any other thread therefore
+            // never unblocks it: the app hangs and ANRs ("executing service
+            // PlaybackService, waited 200003ms"). LegacyBrowserConnectTest
+            // covers this on-device.
+            Futures.immediateFuture(
                 LibraryResult.ofItem(
                     MediaItemFactory.folder(MediaIds.ROOT, "Podly", childrenAreEpisodes = false),
                     params,
                 )
-            }
+            )
 
         override fun onGetChildren(
             session: MediaLibrarySession,
