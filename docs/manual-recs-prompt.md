@@ -14,17 +14,20 @@ Tips:
 - Chatbots can keep searching — if an area looks thin or the list comes back
   short, reply "find 3 more <area> episodes and re-emit the full JSON" before
   importing.
+- The list order becomes the playlist order, so the strongest picks land at the
+  top. If the bot grouped by area instead, reply "re-order the whole list by
+  overall merit, best first, and re-emit the full JSON".
 - Skim the list before importing: every entry should be a real, dated episode of
   a real show. Ask the bot to remove anything that looks invented.
 
 ## Prompt
 
+Paragraphs are single long lines (no hard wraps) so the block pastes cleanly into a chat box.
+
 ```text
 You are an expert podcast critic and curator. Use today's actual date.
 
-Find the most worthwhile individual podcast episodes released in the past 2 weeks.
-Search the web area by area — run at least one focused search for standout recent
-episodes in each of these nine areas, and take the 3 strongest from each:
+Find the most worthwhile individual podcast episodes released in the past 2 weeks. Search the web area by area — run at least one focused search for standout recent episodes in each of these nine areas, and take the 3 strongest from each:
 
 1. narrative and investigative storytelling
 2. science, technology, and health
@@ -37,32 +40,23 @@ episodes in each of these nine areas, and take the 3 strongest from each:
 9. news and politics
 
 Rules:
-- Episodes outside the news-and-politics area must not be about politics or
-  current political news, whoever the host or guest is.
+- Episodes outside the news-and-politics area must not be about politics or current political news, whoever the host or guest is.
 - At most 2 episodes from the same podcast across the whole list.
-- The final list must contain at least 20 episodes. If an area's search comes up
-  thin, search that area again with different wording before giving up on it.
-- Only include an episode when your search results show its real, specific
-  published title. Never invent titles or placeholders, and never list a whole
-  show or limited series as if it were one episode.
-- Prefer episodes that were widely discussed, critically praised, deeply
-  reported, exceptionally useful, unusually moving, or genuinely fun to listen to.
+- The final list must contain at least 20 episodes. If an area's search comes up thin, search that area again with different wording before giving up on it.
+- Only include an episode when your search results show its real, specific published title. Never invent titles or placeholders, and never list a whole show or limited series as if it were one episode.
+- Prefer episodes that were widely discussed, critically praised, deeply reported, exceptionally useful, unusually moving, or genuinely fun to listen to.
+- Order the final list by overall merit, not by area: put the episodes you are most confident are worth a listener's time — the most popular, most widely discussed, or most acclaimed — at the top, down to the weakest at the end. Do not group the list by area.
 
-When you are done, reply with ONLY a JSON code block (no prose before or after)
-in exactly this shape:
+When you are done, reply with ONLY a JSON code block (no prose before or after) in exactly this shape:
 
 {
   "name": "Picks · <today's date>",
   "picks": [
-    {"pick": {"podcastTitle": "...", "episodeTitle": "...",
-              "author": "... or null",
-              "reason": "one sentence on why it's worth listening",
-              "publishedApprox": "YYYY-MM-DD or null"}}
+    {"pick": {"podcastTitle": "...", "episodeTitle": "...", "author": "... or null", "reason": "one sentence on why it's worth listening", "publishedApprox": "YYYY-MM-DD or null"}}
   ]
 }
 
-Use each episode's exact published title (not a paraphrase), and set
-publishedApprox to its release date whenever you can determine it.
+Use each episode's exact published title (not a paraphrase), and set publishedApprox to its release date whenever you can determine it.
 ```
 
 ## Format notes
