@@ -9,8 +9,10 @@ Taddy/PodcastIndex keys configured in Settings.
 
 Tips:
 
-- Swap the window in the first line: "the past 2 weeks" / "the past month" /
-  "the past 3 months".
+- Swap the window in the first line ("the past 2 weeks" / "the past month" /
+  "the past 3 months") and in the `name` template, which becomes the playlist
+  name — it records how and for which span the list was made, alongside the
+  in-app "Recent picks · 2 weeks · <date>" playlists.
 - Chatbots can keep searching — if an area looks thin or the list comes back
   short, reply "find 3 more <area> episodes and re-emit the full JSON" before
   importing.
@@ -50,7 +52,7 @@ Rules:
 When you are done, reply with ONLY a JSON code block (no prose before or after) in exactly this shape:
 
 {
-  "name": "Picks · <today's date>",
+  "name": "Chat picks · past 2 weeks · <today's date>",
   "picks": [
     {"pick": {"podcastTitle": "...", "episodeTitle": "...", "author": "... or null", "reason": "one sentence on why it's worth listening", "publishedApprox": "YYYY-MM-DD or null"}}
   ]
