@@ -2,9 +2,11 @@ name: Generate recommendations
 
 # Generates the static recent-episode + acclaimed recommendation JSON with Claude
 # and publishes it to GitHub Pages. The app fetches these files instead of calling
-# Claude on-device. Needs a funded ANTHROPIC_API_KEY, so the weekly cron is
-# disabled while the account has no credits (docs/manual-recs-prompt.md is the
-# manual alternative) — dispatch manually to regenerate.
+# Claude on-device. Each run costs real API credits (~27 Opus calls with web
+# search), so the weekly cron stays off by choice: the default way to refresh
+# picks is docs/manual-recs-prompt.md, which uses a chat subscription instead.
+# Dispatch this manually only when a generated refresh is actually wanted, and
+# check that the ANTHROPIC_API_KEY secret is a key from a funded organisation.
 on:
   workflow_dispatch:
 
