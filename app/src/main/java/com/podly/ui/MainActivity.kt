@@ -175,6 +175,7 @@ private fun PodlyApp() {
                 EpisodeDetailScreen(
                     episodeId,
                     onOpenPodcast = { navController.navigate("podcast/$it") },
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable("player") { PlayerScreen() }

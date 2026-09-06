@@ -69,16 +69,29 @@ import com.podly.ui.util.formatDuration
 import com.podly.ui.util.formatPosition
 import com.podly.ui.util.plainDescription
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+/** Whether the row exists is only known once the database has answered. */
+sealed interface EpisodeLoad {
+    data object Loading : EpisodeLoad
+    data object Missing : EpisodeLoad
+    data class Found(val episode: EpisodeEntity) : EpisodeLoad
+}
 
 class EpisodeDetailViewModel(
     private val graph: AppGraph,
     private val episodeId: String,
 ) : ViewModel() {
     val actions = EpisodeActions(graph, viewModelScope)
-    val episode = graph.podcasts.episode(episodeId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    // A plain nullable can't tell "not loaded yet" from "no such episode", so a
+    // deleted or stale-back-stack episode used to spin forever.
+    val episode: StateFlow<EpisodeLoad> = graph.podcasts.episode(episodeId)
+        .map { if (it == null) EpisodeLoad.Missing else EpisodeLoad.Found(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), EpisodeLoad.Loading)
     val playlists = graph.playlists.playlists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -94,6 +107,7 @@ class EpisodeDetailViewModel(
 fun EpisodeDetailScreen(
     episodeId: String,
     onOpenPodcast: (String) -> Unit,
+    onBack: () -> Unit,
 ) {
     val viewModel = appViewModel(key = "episode_$episodeId") {
         EpisodeDetailViewModel(it, episodeId)
@@ -107,12 +121,26 @@ fun EpisodeDetailScreen(
     var showNoteDialog by remember { mutableStateOf(false) }
     var confirmRemoveDownload by remember { mutableStateOf(false) }
 
-    val ep = episode
-    if (ep == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+    val ep = when (val loaded = episode) {
+        EpisodeLoad.Loading -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            return
         }
-        return
+        EpisodeLoad.Missing -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(24.dp),
+                ) {
+                    Text("This episode is no longer in your library.")
+                    TextButton(onClick = onBack) { Text("Go back") }
+                }
+            }
+            return
+        }
+        is EpisodeLoad.Found -> loaded.episode
     }
 
     val isCurrent = playerState.episodeId == ep.id
