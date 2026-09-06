@@ -184,7 +184,7 @@ class AiRecommender(
             val client = AnthropicOkHttpClient.builder().apiKey(apiKey).build()
             try {
                 val params = MessageCreateParams.builder()
-                    .model("claude-opus-4-8")
+                    .model(CLAUDE_MODEL)
                     .maxTokens(16000L)
                     // Summarized display makes thinking stream as deltas; the default
                     // ("omitted") keeps the stream silent for the whole thinking phase,
@@ -239,6 +239,9 @@ class AiRecommender(
         }
 
     companion object {
+        /** Also used by [com.podly.network.ai.ApiKeyCheck]; keep them on one model. */
+        const val CLAUDE_MODEL = "claude-opus-4-8"
+
         /** Tolerates code fences or stray prose around the JSON array. */
         fun parseRecommendations(raw: String): List<AiRecommendation> = decodeArray(raw)
 

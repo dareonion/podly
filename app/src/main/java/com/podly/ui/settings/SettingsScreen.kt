@@ -16,6 +16,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,6 +36,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.podly.AppGraph
 import com.podly.data.AiProvider
+import com.podly.network.ai.ApiKeyCheck
+import com.podly.network.ai.KeyCheckResult
 import com.podly.data.OpmlImportResult
 import com.podly.data.PicksImportFile
 import com.podly.data.PicksImportResult
@@ -250,6 +253,8 @@ fun SettingsScreen() {
                 ?: error("Could not open picks file")
         }
     }
+    var keyCheck by remember { mutableStateOf<KeyCheckResult?>(null) }
+    var keyChecking by remember { mutableStateOf(false) }
     var showPastePicksDialog by remember { mutableStateOf(false) }
     var pastedPicks by remember { mutableStateOf("") }
     var pasteHistory by remember { mutableStateOf<List<SettingsViewModel.PasteEntry>>(emptyList()) }
@@ -298,13 +303,52 @@ fun SettingsScreen() {
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        Button(onClick = {
-            viewModel.setAnthropicKey(anthropicKey)
-            viewModel.setOpenAiKey(openAiKey)
-            aiKeysStatus = "Saved."
-        }) { Text("Save AI keys") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                viewModel.setAnthropicKey(anthropicKey)
+                viewModel.setOpenAiKey(openAiKey)
+                aiKeysStatus = "Saved."
+            }) { Text("Save AI keys") }
+            // A bad or unfunded key otherwise only shows up when a feature
+            // fails, which can be weeks later.
+            OutlinedButton(
+                enabled = !keyChecking,
+                onClick = {
+                    val provider = settings.aiProvider
+                    val key = if (provider == AiProvider.CLAUDE) anthropicKey else openAiKey
+                    keyChecking = true
+                    keyCheck = null
+                    scope.launch {
+                        keyCheck = ApiKeyCheck.validate(provider, key)
+                        keyChecking = false
+                    }
+                },
+            ) { Text(if (keyChecking) "Checking…" else "Check key") }
+        }
         aiKeysStatus?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        keyCheck?.let { result ->
+            Text(
+                result.message,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (result.ok) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.error,
+            )
+            // Only inference touches the balance, so the credit state costs a
+            // (tiny) call — kept behind its own tap rather than run for you.
+            if (result.ok && settings.aiProvider == AiProvider.CLAUDE) {
+                TextButton(
+                    enabled = !keyChecking,
+                    onClick = {
+                        keyChecking = true
+                        scope.launch {
+                            keyCheck = ApiKeyCheck.checkCredits(anthropicKey)
+                            keyChecking = false
+                        }
+                    },
+                ) { Text("Also check credits (sends 1 token)") }
+            }
         }
 
         HorizontalDivider()
