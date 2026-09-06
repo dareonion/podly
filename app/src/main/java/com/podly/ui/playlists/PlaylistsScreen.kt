@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -60,7 +61,12 @@ fun PlaylistsScreen(onOpenPlaylist: (Long) -> Unit) {
     var deleting by remember { mutableStateOf<PlaylistEntity?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            // Clears the FAB, which otherwise covers the last row's rename and
+            // delete buttons with no way to scroll them out from under it.
+            contentPadding = PaddingValues(bottom = 88.dp),
+        ) {
             item {
                 Text(
                     "Playlists",
