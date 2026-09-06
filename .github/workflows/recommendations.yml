@@ -7,6 +7,10 @@ name: Generate recommendations
 # picks is docs/manual-recs-prompt.md, which uses a chat subscription instead.
 # Dispatch this manually only when a generated refresh is actually wanted, and
 # check that the ANTHROPIC_API_KEY secret is a key from a funded organisation.
+#
+# NOTE: site/ is now committed and pages.yml deploys it on every push, so this
+# job's output only survives until the next site/ push unless it is committed
+# back to main. Add that step before relying on a dispatch run.
 on:
   workflow_dispatch:
 

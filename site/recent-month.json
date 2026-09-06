@@ -1,0 +1,113 @@
+{
+    "generatedAtMs": 1785080249451,
+    "window": "MONTH",
+    "coverageStart": "2026-06-26",
+    "coverageEnd": "2026-07-26",
+    "picks": [
+        {
+            "pick": {
+                "podcastTitle": "Science Quickly",
+                "episodeTitle": "Could Sunlight Actually Improve Your Health?",
+                "author": "Rachel Feltman / Scientific American",
+                "reason": "New research reframing total sun-avoidance advice makes this a genuinely useful, myth-challenging listen on everyday health.",
+                "publishedApprox": "2026-07-24"
+            },
+            "podcastId": "a08d71d495f140e2cf6c117cb8c7a022",
+            "podcastTitle": "Science Quickly",
+            "podcastAuthor": "Scientific American",
+            "feedUrl": "https://www.scientificamerican.com/sciam/xml/iTunes.cfm?id=science-quickly",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/14/01/90/140190a6-f86e-f0b5-8d22-33e4d3728638/mza_11503669622119701029.jpeg/600x600bb.jpg",
+            "podcastDescription": "Science"
+        },
+        {
+            "pick": {
+                "podcastTitle": "Science Friday",
+                "episodeTitle": "Marine biologist Asha de Vos on Sri Lanka's non-migrating blue whales",
+                "author": "Flora Lichtman / Science Friday",
+                "reason": "A moving profile of the first Sri Lankan to earn a marine-mammal PhD and the unusual resident blue whales she discovered.",
+                "publishedApprox": "2026-07-24"
+            },
+            "podcastId": "2a260903456c2008e78b31ad7f0dddb3",
+            "podcastTitle": "Science Friday",
+            "podcastAuthor": "Science Friday and WNYC Studios",
+            "feedUrl": "https://feeds.simplecast.com/h18ZIZD_",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/0a/a3/e2/0aa3e2a9-dda9-a7ea-8711-490d7f6c5c55/mza_1538698271404318803.jpg/600x600bb.jpg",
+            "podcastDescription": "Life Sciences"
+        },
+        {
+            "pick": {
+                "podcastTitle": "Short Wave",
+                "episodeTitle": "Orcas ramming and exploding sunfish off Baja California",
+                "author": "NPR",
+                "reason": "A striking new animal-behavior study about orcas smashing sunfish sparked wide fascination over whether it's hunting or play.",
+                "publishedApprox": "2026-07-24"
+            },
+            "podcastId": "add3fb358ed013c25320067c7f0b3546",
+            "podcastTitle": "Short Wave",
+            "podcastAuthor": "NPR",
+            "feedUrl": "https://feeds.npr.org/510351/podcast.xml",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/17/27/45/17274534-c924-edae-c6ca-c412724c96ae/mza_4098925705315309992.jpg/600x600bb.jpg",
+            "podcastDescription": "Life Sciences"
+        },
+        {
+            "pick": {
+                "podcastTitle": "Short Wave",
+                "episodeTitle": "The hype around synthetic peptides",
+                "author": "NPR",
+                "reason": "A timely, skeptical look at the peptide craze spreading from fitness influencers to people managing chronic conditions.",
+                "publishedApprox": "2026-07-22"
+            },
+            "podcastId": "add3fb358ed013c25320067c7f0b3546",
+            "podcastTitle": "Short Wave",
+            "podcastAuthor": "NPR",
+            "feedUrl": "https://feeds.npr.org/510351/podcast.xml",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/17/27/45/17274534-c924-edae-c6ca-c412724c96ae/mza_4098925705315309992.jpg/600x600bb.jpg",
+            "podcastDescription": "Life Sciences"
+        },
+        {
+            "pick": {
+                "podcastTitle": "Planet Money",
+                "episodeTitle": "The booming secondhand luxury market and how to spot a fake",
+                "author": "NPR",
+                "reason": "A sharp explainer on the explosion of online luxury resale and the authentication problem at its core.",
+                "publishedApprox": "2026-07-10"
+            },
+            "podcastId": "ef15faeacb5c506dcadea13a0fbbf46c",
+            "podcastTitle": "Planet Money",
+            "podcastAuthor": "NPR",
+            "feedUrl": "https://feeds.npr.org/510289/podcast.xml",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/85/df/53/85df5334-0fae-28a9-2bc4-b97b81061d0e/mza_10839245066228881011.jpg/600x600bb.jpg",
+            "podcastDescription": "Business"
+        },
+        {
+            "pick": {
+                "podcastTitle": "Planet Money Summer School",
+                "episodeTitle": "Summer School 1: Australia's water market and the best economic ideas from around the world",
+                "author": "NPR",
+                "reason": "The kickoff of a well-loved teaching season, using Australia's water market to explain how markets allocate scarce resources.",
+                "publishedApprox": "2026-07-08"
+            },
+            "podcastId": "c7a8b3f9c2fbfb85b8750fc294094a87",
+            "podcastTitle": "Planet Money Summer School",
+            "podcastAuthor": "NPR",
+            "feedUrl": "https://feeds.npr.org/510362/podcast.xml",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/5b/53/36/5b533693-b77b-6483-0698-fe1bd3931572/mza_3939072169117527492.jpg/600x600bb.jpg",
+            "podcastDescription": "Education"
+        },
+        {
+            "pick": {
+                "podcastTitle": "Marketplace",
+                "episodeTitle": "July 24, 2026: The jobs report, AI customer-service chatbots, bond yields, and Medicaid work requirements",
+                "author": "Kai Ryssdal / Marketplace",
+                "reason": "A crisp daily wrap on why the headline jobs number masks a softer labor market, plus bond yields topping 5%.",
+                "publishedApprox": "2026-07-24"
+            },
+            "podcastId": "0745e2df6485416dd59aeb42669ba5d3",
+            "podcastTitle": "Marketplace",
+            "podcastAuthor": "Marketplace",
+            "feedUrl": "https://feeds.publicradio.org/public_feeds/marketplace",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/90/34/b4/9034b43b-0a18-3ed4-1f69-c18dc001c891/mza_2187886854309824642.jpg/600x600bb.jpg",
+            "podcastDescription": "Business"
+        }
+    ]
+}

@@ -1,0 +1,96 @@
+{
+    "generatedAtMs": 1785080249451,
+    "window": "TWO_WEEKS",
+    "coverageStart": "2026-07-12",
+    "coverageEnd": "2026-07-26",
+    "picks": [
+        {
+            "pick": {
+                "podcastTitle": "The Ezra Klein Show",
+                "episodeTitle": "What Xi Jinping Wants",
+                "author": "Ezra Klein / The New York Times",
+                "reason": "A substantive, widely-noted deep dive into Chinese leadership and geopolitical strategy at a tense moment for US-China relations.",
+                "publishedApprox": "2026-07-14"
+            },
+            "podcastId": "98a19033351f3a1aa833afc91f7f0ce1",
+            "podcastTitle": "The Ezra Klein Show",
+            "podcastAuthor": "New York Times Opinion",
+            "feedUrl": "https://feeds.simplecast.com/kEKXbjuJ",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/9d/ca/35/9dca35d8-e7d2-7e4f-63b5-c2ff4973a3f5/mza_16891544429738729361.jpg/600x600bb.jpg",
+            "podcastDescription": "Society & Culture"
+        },
+        {
+            "pick": {
+                "podcastTitle": "The Ezra Klein Show",
+                "episodeTitle": "Best Of: A Breath of Fresh Air With Brian Eno",
+                "author": "Ezra Klein / The New York Times",
+                "reason": "A reflective, richly enjoyable conversation with the pioneering musician and thinker about creativity, technology and art.",
+                "publishedApprox": "2026-07-21"
+            },
+            "podcastId": "98a19033351f3a1aa833afc91f7f0ce1",
+            "podcastTitle": "The Ezra Klein Show",
+            "podcastAuthor": "New York Times Opinion",
+            "feedUrl": "https://feeds.simplecast.com/kEKXbjuJ",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/9d/ca/35/9dca35d8-e7d2-7e4f-63b5-c2ff4973a3f5/mza_16891544429738729361.jpg/600x600bb.jpg",
+            "podcastDescription": "Society & Culture"
+        },
+        {
+            "pick": {
+                "podcastTitle": "Fresh Air",
+                "episodeTitle": "Jonathan Swan on President Trump's 'unrecognizable' second term ('Regime Change')",
+                "author": "Terry Gross / NPR / WHYY",
+                "reason": "Swan and Maggie Haberman drew on interviews with over 1,000 sources, making this one of the most deeply reported interviews on the current administration."
+            },
+            "podcastId": "22206012468928d83dd6d274cc116d11",
+            "podcastTitle": "Fresh Air",
+            "podcastAuthor": "NPR",
+            "feedUrl": "https://feeds.npr.org/381444908/podcast.xml",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/68/35/32/683532c0-dd91-676a-eeef-3ace951cd6e9/mza_6896198885971355473.jpg/600x600bb.jpg",
+            "podcastDescription": "Books"
+        },
+        {
+            "pick": {
+                "podcastTitle": "Fresh Air",
+                "episodeTitle": "A chef on reviving Native American cuisine, food as medicine, and getting sober",
+                "author": "Terry Gross / NPR / WHYY",
+                "reason": "A moving, culturally rich interview about Indigenous food traditions, health and personal recovery."
+            },
+            "podcastId": "22206012468928d83dd6d274cc116d11",
+            "podcastTitle": "Fresh Air",
+            "podcastAuthor": "NPR",
+            "feedUrl": "https://feeds.npr.org/381444908/podcast.xml",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/68/35/32/683532c0-dd91-676a-eeef-3ace951cd6e9/mza_6896198885971355473.jpg/600x600bb.jpg",
+            "podcastDescription": "Books"
+        },
+        {
+            "pick": {
+                "podcastTitle": "The NPR Politics Podcast",
+                "episodeTitle": "House Republicans' busy final week before the August recess",
+                "author": "NPR",
+                "reason": "A clear, timely breakdown of the measures House Republicans passed and how they fit Trump's agenda ahead of a difficult midterm season.",
+                "publishedApprox": "2026-07-24"
+            },
+            "podcastId": "4c524bd9587c4b8a097485de836eaefa",
+            "podcastTitle": "The NPR Politics Podcast",
+            "podcastAuthor": "NPR",
+            "feedUrl": "https://feeds.npr.org/510310/podcast.xml",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/71/15/1d/71151d33-32e7-f0e1-2a6b-412bf4835c5d/mza_9550948332778108059.jpg/600x600bb.jpg",
+            "podcastDescription": "Politics"
+        },
+        {
+            "pick": {
+                "podcastTitle": "Podnews Weekly Review",
+                "episodeTitle": "Bryan Barletta and Martin Bojtos on the podcast industry and New York Audio Week",
+                "author": "James Cridland and Sam Sethi",
+                "reason": "A useful insider look at the business of podcasting, including Podcast Movement's New York Audio Week plans, for anyone following the media economy.",
+                "publishedApprox": "2026-07-17"
+            },
+            "podcastId": "ec39d11a3bb44123062990adbc480e1b",
+            "podcastTitle": "Podnews Weekly Review",
+            "podcastAuthor": "James Cridland and Sam Sethi",
+            "feedUrl": "https://rss.buzzsprout.com/1538779.rss",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/19/92/44/19924476-c9f9-7e8f-cfa6-3fafef7aad00/mza_3043801308304088966.jpg/600x600bb.jpg",
+            "podcastDescription": "News Commentary"
+        }
+    ]
+}

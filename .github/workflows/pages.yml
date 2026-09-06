@@ -1,0 +1,37 @@
+name: Publish site
+
+# The deployed site is exactly the repo's site/ tree at the tip of main.
+# tools/radio commits generated pools there from the Linux box on a timer, and
+# this deploys whatever landed. It runs no generator and touches no API key, so
+# publishing costs nothing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Same group as recommendations.yml so the two publishes queue rather than race.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v5

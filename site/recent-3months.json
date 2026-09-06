@@ -1,0 +1,53 @@
+{
+    "generatedAtMs": 1785080249451,
+    "window": "THREE_MONTHS",
+    "coverageStart": "2026-04-26",
+    "coverageEnd": "2026-07-26",
+    "picks": [
+        {
+            "pick": {
+                "podcastTitle": "Conversations with Coleman",
+                "episodeTitle": "Who Decides What's True on Wikipedia?",
+                "author": "Coleman Hughes",
+                "reason": "A timely, intellectually fearless conversation about who controls the world's most-used reference source, flagged as the show's standout recent episode.",
+                "publishedApprox": "2026-04-20"
+            },
+            "podcastId": "bbaafcdea2ba3f5cdc2ae5b144641c9f",
+            "podcastTitle": "Conversations with Coleman",
+            "podcastAuthor": "The Free Press",
+            "feedUrl": "https://feeds.megaphone.fm/RUNMED8938522838",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/87/d5/96/87d596dc-7f68-81b5-833e-1c5e4fe62d6a/mza_6193746656898525004.jpg/600x600bb.jpg",
+            "podcastDescription": "Philosophy"
+        },
+        {
+            "pick": {
+                "podcastTitle": "a16z Podcast",
+                "episodeTitle": "AI Inside the Enterprise",
+                "author": "Andreessen Horowitz",
+                "reason": "Steven Sinofsky, Aaron Levin, and Martin Casado dig into the widening gap between Silicon Valley's AI hype and real enterprise adoption, offering rare institutional-grade analysis.",
+                "publishedApprox": "2026-04-24"
+            },
+            "podcastId": "66323af571a19fdabe9508bc2b118cde",
+            "podcastTitle": "The a16z Show",
+            "podcastAuthor": "Andreessen Horowitz",
+            "feedUrl": "https://feeds.simplecast.com/JGE3yC0V",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/3e/04/91/3e049169-5b95-784c-2197-01cfff9f41eb/mza_10026788811025472218.jpg/600x600bb.jpg",
+            "podcastDescription": "Technology"
+        },
+        {
+            "pick": {
+                "podcastTitle": "Inside Elections with Nathan L. Gonzales",
+                "episodeTitle": "2026 House Overview: Preparing for the Final Sprint",
+                "author": "Nathan L. Gonzales",
+                "reason": "A sharp, data-driven survey of the 2026 House map heading into the midterm home stretch, useful for anyone tracking the fight for control of Congress.",
+                "publishedApprox": "2026-06-11"
+            },
+            "podcastId": "2152c9ff40ad04d48a447df1223a0289",
+            "podcastTitle": "NC Deep Dive",
+            "podcastAuthor": "Amanda Lunn",
+            "feedUrl": "https://rss.buzzsprout.com/466738.rss",
+            "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/5f/aa/89/5faa89a0-3e97-caa3-585c-ffbafc6161d1/mza_7056743500584655166.jpg/600x600bb.jpg",
+            "podcastDescription": "Society & Culture"
+        }
+    ]
+}
