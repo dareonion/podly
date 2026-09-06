@@ -6,6 +6,7 @@ import com.podly.AppGraph
 import com.podly.data.db.PodcastEntity
 import com.podly.radio.RadioProfile
 import com.podly.radio.RadioProfiles
+import com.podly.work.RadioPoolWorker
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +40,12 @@ data class RadioCardState(
 }
 
 class RadioViewModel(private val graph: AppGraph) : ViewModel() {
+
+    init {
+        // The periodic worker is 12-hourly, so without this a fresh install (or a
+        // newly added profile) would show an empty pool until it happens to fire.
+        RadioPoolWorker.refreshNow(graph.appContext)
+    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<RadioCardState> =
