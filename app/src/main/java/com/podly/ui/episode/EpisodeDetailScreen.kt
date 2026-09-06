@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -37,6 +38,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -103,6 +105,7 @@ fun EpisodeDetailScreen(
 
     var showPlaylistDialog by remember { mutableStateOf(false) }
     var showNoteDialog by remember { mutableStateOf(false) }
+    var confirmRemoveDownload by remember { mutableStateOf(false) }
 
     val ep = episode
     if (ep == null) {
@@ -240,10 +243,12 @@ fun EpisodeDetailScreen(
                     onClick = { viewModel.actions.toggleLibrary(ep) },
                 )
                 when (ep.downloadStatus) {
+                    // "Downloaded" read as a status label while acting as a
+                    // delete, so it deleted the audio on a curious tap.
                     DownloadStatus.DONE -> ActionButton(
                         icon = Icons.Filled.DownloadDone,
-                        label = "Downloaded",
-                        onClick = { viewModel.actions.removeDownload(ep) },
+                        label = "Remove",
+                        onClick = { confirmRemoveDownload = true },
                     )
                     DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED -> ActionButton(
                         icon = Icons.Filled.Downloading,
@@ -333,6 +338,25 @@ fun EpisodeDetailScreen(
                 showPlaylistDialog = false
             },
             onDismiss = { showPlaylistDialog = false },
+        )
+    }
+
+    if (confirmRemoveDownload) {
+        AlertDialog(
+            onDismissRequest = { confirmRemoveDownload = false },
+            title = { Text("Remove download?") },
+            text = { Text("The audio file is deleted from this device. The episode stays in your library and will stream instead.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.actions.removeDownload(ep)
+                        confirmRemoveDownload = false
+                    },
+                ) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemoveDownload = false }) { Text("Cancel") }
+            },
         )
     }
 
