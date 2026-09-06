@@ -1,6 +1,7 @@
 package com.podly.playback
 
 import android.app.PendingIntent
+import android.os.Bundle
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
@@ -27,6 +28,8 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionError
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.common.ConnectionResult
@@ -38,6 +41,7 @@ import com.podly.appGraph
 import com.podly.data.db.EpisodeEntity
 import com.podly.data.db.ListeningSegmentEntity
 import com.podly.network.Http
+import com.podly.radio.RadioProfiles
 import com.podly.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -84,6 +88,17 @@ class PlaybackService : MediaLibraryService() {
     // reading session.player there threw and failed the whole session operation.
     @Volatile private var activePlayerOrNull: Player? = null
     @Volatile private var casting = false
+
+    /** Non-null exactly while a radio session owns the queue. */
+    @Volatile private var radio: RadioSessionState? = null
+    /**
+     * The current radio pick, until it has been listened to long enough to count.
+     * While an episode is on probation nothing is written about it — no progress, no
+     * listening segments, no auto-download — so a rejected pick leaves no trace in
+     * Continue listening or History. Everything withheld is written on commit.
+     */
+    private var probation: Probation? = null
+    private var radioRefillJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -316,8 +331,12 @@ class PlaybackService : MediaLibraryService() {
         // Capture the in-flight segment synchronously; the insert outlives this
         // service on the app-wide scope instead of blocking the main thread.
         takePendingSegment()?.let { segment ->
-            appGraph.applicationScope.launch {
-                appGraph.database.episodeDao().insertListeningSegment(segment)
+            // Drop it if it belongs to a pick still on probation: losing a few
+            // seconds of history beats recording something the user never kept.
+            if (!isOnProbation(segment.episodeId)) {
+                appGraph.applicationScope.launch {
+                    appGraph.database.episodeDao().insertListeningSegment(segment)
+                }
             }
         }
         scope.cancel()
@@ -392,6 +411,7 @@ class PlaybackService : MediaLibraryService() {
                 delay(5_000)
                 val active = activePlayer()
                 recordListeningProgress(active)
+                maybeCommitRadioEpisode(active)
                 saveProgress(active)
             }
         }
@@ -413,8 +433,10 @@ class PlaybackService : MediaLibraryService() {
                     // A playing episode counts as "started": queue a Wi-Fi
                     // download so it survives leaving the network (no-op
                     // when disabled, downloaded, completed, or blocked).
+                    // Not while on probation: radio would otherwise fill the phone
+                    // with audio the user is about to skip.
                     player.currentEpisodeIdOrNull()?.let {
-                        appGraph.downloader.autoDownloadStartedEpisode(it)
+                        if (!isOnProbation(it)) appGraph.downloader.autoDownloadStartedEpisode(it)
                     }
                 } else {
                     recordListeningProgress(player)
@@ -436,12 +458,20 @@ class PlaybackService : MediaLibraryService() {
                     scope.launch { resumeSavedPosition(player, episodeId) }
                 }
             }
+            // Keyed on the episode changing, never the index: trimming played items
+            // shifts currentMediaItemIndex and reports a PLAYLIST_CHANGED transition,
+            // and treating that as a skip would reset probation on every refill.
+            val newEpisodeId = mediaItem?.mediaId?.let(MediaIds::episodeIdOrNull)
+            if (radio != null && newEpisodeId != probation?.episodeId) {
+                probation = newEpisodeId?.let { Probation(it) }
+            }
             scope.launch {
                 flushListeningSegment()
                 if (player.isPlaying) beginListeningSegment(player)
                 snapshotQueue(player)
                 // Frees space right after an episode finishes (no-op unless enabled).
                 appGraph.downloader.deleteCompletedDownloads()
+                if (radio != null) scheduleRadioRefill()
             }
         }
 
@@ -509,11 +539,52 @@ class PlaybackService : MediaLibraryService() {
             endPositionMs = active.endPositionMs,
             startedAt = active.startedAt,
             endedAt = active.endedAt,
+            profileId = appGraph.radioSession.currentProfileIdOrNull(),
         )
     }
 
+    /**
+     * Buffers the segment instead of inserting it while its episode is on probation.
+     * Keyed on the segment's own episode, not the current one: a flush at a queue
+     * transition belongs to the episode that just ended.
+     */
     private suspend fun flushListeningSegment() {
-        takePendingSegment()?.let { appGraph.database.episodeDao().insertListeningSegment(it) }
+        val segment = takePendingSegment() ?: return
+        val pending = probation
+        if (radio != null && pending != null && pending.episodeId == segment.episodeId) {
+            pending.segments += segment
+            pending.listenedMs +=
+                (segment.endPositionMs - segment.startPositionMs).coerceAtLeast(0)
+            return
+        }
+        appGraph.database.episodeDao().insertListeningSegment(segment)
+    }
+
+    /** True while [episodeId] is a radio pick the user has not yet stuck with. */
+    private fun isOnProbation(episodeId: String): Boolean =
+        radio != null && probation?.episodeId == episodeId
+
+    /** Includes the in-flight segment, so a continuously playing pick commits on time. */
+    private fun probationListenedMs(): Long {
+        val pending = probation ?: return 0
+        val live = activeListenSegment
+            ?.takeIf { it.episodeId == pending.episodeId }
+            ?.let { (it.endPositionMs - it.startPositionMs).coerceAtLeast(0) }
+            ?: 0
+        return pending.listenedMs + live
+    }
+
+    /** Writes back everything probation withheld, once the pick has clearly been kept. */
+    private suspend fun maybeCommitRadioEpisode(player: Player) {
+        val pending = probation ?: return
+        val session = radio ?: return
+        val ended = player.playbackState == Player.STATE_ENDED
+        if (probationListenedMs() < RADIO_COMMIT_MS && !ended) return
+        probation = null
+        val dao = appGraph.database.episodeDao()
+        pending.segments.forEach { dao.insertListeningSegment(it) }
+        appGraph.radio.onAccepted(session.profileId, pending.episodeId, pending.listenedMs)
+        appGraph.downloader.autoDownloadStartedEpisode(pending.episodeId)
     }
 
     private fun Player.currentEpisodeIdOrNull(): String? =
@@ -549,6 +620,17 @@ class PlaybackService : MediaLibraryService() {
         // A queue transition is still restoring this episode's saved position;
         // saving now would overwrite it with ~0.
         if (episodeId == pendingResumeEpisodeId) return
+        if (isOnProbation(episodeId)) {
+            // Withhold the position, but still record duration: it is harmless, and
+            // without it the Up next sheet shows 0:00 for every undecided pick.
+            // Withholding rather than writing 0 matters — a zero would clobber real
+            // progress when radio happens to serve a part-heard episode.
+            val pendingDuration = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+            if (pendingDuration > 0) {
+                appGraph.database.episodeDao().updateDuration(episodeId, pendingDuration)
+            }
+            return
+        }
         val position = player.currentPosition
         val duration = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L
         val completed = duration > 0 && position >= duration - 10_000
@@ -557,7 +639,153 @@ class PlaybackService : MediaLibraryService() {
         if (duration > 0) dao.updateDuration(episodeId, duration)
     }
 
+    // ---- radio ---------------------------------------------------------------
+
+    /** Builds resolved, playable items for the next radio picks. */
+    private suspend fun radioItems(
+        profileId: String,
+        count: Int,
+        exclude: Set<String> = emptySet(),
+    ): List<Pair<MediaItem, EpisodeEntity>> {
+        val profile = RadioProfiles.byId(profileId)
+        return appGraph.radio.nextBatch(profile, count, exclude)
+            .map { MediaItemFactory.playable(it, forCast = isCasting()) to it }
+    }
+
+    /**
+     * Starts a radio session. Note the explicit start position: a service-side
+     * setMediaItems does not pass through onSetMediaItems, so the C.TIME_UNSET
+     * convention that normally restores a saved position does not apply here.
+     */
+    private suspend fun startRadio(profileId: String) {
+        val built = radioItems(profileId, RADIO_LOOKAHEAD + 1)
+        if (built.isEmpty()) {
+            appGraph.messages.post("Radio has nothing to play for this profile yet.")
+            return
+        }
+        val player = activePlayer()
+        val first = built.first().second
+        val items = built.map { it.first }
+        val (window, index) = if (isCasting()) castQueueWindow(items, 0) else items to 0
+        radio = RadioSessionState(profileId)
+        probation = Probation(first.id)
+        appGraph.radioSession.start(profileId)
+        publishRadioExtras(profileId)
+        player.setMediaItems(window, index, first.playbackPositionMs.takeIf { !first.completed } ?: 0L)
+        player.prepare()
+        player.play()
+        snapshotQueue(player)
+    }
+
+    /** "Not now": cooldown the current pick and move on. */
+    private suspend fun skipRadio() {
+        val session = radio ?: return
+        val player = activePlayer()
+        val episodeId = player.currentEpisodeIdOrNull() ?: return
+        val listened = probationListenedMs()
+        probation = null
+        appGraph.radio.onSkipped(session.profileId, episodeId, listened)
+        if (!player.hasNextMediaItem()) refillRadioQueue()
+        if (player.hasNextMediaItem()) {
+            player.seekToNextMediaItem()
+            player.play()
+        } else {
+            appGraph.messages.post("Radio is out of picks for now.")
+        }
+        scheduleRadioRefill()
+    }
+
+    /** Leaves radio; whatever is already queued keeps playing as an ordinary queue. */
+    private suspend fun stopRadio() {
+        radio = null
+        probation = null
+        radioRefillJob?.cancel()
+        appGraph.radioSession.end()
+        publishRadioExtras(null)
+        snapshotQueue(activePlayer())
+    }
+
+    /**
+     * Tells controllers which profile (if any) owns the queue. Must run on the
+     * application thread — MediaSession's setters assert it.
+     */
+    private fun publishRadioExtras(profileId: String?) {
+        val current = session ?: return
+        current.setSessionExtras(
+            Bundle().apply { profileId?.let { putString(RadioCommands.EXTRA_PROFILE_ID, it) } },
+        )
+    }
+
+    private fun scheduleRadioRefill() {
+        if (radio == null || radioRefillJob?.isActive == true) return
+        radioRefillJob = scope.launch { refillRadioQueue() }
+    }
+
+    private suspend fun refillRadioQueue() {
+        val session = radio ?: return
+        val player = activePlayer()
+        val plan = radioQueuePlan(player.mediaItemCount, player.currentMediaItemIndex)
+        plan.trimRange?.let { player.removeMediaItems(it.first, it.last + 1) }
+        if (plan.fetchCount == 0) return
+        if (!player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)) return
+        val queued = (0 until player.mediaItemCount)
+            .mapNotNull { MediaIds.episodeIdOrNull(player.getMediaItemAt(it).mediaId) }
+            .toSet()
+        val built = radioItems(session.profileId, plan.fetchCount, exclude = queued)
+        if (built.isEmpty()) return
+        player.addMediaItems(built.map { it.first })
+    }
+
     private inner class LibraryCallback : MediaLibrarySession.Callback {
+
+        /**
+         * Runs synchronously on the application thread, so it must not touch the
+         * database or DataStore — it only adds the radio commands to whatever the
+         * default result already grants, preserving media3's trusted/untrusted split.
+         */
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): MediaSession.ConnectionResult {
+            // Deliberately not derived from super.onConnect(): that returns an empty
+            // command set (session=0, player=0), so granting only what it contains
+            // leaves every controller with an empty timeline — which silently blanks
+            // the mini player and the radio card while audio plays fine.
+            // Grant the library defaults plus the radio commands instead.
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(
+                    MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
+                        .buildUpon()
+                        .add(RadioCommands.START)
+                        .add(RadioCommands.SKIP)
+                        .add(RadioCommands.STOP)
+                        .build()
+                )
+                .build()
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle,
+        ): ListenableFuture<SessionResult> {
+            when (customCommand.customAction) {
+                RadioCommands.ACTION_START -> scope.launch {
+                    val profileId = args.getString(RadioCommands.EXTRA_PROFILE_ID)
+                        ?: appGraph.radioProfiles.currentProfileId()
+                    startRadio(profileId)
+                }
+                RadioCommands.ACTION_SKIP -> scope.launch { skipRadio() }
+                RadioCommands.ACTION_STOP -> scope.launch { stopRadio() }
+                else -> return Futures.immediateFuture(
+                    SessionResult(SessionError.ERROR_NOT_SUPPORTED)
+                )
+            }
+            // Immediate: the work runs on the app thread via scope, and returning a
+            // coroutine future here would put session work on a caller's thread.
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        }
 
         override fun onGetLibraryRoot(
             session: MediaLibrarySession,
@@ -652,6 +880,14 @@ class PlaybackService : MediaLibraryService() {
             startIndex: Int,
             startPositionMs: Long,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future(Dispatchers.IO) {
+            // Setting a queue from anywhere else is an explicit choice, so it ends the
+            // radio session. Without this the session would leak: the hardware skip
+            // remap and the withholding of progress would both stay armed over
+            // ordinary listening.
+            if (radio != null) {
+                radio = null
+                scope.launch { stopRadio() }
+            }
             val forCast = isCasting()
             val resolvedPairs = mediaItems.mapNotNull { item ->
                 val episodeId = MediaIds.episodeIdOrNull(item.mediaId)
@@ -715,6 +951,9 @@ class PlaybackService : MediaLibraryService() {
     companion object {
         private const val MAX_BROWSE_CHILDREN = 100
         private const val MIN_LISTEN_SEGMENT_MS = 1_000L
+
+        /** Listening this long makes a radio pick count: it stops being probationary. */
+        private const val RADIO_COMMIT_MS = 90_000L
         private const val CONTINUOUS_POSITION_TOLERANCE_MS = 12_000L
         private const val TAG = "PodlyPlayback"
         private const val MAX_RECOVERY_ATTEMPTS = 5
@@ -723,6 +962,13 @@ class PlaybackService : MediaLibraryService() {
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
         )
+    }
+
+    private data class RadioSessionState(val profileId: String)
+
+    private class Probation(val episodeId: String) {
+        var listenedMs: Long = 0
+        val segments: MutableList<ListeningSegmentEntity> = mutableListOf()
     }
 
     private data class ActiveListenSegment(

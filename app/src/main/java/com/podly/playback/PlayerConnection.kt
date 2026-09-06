@@ -1,6 +1,7 @@
 package com.podly.playback
 
 import android.content.ComponentName
+import android.os.Bundle
 import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -38,6 +39,8 @@ data class PlayerUiState(
     val queueIndex: Int = 0,
     val hasNextEpisode: Boolean = false,
     val hasPreviousEpisode: Boolean = false,
+    /** Non-null while a radio session owns the queue; drives the skip affordances. */
+    val radioProfileId: String? = null,
     /** Set while the player is in a failed state; pressing play retries. */
     val errorMessage: String? = null,
 )
@@ -57,11 +60,26 @@ class PlayerConnection(context: Context) {
     /** Timeline size behind the cached queue; -1 until the first sync. */
     private var lastTimelineSize = -1
 
+    /** Mirrored from session extras, so it survives a queue rebuild. */
+    private var radioProfileId: String? = null
+
     init {
         scope.launch {
             val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
-            val mediaController = MediaController.Builder(context, token).buildAsync().await()
+            val mediaController = MediaController.Builder(context, token)
+                // The service is the single source of truth for radio mode and
+                // publishes it as session extras; without a listener the UI would
+                // never see it change.
+                .setListener(object : MediaController.Listener {
+                    override fun onExtrasChanged(controller: MediaController, extras: Bundle) {
+                        radioProfileId = extras.getString(RadioCommands.EXTRA_PROFILE_ID)
+                        controller.let { syncState(it) }
+                    }
+                })
+                .buildAsync().await()
             controller = mediaController
+            radioProfileId =
+                mediaController.sessionExtras.getString(RadioCommands.EXTRA_PROFILE_ID)
             mediaController.addListener(object : Player.Listener {
                 override fun onEvents(player: Player, events: Player.Events) =
                     syncState(player, events)
@@ -112,6 +130,7 @@ class PlayerConnection(context: Context) {
             queueIndex = player.currentMediaItemIndex,
             hasNextEpisode = player.hasNextMediaItem(),
             hasPreviousEpisode = player.hasPreviousMediaItem(),
+            radioProfileId = radioProfileId,
             errorMessage = player.playerError?.let { error ->
                 // media3 wraps the cause, so a dead network reaches the user as
                 // "No internet connection" rather than a source-error dump.
@@ -158,6 +177,30 @@ class PlayerConnection(context: Context) {
 
     fun setSpeed(speed: Float) {
         controller?.setPlaybackSpeed(speed)
+    }
+
+    /** Starts radio for [profileId]; the service owns the queue from then on. */
+    fun startRadio(profileId: String) {
+        val args = Bundle().apply { putString(RadioCommands.EXTRA_PROFILE_ID, profileId) }
+        controller?.sendCustomCommand(RadioCommands.START, args)
+    }
+
+    /** "Not now" — cooldowns the current pick and loads the next one. */
+    fun skipRadio() {
+        controller?.sendCustomCommand(RadioCommands.SKIP, Bundle.EMPTY)
+    }
+
+    /** Leaves radio; whatever is queued keeps playing as an ordinary queue. */
+    fun stopRadio() {
+        controller?.sendCustomCommand(RadioCommands.STOP, Bundle.EMPTY)
+    }
+
+    /** Appends to the queue without disturbing what is playing. */
+    fun enqueue(episodeIds: List<String>) {
+        val mediaController = controller ?: return
+        mediaController.addMediaItems(
+            episodeIds.map { MediaItem.Builder().setMediaId(MediaIds.episode(it)).build() },
+        )
     }
 
     /** Jumps to the next episode in the queue (unlike car buttons, which nudge). */
