@@ -88,18 +88,35 @@ fun EpisodeRow(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            val subtitle = listOfNotNull(
-                episode.podcastTitle.ifBlank { null },
+            // Show name and metadata are separate Texts so a long name (CJK
+            // titles run the full width) ellipsizes itself instead of pushing
+            // the date and duration off the end: as one joined string this
+            // truncated to "水獺媽媽巧巧話｜聽巧慧說故事學台語！· Jul 23, 202…".
+            val meta = listOfNotNull(
                 formatDate(episode.pubDateMs),
                 formatDuration(episode.durationMs),
             ).joinToString(" · ")
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            val show = episode.podcastTitle.ifBlank { null }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (show != null) {
+                    Text(
+                        show,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+                if (meta.isNotEmpty()) {
+                    Text(
+                        if (show != null) " · $meta" else meta,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+            }
             val duration = episode.durationMs ?: 0
             if (!episode.completed && episode.playbackPositionMs > 0 && duration > 0) {
                 LinearProgressIndicator(
