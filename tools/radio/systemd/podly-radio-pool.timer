@@ -1,0 +1,11 @@
+[Unit]
+Description=podly-radio — daily pool refresh
+
+[Timer]
+# Early, so a fresh pool is waiting before the morning commute.
+OnCalendar=*-*-* 04:15:00
+RandomizedDelaySec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

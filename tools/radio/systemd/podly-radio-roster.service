@@ -1,0 +1,14 @@
+[Unit]
+Description=podly-radio — re-curate the show rosters with Claude Code
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/gitrepo/podcast_player/tools/radio
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Uses the Claude Code subscription via OAuth, never a metered API key; curate.py
+# strips ANTHROPIC_* from the child environment so that cannot change by accident.
+ExecStart=%h/.local/bin/uv run podly-radio curate
+# The pools inherit the new roster on the next daily build.
+TimeoutStartSec=30min

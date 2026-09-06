@@ -1,0 +1,12 @@
+[Unit]
+Description=podly-radio — monthly roster curation
+
+[Timer]
+# Monthly: acclaim moves slowly, and this draws on the same subscription quota
+# as interactive sessions.
+OnCalendar=*-*-01 03:30:00
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

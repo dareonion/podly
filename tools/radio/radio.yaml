@@ -11,6 +11,11 @@ profiles:
     sweet_spot_minutes: [20, 75]
     hard_minutes: [3, 240]
     roster_size: 60
+    listener: >
+      An adult who listens while commuting and doing chores. Wants the most
+      worthwhile shows in English and Mandarin: award winners, critically
+      praised reporting, sharp interviews, and the popular ones that earn it.
+      Avoid daily news churn and anything gimmicky.
 
   - id: toddler_zh
     label: "Toddler — Chinese"
@@ -28,3 +33,8 @@ profiles:
     roster_size: 30
     # Belt and braces on top of the app's own allowlist.
     require_clean: true
+    listener: >
+      A 30-month-old in a Mandarin-speaking home, listening with a parent
+      nearby. Wants short, gentle Mandarin stories, songs and simple
+      non-fiction. Absolutely no horror, death, crime, adult themes or
+      politics — when in doubt, leave it out.

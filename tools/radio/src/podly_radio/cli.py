@@ -12,6 +12,7 @@ import httpx
 
 from . import build as build_module
 from .config import load
+from .curate import curate
 from .harvest import harvest, is_suitable, roster_for
 from .schema import PoolValidationError, validate
 
@@ -66,6 +67,46 @@ def cmd_build(args: argparse.Namespace) -> int:
     return 1 if failures == len(profiles) else 0
 
 
+def cmd_curate(args: argparse.Namespace) -> int:
+    """Refreshes the roster with one Claude Code call per profile."""
+    config = load(Path(args.config))
+    roster_dir = Path(args.config).parent / "roster"
+    roster_dir.mkdir(parents=True, exist_ok=True)
+    profiles = [config.profile(args.profile)] if args.profile else list(config.profiles)
+
+    failures = 0
+    for profile in profiles:
+        with _client() as client:
+            shows = [s for s in harvest(client, profile) if is_suitable(s, profile)]
+        shows = roster_for(shows, profile)[: args.catalogue]
+        if not shows:
+            LOG.error("%s: nothing harvested, keeping the old roster", profile.id)
+            failures += 1
+            continue
+        try:
+            roster = curate(profile, shows, profile.listener, model=args.model)
+        except Exception as error:  # noqa: BLE001 - any failure keeps the old roster
+            LOG.error("%s: curation failed (%s); keeping the old roster", profile.id, error)
+            failures += 1
+            continue
+        target = roster_dir / f"{profile.id}.json"
+        _write_atomic_list(
+            target,
+            [
+                {"appleId": entry.apple_id, "weight": entry.weight, "why": entry.why}
+                for entry in roster
+            ],
+        )
+        LOG.info("%s: roster of %d shows -> %s", profile.id, len(roster), target)
+    return 1 if failures == len(profiles) else 0
+
+
+def _write_atomic_list(path: Path, payload: list) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", "utf-8")
+    tmp.replace(path)
+
+
 def _load_roster(path: Path) -> tuple[dict[str, float], dict[str, str]]:
     if not path.exists():
         return {}, {}
@@ -114,6 +155,14 @@ def main(argv: list[str] | None = None) -> int:
     build_cmd.add_argument("--out", default="../../site/radio")
     build_cmd.add_argument("--profile", help="only this profile")
     build_cmd.set_defaults(func=cmd_build)
+
+    curate_cmd = sub.add_parser("curate", help="refresh the roster with Claude Code")
+    curate_cmd.add_argument("--profile", help="only this profile")
+    curate_cmd.add_argument("--model", default="claude-opus-4-8")
+    curate_cmd.add_argument(
+        "--catalogue", type=int, default=120, help="shows offered to the model"
+    )
+    curate_cmd.set_defaults(func=cmd_curate)
 
     args = parser.parse_args(argv)
     logging.basicConfig(

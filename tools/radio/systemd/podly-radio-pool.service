@@ -1,0 +1,16 @@
+[Unit]
+Description=podly-radio — rebuild the radio pools and publish them
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/gitrepo/podcast_player/tools/radio
+# A systemd user service's PATH omits ~/.local/bin, where uv and the claude CLI
+# live; claudeworksummary-daily.service records the same trap.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# git push needs the SSH key and a user service has no agent (shelfwalk precedent).
+Environment="GIT_SSH_COMMAND=ssh -i %h/.ssh/id_ed25519 -o BatchMode=yes"
+ExecStart=%h/gitrepo/podcast_player/tools/radio/refresh.sh
+# ~90 feed fetches at 8-way concurrency, plus chart and lookup calls.
+TimeoutStartSec=45min

@@ -24,6 +24,7 @@ class ProfileConfig:
     genres: tuple[int, ...] = ()
     search_terms: tuple[str, ...] = ()
     require_clean: bool = False
+    listener: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +60,7 @@ def load(path: Path) -> Config:
                 genres=tuple(int(g) for g in entry.get("genres", ())),
                 search_terms=tuple(entry.get("search_terms", ())),
                 require_clean=bool(entry.get("require_clean", False)),
+                listener=str(entry.get("listener", "")).strip(),
             )
         )
     return Config(profiles=tuple(profiles))
