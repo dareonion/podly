@@ -1,0 +1,22 @@
+[
+  {
+    "raw": "https://feeds.npr.org/381444908/podcast.xml",
+    "id": "22206012468928d83dd6d274cc116d11"
+  },
+  {
+    "raw": "https://anchor.fm/s/2e916170/podcast/rss",
+    "id": "143cf5159574637c966cee2543812540"
+  },
+  {
+    "raw": "水獺媽媽巧巧話｜聽巧慧說故事學台語！",
+    "id": "39e311f2fb6bed29113a2a25e89da305"
+  },
+  {
+    "raw": "guid-with-emoji-🎧",
+    "id": "f94eb2523c182e906b84c0874c72c0e3"
+  },
+  {
+    "raw": "https://cdn.example/ep%20one.mp3?token=a%2Bb",
+    "id": "ef7ed2b407f4eb75d48f8e1981cf0f00"
+  }
+]

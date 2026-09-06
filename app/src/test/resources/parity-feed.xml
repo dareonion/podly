@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>Parity Feed</title>
+    <itunes:author>Podly Tests</itunes:author>
+    <description>Every shape the two parsers must agree on.</description>
+
+    <!-- Plain guid, duration as HH:MM:SS. -->
+    <item>
+      <title>Plain guid</title>
+      <guid>guid-plain-1</guid>
+      <pubDate>Tue, 02 Sep 2026 10:00:00 +0000</pubDate>
+      <itunes:duration>01:02:03</itunes:duration>
+      <enclosure url="https://cdn.example/plain.mp3" type="audio/mpeg" length="1"/>
+    </item>
+
+    <!-- isPermaLink is ignored: the raw text is what gets hashed. -->
+    <item>
+      <title>Permalink guid</title>
+      <guid isPermaLink="false">guid-permalink-2</guid>
+      <pubDate>Tue, 02 Sep 2026 09:00:00 +0000</pubDate>
+      <itunes:duration>12:34</itunes:duration>
+      <enclosure url="https://cdn.example/permalink.mp3" type="audio/mpeg"/>
+    </item>
+
+    <!-- A relative guid must NOT be resolved against the feed URL. -->
+    <item>
+      <title>Relative guid</title>
+      <guid>/episodes/3</guid>
+      <pubDate>Tue, 02 Sep 2026 08:00:00 +0000</pubDate>
+      <itunes:duration>90</itunes:duration>
+      <enclosure url="https://cdn.example/relative.mp3" type="audio/mpeg"/>
+    </item>
+
+    <!-- No guid at all: the id falls back to the audio URL. -->
+    <item>
+      <title>No guid</title>
+      <pubDate>Tue, 02 Sep 2026 07:00:00 +0000</pubDate>
+      <enclosure url="https://cdn.example/noguid.mp3?token=a%2Bb" type="audio/mpeg"/>
+    </item>
+
+    <!-- Enclosure with no type attribute is still audio. -->
+    <item>
+      <title>Untyped enclosure</title>
+      <guid>guid-untyped-5</guid>
+      <pubDate>Tue, 02 Sep 2026 06:00:00 +0000</pubDate>
+      <enclosure url="https://cdn.example/untyped.mp3"/>
+    </item>
+
+    <!-- Two enclosures: the image must be skipped, the audio taken. -->
+    <item>
+      <title>Two enclosures</title>
+      <guid>guid-two-6</guid>
+      <pubDate>Tue, 02 Sep 2026 05:00:00 +0000</pubDate>
+      <enclosure url="https://cdn.example/cover.png" type="image/png"/>
+      <enclosure url="https://cdn.example/second.mp3" type="audio/mpeg"/>
+    </item>
+
+    <!-- CJK title, to prove nothing normalises it away. -->
+    <item>
+      <title>水獺媽媽巧巧話 第一集</title>
+      <guid>guid-cjk-7</guid>
+      <pubDate>Tue, 02 Sep 2026 04:00:00 +0000</pubDate>
+      <itunes:duration>00:09:59</itunes:duration>
+      <enclosure url="https://cdn.example/cjk.mp3" type="audio/mpeg"/>
+    </item>
+
+    <!-- Undated: the app stores 0, the generator drops it rather than inventing a date. -->
+    <item>
+      <title>Undated</title>
+      <guid>guid-undated-8</guid>
+      <enclosure url="https://cdn.example/undated.mp3" type="audio/mpeg"/>
+    </item>
+
+    <!-- No enclosure at all: not an episode. -->
+    <item>
+      <title>No audio</title>
+      <guid>guid-noaudio-9</guid>
+      <pubDate>Tue, 02 Sep 2026 03:00:00 +0000</pubDate>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,66 @@
+[
+  {
+    "title": "Plain guid",
+    "guid": "guid-plain-1",
+    "audioUrl": "https://cdn.example/plain.mp3",
+    "pubDateMs": 1788343200000,
+    "durationMs": 3723000,
+    "id": "41bfa5cafc2ca0c476ec1ffc17d44ab4"
+  },
+  {
+    "title": "Permalink guid",
+    "guid": "guid-permalink-2",
+    "audioUrl": "https://cdn.example/permalink.mp3",
+    "pubDateMs": 1788339600000,
+    "durationMs": 754000,
+    "id": "e1ba47c0b598ca3d148cfdc1aa946fb4"
+  },
+  {
+    "title": "Relative guid",
+    "guid": "/episodes/3",
+    "audioUrl": "https://cdn.example/relative.mp3",
+    "pubDateMs": 1788336000000,
+    "durationMs": 90000,
+    "id": "cd475c6dfadcc1b6f179c7e2504daec1"
+  },
+  {
+    "title": "No guid",
+    "guid": null,
+    "audioUrl": "https://cdn.example/noguid.mp3?token=a%2Bb",
+    "pubDateMs": 1788332400000,
+    "durationMs": null,
+    "id": "ce160ceacccccc41e135e295d3b1d3c0"
+  },
+  {
+    "title": "Untyped enclosure",
+    "guid": "guid-untyped-5",
+    "audioUrl": "https://cdn.example/untyped.mp3",
+    "pubDateMs": 1788328800000,
+    "durationMs": null,
+    "id": "1de33bd0eced3a6739157570768bac6a"
+  },
+  {
+    "title": "Two enclosures",
+    "guid": "guid-two-6",
+    "audioUrl": "https://cdn.example/second.mp3",
+    "pubDateMs": 1788325200000,
+    "durationMs": null,
+    "id": "031d1c7c39f4f671450a1dc9b874e970"
+  },
+  {
+    "title": "水獺媽媽巧巧話 第一集",
+    "guid": "guid-cjk-7",
+    "audioUrl": "https://cdn.example/cjk.mp3",
+    "pubDateMs": 1788321600000,
+    "durationMs": 599000,
+    "id": "57638726942a12b9022c2ace6b522b8a"
+  },
+  {
+    "title": "Undated",
+    "guid": "guid-undated-8",
+    "audioUrl": "https://cdn.example/undated.mp3",
+    "pubDateMs": null,
+    "durationMs": null,
+    "id": "27044e435d01a25b2d912f513ba0a5ce"
+  }
+]

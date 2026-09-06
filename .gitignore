@@ -8,3 +8,10 @@ keystores/
 captures/
 .externalNativeBuild/
 .cxx/
+
+# Generator scratch (feed cache, logs); the published pools live in site/.
+tools/radio/data/
+tools/radio/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
