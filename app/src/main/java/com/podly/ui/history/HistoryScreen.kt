@@ -1,5 +1,6 @@
 package com.podly.ui.history
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +16,8 @@ import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -36,6 +39,7 @@ import androidx.lifecycle.viewModelScope
 import com.podly.AppGraph
 import com.podly.data.db.EpisodeHistorySummary
 import com.podly.data.db.ListeningSegmentEntity
+import com.podly.radio.RadioProfiles
 import com.podly.ui.appViewModel
 import com.podly.ui.components.EpisodeNoteDialog
 import com.podly.ui.util.formatDateTime
@@ -65,6 +69,7 @@ fun HistoryScreen() {
     val segments by viewModel.segments.collectAsStateWithLifecycle()
     val segmentsByEpisode = remember(segments) { segments.groupBy { it.episodeId } }
     var editingEpisode by remember { mutableStateOf<EpisodeHistorySummary?>(null) }
+    var filter by remember { mutableStateOf<ProfileFilter>(ProfileFilter.All) }
 
     if (history.isEmpty()) {
         Column(
@@ -81,21 +86,42 @@ fun HistoryScreen() {
             )
         }
     } else {
-        val stats = remember(history, segments) {
-            ListeningStatsCalculator.compute(history, segments, System.currentTimeMillis())
+        val stats = remember(history, segments, filter) {
+            ListeningStatsCalculator.compute(history, segments, System.currentTimeMillis(), filter)
         }
+        val byId = remember(history) { history.associateBy { it.id } }
+        val shown = remember(stats, byId) { stats.episodeIds.mapNotNull { byId[it] } }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
         ) {
+            item(key = "filter") {
+                ProfileFilterRow(stats, filter) { filter = it }
+                Spacer(Modifier.height(8.dp))
+            }
             item(key = "stats") {
                 StatsCard(stats)
                 Spacer(Modifier.height(12.dp))
             }
-            items(history, key = { it.id }) { episode ->
+            if (shown.isEmpty()) {
+                item(key = "empty") {
+                    Text(
+                        "No listening recorded for this profile yet.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
+            }
+            items(shown, key = { it.id }) { episode ->
                 HistoryCard(
                     episode = episode,
-                    segments = segmentsByEpisode[episode.id].orEmpty(),
+                    heardMs = stats.heardMsByEpisode[episode.id] ?: episode.totalListenedMs,
+                    segments = segmentsByEpisode[episode.id].orEmpty()
+                        .filter { seg ->
+                            filter is ProfileFilter.All ||
+                                seg.profileId == (filter as ProfileFilter.Only).profileId
+                        },
                     onEdit = { editingEpisode = episode },
                 )
                 Spacer(Modifier.height(12.dp))
@@ -183,6 +209,8 @@ private fun StatTile(label: String, ms: Long, modifier: Modifier = Modifier) {
 @Composable
 private fun HistoryCard(
     episode: EpisodeHistorySummary,
+    /** Time heard under the active filter; the DAO's own total spans every profile. */
+    heardMs: Long,
     segments: List<ListeningSegmentEntity>,
     onEdit: () -> Unit,
 ) {
@@ -205,7 +233,7 @@ private fun HistoryCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AssistChip(
                     onClick = {},
-                    label = { Text("Heard ${formatPosition(episode.totalListenedMs)}") },
+                    label = { Text("Heard ${formatPosition(heardMs)}") },
                 )
                 Spacer(Modifier.width(8.dp))
                 AssistChip(
@@ -259,5 +287,37 @@ private fun HistoryCard(
                 }
             }
         }
+    }
+}
+
+/**
+ * All / per-profile chips. Unknown ids render as themselves rather than being
+ * relabelled, so listening tagged by a profile that no longer exists stays honest.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProfileFilterRow(
+    stats: ListeningStats,
+    selected: ProfileFilter,
+    onSelect: (ProfileFilter) -> Unit,
+) {
+    if (stats.msByProfile.keys.none { it != null }) return
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            selected = selected is ProfileFilter.All,
+            onClick = { onSelect(ProfileFilter.All) },
+            label = { Text("All") },
+        )
+        stats.msByProfile.entries
+            .sortedByDescending { it.value }
+            .forEach { (profileId, ms) ->
+                FilterChip(
+                    selected = selected is ProfileFilter.Only && selected.profileId == profileId,
+                    onClick = { onSelect(ProfileFilter.Only(profileId)) },
+                    label = {
+                        Text("${RadioProfiles.labelFor(profileId)} · ${formatDuration(ms) ?: "0m"}")
+                    },
+                )
+            }
     }
 }

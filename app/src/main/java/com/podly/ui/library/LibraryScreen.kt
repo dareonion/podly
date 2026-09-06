@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.podly.AppGraph
 import com.podly.data.db.EpisodeEntity
+import com.podly.ui.radio.RadioCard
 import com.podly.ui.EpisodeActions
 import com.podly.ui.appViewModel
 import com.podly.ui.components.AddToPlaylistDialog
@@ -86,6 +87,7 @@ fun LibraryScreen(onOpenPodcast: (String) -> Unit, onOpenEpisode: (String) -> Un
         modifier = Modifier.fillMaxSize(),
     ) {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
+            item(key = "radio") { RadioCard() }
             if (continueListening.isNotEmpty()) {
                 item {
                     Text(
