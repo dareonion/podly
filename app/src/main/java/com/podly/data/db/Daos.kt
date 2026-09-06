@@ -1,6 +1,7 @@
 package com.podly.data.db
 
 import androidx.room.Dao
+import androidx.room.Embedded
 import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -230,10 +231,23 @@ interface EpisodeDao {
     suspend fun insertListeningSegment(segment: ListeningSegmentEntity)
 }
 
+/** A playlist plus how many episodes are in it, for the list screen. */
+data class PlaylistSummary(
+    @Embedded val playlist: PlaylistEntity,
+    val episodeCount: Int,
+)
+
 @Dao
 interface PlaylistDao {
     @Query("SELECT * FROM playlists ORDER BY createdAt")
     fun playlists(): Flow<List<PlaylistEntity>>
+
+    @Query(
+        """SELECT p.*, (SELECT COUNT(*) FROM playlist_items i WHERE i.playlistId = p.id)
+                  AS episodeCount
+           FROM playlists p ORDER BY p.createdAt"""
+    )
+    fun playlistSummaries(): Flow<List<PlaylistSummary>>
 
     @Query("SELECT * FROM playlists ORDER BY createdAt")
     suspend fun playlistsOnce(): List<PlaylistEntity>

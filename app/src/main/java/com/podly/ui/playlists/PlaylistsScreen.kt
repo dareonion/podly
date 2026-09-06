@@ -2,6 +2,8 @@ package com.podly.ui.playlists
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,7 +43,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class PlaylistsViewModel(private val graph: AppGraph) : ViewModel() {
-    val playlists = graph.playlists.playlists()
+    val playlists = graph.playlists.playlistSummaries()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun create(name: String) = viewModelScope.launch { graph.playlists.create(name) }
@@ -76,7 +78,8 @@ fun PlaylistsScreen(onOpenPlaylist: (Long) -> Unit) {
                     )
                 }
             }
-            items(playlists, key = { it.id }) { playlist ->
+            items(playlists, key = { it.playlist.id }) { summary ->
+                val playlist = summary.playlist
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -85,13 +88,26 @@ fun PlaylistsScreen(onOpenPlaylist: (Long) -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.AutoMirrored.Filled.QueueMusic, null)
-                    Text(
-                        playlist.name,
-                        style = MaterialTheme.typography.bodyLarge,
+                    // Imported picks playlists are named by generation date, so
+                    // two imports on the same day are otherwise identical rows.
+                    Column(
                         modifier = Modifier
                             .weight(1f)
                             .padding(start = 16.dp),
-                    )
+                    ) {
+                        Text(
+                            playlist.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            if (summary.episodeCount == 1) "1 episode"
+                            else "${summary.episodeCount} episodes",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     IconButton(onClick = { renaming = playlist }) {
                         Icon(Icons.Filled.Edit, "Rename")
                     }

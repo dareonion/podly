@@ -1,5 +1,6 @@
 package com.podly.data
 
+import com.podly.data.db.PlaylistSummary
 import com.podly.data.db.EpisodeEntity
 import com.podly.data.db.PlaylistDao
 import com.podly.data.db.PlaylistEntity
@@ -10,6 +11,8 @@ import kotlinx.coroutines.flow.combine
 class PlaylistRepository(private val playlistDao: PlaylistDao) {
 
     fun playlists(): Flow<List<PlaylistEntity>> = playlistDao.playlists()
+
+    fun playlistSummaries(): Flow<List<PlaylistSummary>> = playlistDao.playlistSummaries()
     fun playlist(id: Long): Flow<PlaylistEntity?> = playlistDao.byIdFlow(id)
 
     /** Episodes ordered according to the playlist's persisted sort mode. */
