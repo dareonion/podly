@@ -61,6 +61,21 @@ class MigrationTest {
                 assertTrue(c.moveToFirst())
                 assertEquals(1, c.getInt(0))
             }
+            // Radio tagging is added as a nullable column, so listening recorded
+            // before radio existed keeps its meaning: untagged, not "You".
+            sql.query("SELECT profileId FROM listening_segments").use { c ->
+                assertTrue(c.moveToFirst())
+                assertTrue("pre-radio segments must stay untagged", c.isNull(0))
+            }
+            // The radio tables arrive empty rather than seeded.
+            sql.query("SELECT COUNT(*) FROM radio_pool").use { c ->
+                assertTrue(c.moveToFirst())
+                assertEquals(0, c.getInt(0))
+            }
+            sql.query("SELECT COUNT(*) FROM radio_feedback").use { c ->
+                assertTrue(c.moveToFirst())
+                assertEquals(0, c.getInt(0))
+            }
         } finally {
             db.close()
         }

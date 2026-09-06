@@ -52,10 +52,17 @@ interface PodcastDao {
     @Query("UPDATE podcasts SET episodeSortOrder = :sortOrder WHERE id = :id")
     suspend fun setEpisodeSortOrder(id: String, sortOrder: PodcastEpisodeSortOrder)
 
+    /**
+     * Radio pool shows are spared too: without that clause, unsubscribing any show
+     * deletes every unsubscribed podcast the pool depends on, leaving its episodes
+     * playable but stripped of feedUrl, artwork and author.
+     */
     @Query(
         """DELETE FROM podcasts WHERE subscribed = 0
            AND id NOT IN (SELECT DISTINCT podcastId FROM episodes
-                          WHERE inLibrary = 1 OR downloadStatus != 'NONE' OR playbackPositionMs > 0)"""
+                          WHERE inLibrary = 1 OR downloadStatus != 'NONE' OR playbackPositionMs > 0)
+           AND id NOT IN (SELECT DISTINCT e.podcastId FROM episodes e
+                          JOIN radio_pool r ON r.episodeId = e.id)"""
     )
     suspend fun pruneOrphans()
 }
@@ -314,4 +321,168 @@ interface PlaylistDao {
         deleteItems(id)
         delete(id)
     }
+}
+
+/** One radio candidate, joined against its episode row so it is always playable. */
+data class RadioCandidateRow(
+    val episodeId: String,
+    val podcastId: String,
+    val podcastTitle: String,
+    val title: String,
+    val durationMs: Long?,
+    val pubDateMs: Long,
+    val playbackPositionMs: Long,
+    val lastPlayedAt: Long,
+    val userRating: Int?,
+    /** Null for backlog rows. */
+    val language: String?,
+    /** 0 for backlog rows. */
+    val priority: Float,
+    val reason: String?,
+    val lastServedAt: Long,
+    val serveCount: Int,
+    val lastSkippedAt: Long,
+    val skipCount: Int,
+)
+
+@Dao
+interface RadioDao {
+
+    /**
+     * Unfinished episodes from shows the user follows, newest first.
+     *
+     * `:maxDurationMs` / `:minDurationMs` use 0 as "unset" because Room binds
+     * non-null primitives; `:restrictShows` is 0/1 for the same reason.
+     */
+    @Query(
+        """SELECT e.id AS episodeId, e.podcastId, e.podcastTitle, e.title, e.durationMs,
+                  e.pubDateMs, e.playbackPositionMs, e.lastPlayedAt, e.userRating,
+                  NULL AS language, 0.0 AS priority, NULL AS reason,
+                  COALESCE(f.lastServedAt, 0) AS lastServedAt,
+                  COALESCE(f.serveCount, 0) AS serveCount,
+                  COALESCE(f.lastSkippedAt, 0) AS lastSkippedAt,
+                  COALESCE(f.skipCount, 0) AS skipCount
+           FROM episodes e
+           JOIN podcasts p ON p.id = e.podcastId
+           LEFT JOIN radio_feedback f ON f.episodeId = e.id AND f.profileId = :profileId
+           WHERE e.completed = 0
+             AND (:includeUnsubscribed = 1 OR p.subscribed = 1 OR e.inLibrary = 1)
+             AND (:restrictShows = 0 OR e.podcastId IN (:allowedPodcastIds))
+             AND (:maxDurationMs = 0 OR e.durationMs IS NULL OR e.durationMs <= :maxDurationMs)
+             AND (:minDurationMs = 0 OR e.durationMs IS NULL OR e.durationMs >= :minDurationMs)
+             AND COALESCE(f.blockedUntil, 0) <= :nowMs
+           ORDER BY e.pubDateMs DESC LIMIT :limit"""
+    )
+    suspend fun backlogRecent(
+        profileId: String,
+        nowMs: Long,
+        includeUnsubscribed: Int,
+        restrictShows: Int,
+        allowedPodcastIds: List<String>,
+        maxDurationMs: Long,
+        minDurationMs: Long,
+        limit: Int,
+    ): List<RadioCandidateRow>
+
+    /** The same slice ordered randomly, so the old backlog is not starved by recency. */
+    @Query(
+        """SELECT e.id AS episodeId, e.podcastId, e.podcastTitle, e.title, e.durationMs,
+                  e.pubDateMs, e.playbackPositionMs, e.lastPlayedAt, e.userRating,
+                  NULL AS language, 0.0 AS priority, NULL AS reason,
+                  COALESCE(f.lastServedAt, 0) AS lastServedAt,
+                  COALESCE(f.serveCount, 0) AS serveCount,
+                  COALESCE(f.lastSkippedAt, 0) AS lastSkippedAt,
+                  COALESCE(f.skipCount, 0) AS skipCount
+           FROM episodes e
+           JOIN podcasts p ON p.id = e.podcastId
+           LEFT JOIN radio_feedback f ON f.episodeId = e.id AND f.profileId = :profileId
+           WHERE e.completed = 0
+             AND (:includeUnsubscribed = 1 OR p.subscribed = 1 OR e.inLibrary = 1)
+             AND (:restrictShows = 0 OR e.podcastId IN (:allowedPodcastIds))
+             AND (:maxDurationMs = 0 OR e.durationMs IS NULL OR e.durationMs <= :maxDurationMs)
+             AND (:minDurationMs = 0 OR e.durationMs IS NULL OR e.durationMs >= :minDurationMs)
+             AND COALESCE(f.blockedUntil, 0) <= :nowMs
+           ORDER BY RANDOM() LIMIT :limit"""
+    )
+    suspend fun backlogRandom(
+        profileId: String,
+        nowMs: Long,
+        includeUnsubscribed: Int,
+        restrictShows: Int,
+        allowedPodcastIds: List<String>,
+        maxDurationMs: Long,
+        minDurationMs: Long,
+        limit: Int,
+    ): List<RadioCandidateRow>
+
+    /** Pool candidates. The JOIN is the guarantee that every id is playable. */
+    @Query(
+        """SELECT e.id AS episodeId, e.podcastId, e.podcastTitle, e.title, e.durationMs,
+                  e.pubDateMs, e.playbackPositionMs, e.lastPlayedAt, e.userRating,
+                  r.language, r.priority, r.reason,
+                  COALESCE(f.lastServedAt, 0) AS lastServedAt,
+                  COALESCE(f.serveCount, 0) AS serveCount,
+                  COALESCE(f.lastSkippedAt, 0) AS lastSkippedAt,
+                  COALESCE(f.skipCount, 0) AS skipCount
+           FROM radio_pool r
+           JOIN episodes e ON e.id = r.episodeId
+           LEFT JOIN radio_feedback f ON f.episodeId = r.episodeId AND f.profileId = r.profileId
+           WHERE r.profileId = :profileId
+             AND e.completed = 0
+             AND (r.expiresAt IS NULL OR r.expiresAt > :nowMs)
+             AND (:maxDurationMs = 0 OR e.durationMs IS NULL OR e.durationMs <= :maxDurationMs)
+             AND COALESCE(f.blockedUntil, 0) <= :nowMs
+           ORDER BY r.priority DESC, r.addedAt DESC LIMIT :limit"""
+    )
+    suspend fun discovery(
+        profileId: String,
+        nowMs: Long,
+        maxDurationMs: Long,
+        limit: Int,
+    ): List<RadioCandidateRow>
+
+    @Query(
+        """SELECT COUNT(*) FROM episodes e
+           JOIN podcasts p ON p.id = e.podcastId
+           LEFT JOIN radio_feedback f ON f.episodeId = e.id AND f.profileId = :profileId
+           WHERE e.completed = 0
+             AND (:includeUnsubscribed = 1 OR p.subscribed = 1 OR e.inLibrary = 1)
+             AND (:restrictShows = 0 OR e.podcastId IN (:allowedPodcastIds))
+             AND (:maxDurationMs = 0 OR e.durationMs IS NULL OR e.durationMs <= :maxDurationMs)
+             AND COALESCE(f.blockedUntil, 0) <= :nowMs"""
+    )
+    fun backlogCount(
+        profileId: String,
+        nowMs: Long,
+        includeUnsubscribed: Int,
+        restrictShows: Int,
+        allowedPodcastIds: List<String>,
+        maxDurationMs: Long,
+    ): Flow<Int>
+
+    @Query(
+        """SELECT COUNT(*) FROM radio_pool r JOIN episodes e ON e.id = r.episodeId
+           WHERE r.profileId = :profileId AND e.completed = 0
+             AND (r.expiresAt IS NULL OR r.expiresAt > :nowMs)"""
+    )
+    fun poolCount(profileId: String, nowMs: Long): Flow<Int>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPool(rows: List<RadioPoolEntity>)
+
+    @Query("DELETE FROM radio_pool WHERE profileId = :profileId AND catalogVersion < :keepFrom")
+    suspend fun pruneOldCatalog(profileId: String, keepFrom: Long)
+
+    /** Drops pool rows whose episode row has gone; they could never be played. */
+    @Query("DELETE FROM radio_pool WHERE episodeId NOT IN (SELECT id FROM episodes)")
+    suspend fun pruneUnplayablePool()
+
+    @Query("SELECT * FROM radio_feedback WHERE profileId = :profileId AND episodeId = :episodeId")
+    suspend fun feedback(profileId: String, episodeId: String): RadioFeedbackEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putFeedback(row: RadioFeedbackEntity)
+
+    @Query("UPDATE radio_feedback SET blockedUntil = 0, skipCount = 0 WHERE profileId = :profileId")
+    suspend fun clearCooldowns(profileId: String)
 }

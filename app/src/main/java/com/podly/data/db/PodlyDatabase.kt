@@ -14,14 +14,17 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ListeningSegmentEntity::class,
         PlaylistEntity::class,
         PlaylistItemEntity::class,
+        RadioPoolEntity::class,
+        RadioFeedbackEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class PodlyDatabase : RoomDatabase() {
     abstract fun podcastDao(): PodcastDao
     abstract fun episodeDao(): EpisodeDao
     abstract fun playlistDao(): PlaylistDao
+    abstract fun radioDao(): RadioDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -72,8 +75,51 @@ abstract class PodlyDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Radio mode. No DEFAULT clauses in these CREATE TABLEs: Kotlin constructor
+         * defaults are not @ColumnInfo(defaultValue = ...), so Room's expected schema
+         * carries none and validateMigration would reject them on a migrated device.
+         * Index names must match Room's generated `index_<table>_<column>` exactly.
+         */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE listening_segments ADD COLUMN profileId TEXT")
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS radio_pool (
+                        profileId TEXT NOT NULL,
+                        episodeId TEXT NOT NULL,
+                        source TEXT NOT NULL,
+                        reason TEXT,
+                        language TEXT,
+                        priority REAL NOT NULL,
+                        catalogVersion INTEGER NOT NULL,
+                        addedAt INTEGER NOT NULL,
+                        expiresAt INTEGER,
+                        PRIMARY KEY(profileId, episodeId)
+                    )"""
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_radio_pool_episodeId ON radio_pool(episodeId)")
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS radio_feedback (
+                        profileId TEXT NOT NULL,
+                        episodeId TEXT NOT NULL,
+                        lastServedAt INTEGER NOT NULL,
+                        serveCount INTEGER NOT NULL,
+                        lastSkippedAt INTEGER NOT NULL,
+                        skipCount INTEGER NOT NULL,
+                        listenedMs INTEGER NOT NULL,
+                        blockedUntil INTEGER NOT NULL,
+                        PRIMARY KEY(profileId, episodeId)
+                    )"""
+                )
+            }
+        }
+
         internal val MIGRATIONS =
-            arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            arrayOf(
+                MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
+                MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
+            )
 
         fun build(context: Context): PodlyDatabase =
             Room.databaseBuilder(context, PodlyDatabase::class.java, "podly.db")

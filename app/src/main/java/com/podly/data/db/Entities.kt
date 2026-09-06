@@ -85,6 +85,13 @@ data class ListeningSegmentEntity(
     val endPositionMs: Long,
     val startedAt: Long,
     val endedAt: Long,
+    /**
+     * Which radio profile was listening, or null for ordinary listening. Tagged from
+     * the session that started playback, never from "whichever profile is selected
+     * right now" — otherwise a manually tapped episode would be filed under whoever
+     * the chip happened to name.
+     */
+    val profileId: String? = null,
 )
 
 data class EpisodeHistorySummary(
@@ -100,6 +107,57 @@ data class EpisodeHistorySummary(
     val firstListenedAt: Long,
     val lastListenedAt: Long,
     val totalListenedMs: Long,
+)
+
+/** Where a radio candidate came from. */
+enum class RadioSource { CATALOG, MANUAL }
+
+/**
+ * Discovery candidates for one profile: episodes radio may play that the user has not
+ * subscribed to. Backlog candidates deliberately get no rows here — they are queried
+ * from [EpisodeEntity] directly, so `completed` has exactly one source of truth.
+ */
+@Entity(
+    tableName = "radio_pool",
+    primaryKeys = ["profileId", "episodeId"],
+    indices = [Index("episodeId")],
+)
+data class RadioPoolEntity(
+    val profileId: String,
+    val episodeId: String,
+    val source: RadioSource = RadioSource.CATALOG,
+    /** One line on why this was picked, shown while it plays. */
+    val reason: String? = null,
+    /** BCP-47 primary subtag from the catalog ("en", "zh"); null when unknown. */
+    val language: String? = null,
+    /** The generator's prior, 0..1. */
+    val priority: Float = 0f,
+    /** Catalog generation that inserted this row; older generations are pruned. */
+    val catalogVersion: Long = 0,
+    val addedAt: Long = System.currentTimeMillis(),
+    /** Time-limited picks; null means no expiry. */
+    val expiresAt: Long? = null,
+)
+
+/**
+ * Serve/skip bookkeeping, per profile. Covers backlog episodes as well as pool ones,
+ * which is why it is a separate table rather than columns on [RadioPoolEntity].
+ */
+@Entity(
+    tableName = "radio_feedback",
+    primaryKeys = ["profileId", "episodeId"],
+)
+data class RadioFeedbackEntity(
+    val profileId: String,
+    val episodeId: String,
+    val lastServedAt: Long = 0,
+    val serveCount: Int = 0,
+    val lastSkippedAt: Long = 0,
+    val skipCount: Int = 0,
+    /** Time listened under this profile, for the affinity signal. */
+    val listenedMs: Long = 0,
+    /** Soft-cooldown expiry, computed at write time. 0 means free to serve. */
+    val blockedUntil: Long = 0,
 )
 
 @Entity(tableName = "playlists")
