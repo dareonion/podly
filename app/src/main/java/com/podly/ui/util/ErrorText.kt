@@ -19,7 +19,7 @@ private val JSON_MESSAGE = Regex("\"message\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"
  * on screen with no next step, so unwrap the JSON and name the cases a user can
  * actually act on.
  */
-fun friendlyError(t: Throwable): String {
+fun friendlyError(t: Throwable, fallback: String? = null): String {
     val chain = generateSequence(t) { it.cause }.take(5).toList()
     chain.forEach { link ->
         when (link) {
@@ -27,7 +27,10 @@ fun friendlyError(t: Throwable): String {
             is SocketTimeoutException -> return TIMED_OUT
         }
     }
-    return friendlyErrorText(chain.mapNotNull { it.message }.distinct().joinToString(": "))
+    val text = friendlyErrorText(chain.mapNotNull { it.message }.distinct().joinToString(": "))
+    // Callers with a better generic label than "something went wrong" — media3
+    // exposes an errorCodeName even when the message is null — supply it here.
+    return if (text == GENERIC && fallback != null) fallback else text
 }
 
 /** The text-only half of [friendlyError], split out so the mapping is JVM-testable. */

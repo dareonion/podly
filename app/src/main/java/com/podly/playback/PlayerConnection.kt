@@ -7,6 +7,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.podly.ui.util.friendlyError
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -112,7 +113,9 @@ class PlayerConnection(context: Context) {
             hasNextEpisode = player.hasNextMediaItem(),
             hasPreviousEpisode = player.hasPreviousMediaItem(),
             errorMessage = player.playerError?.let { error ->
-                "Playback failed: ${error.message ?: error.errorCodeName}"
+                // media3 wraps the cause, so a dead network reaches the user as
+                // "No internet connection" rather than a source-error dump.
+                "Playback failed: ${friendlyError(error, fallback = error.errorCodeName)}"
             },
         )
     }

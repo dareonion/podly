@@ -2,6 +2,7 @@ package com.podly.ui
 
 import com.podly.AppGraph
 import com.podly.data.db.EpisodeEntity
+import com.podly.ui.util.friendlyError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -46,7 +47,7 @@ class EpisodeActions(private val graph: AppGraph, private val scope: CoroutineSc
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            graph.messages.post("$action failed: ${e.message ?: e.toString()}")
+            graph.messages.post("$action failed: ${friendlyError(e)}")
         }
     }
 }
