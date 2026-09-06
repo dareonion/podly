@@ -2,6 +2,9 @@ package com.podly
 
 import android.content.Context
 import android.util.Log
+import com.podly.data.radio.RadioProfileStore
+import com.podly.data.radio.RadioRepository
+import com.podly.data.radio.RadioSessionStore
 import com.podly.data.AiPicksCache
 import com.podly.data.ArchiveRescuer
 import com.podly.data.CachedArchive
@@ -61,6 +64,14 @@ class AppGraph(private val context: Context) {
     // Recent-episode + acclaimed lists are pre-generated server-side and fetched as static JSON.
     val remoteRecs: RemoteRecsApi = RemoteRecsApi()
     val aiPicksCache: AiPicksCache = AiPicksCache(context)
+
+    // Radio: which profile is selected, which profile the *current* session belongs
+    // to (session-scoped, so manual listening is never attributed to a profile), and
+    // what to play next.
+    val radioProfiles: RadioProfileStore = RadioProfileStore(context)
+    val radioSession: RadioSessionStore = RadioSessionStore(context, applicationScope)
+    val radio: RadioRepository =
+        RadioRepository(database.radioDao(), database.episodeDao(), radioProfiles)
 
     /** Lazy so the controller (and thus the service) only spins up when the UI needs it. */
     val player: PlayerConnection by lazy { PlayerConnection(context) }
