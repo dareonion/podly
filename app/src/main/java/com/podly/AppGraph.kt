@@ -71,7 +71,10 @@ class AppGraph(private val context: Context) {
     val radioProfiles: RadioProfileStore = RadioProfileStore(context)
     val radioSession: RadioSessionStore = RadioSessionStore(context, applicationScope)
     val radio: RadioRepository =
-        RadioRepository(database.radioDao(), database.episodeDao(), radioProfiles)
+        RadioRepository(
+            database.radioDao(), database.episodeDao(), database.podcastDao(),
+            radioProfiles, remoteRecs,
+        )
 
     /** Lazy so the controller (and thus the service) only spins up when the UI needs it. */
     val player: PlayerConnection by lazy { PlayerConnection(context) }

@@ -2,6 +2,7 @@ package com.podly
 
 import android.app.Application
 import com.podly.work.FeedRefreshWorker
+import com.podly.work.RadioPoolWorker
 
 class PodlyApp : Application() {
 
@@ -12,5 +13,6 @@ class PodlyApp : Application() {
         super.onCreate()
         graph = AppGraph(this)
         FeedRefreshWorker.schedule(this)
+        RadioPoolWorker.schedule(this)
     }
 }
