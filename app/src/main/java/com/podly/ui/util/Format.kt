@@ -1,6 +1,5 @@
 package com.podly.ui.util
 
-import android.text.format.DateUtils
 import androidx.core.text.HtmlCompat
 import java.text.DateFormat
 import java.util.Date
@@ -24,15 +23,33 @@ fun formatDateTime(epochMs: Long): String? {
 }
 
 /** "generated Jul 13, 2026 (2 days ago)", or null if the time is unknown. */
-fun generatedText(generatedAtMs: Long): String? {
+fun generatedText(generatedAtMs: Long, nowMs: Long = System.currentTimeMillis()): String? {
     if (generatedAtMs <= 0L) return null
-    val relative = DateUtils.getRelativeTimeSpanString(
-        generatedAtMs,
-        System.currentTimeMillis(),
-        DateUtils.MINUTE_IN_MILLIS,
-    )
-    return "generated ${formatDate(generatedAtMs)} ($relative)"
+    return "generated ${formatDate(generatedAtMs)} (${relativeAge(generatedAtMs, nowMs)})"
 }
+
+/**
+ * "6 weeks ago" for any age.
+ *
+ * Not `DateUtils.getRelativeTimeSpanString`: past its largest supported unit
+ * that returns an absolute date, so stale picks rendered as the stutter
+ * "generated Jul 26, 2026 (Jul 26, 2026)" instead of saying how old they are.
+ */
+internal fun relativeAge(thenMs: Long, nowMs: Long): String {
+    val minutes = (nowMs - thenMs) / 60_000
+    if (minutes < 1) return "just now"
+    if (minutes < 60) return ago(minutes, "minute")
+    val hours = minutes / 60
+    if (hours < 24) return ago(hours, "hour")
+    val days = hours / 24
+    if (days < 7) return ago(days, "day")
+    if (days < 30) return ago(days / 7, "week")
+    val months = days / 30
+    if (months < 12) return ago(months, "month")
+    return ago(maxOf(1, days / 365), "year")
+}
+
+private fun ago(count: Long, unit: String) = "$count $unit${if (count == 1L) "" else "s"} ago"
 
 fun formatPosition(positionMs: Long): String {
     val totalSeconds = (positionMs / 1000).coerceAtLeast(0)
