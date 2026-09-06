@@ -21,18 +21,24 @@ if ! flock -n 9; then
     exit 0
 fi
 
-if [ ! -d "$worktree/.git" ] && [ ! -f "$worktree/.git" ]; then
+# Detached, not on `main`: git refuses to check out a branch that is already
+# checked out in the working repo, and this must never contend for it anyway.
+if [ ! -e "$worktree/.git" ]; then
     echo "=== creating publish worktree at $worktree" >>"$log"
-    git -C "$repo" worktree add "$worktree" main >>"$log" 2>&1 || exit 1
+    git -C "$repo" worktree add --detach "$worktree" origin/main >>"$log" 2>&1 || exit 1
 fi
 
-# Fast-forward only: never publish on top of a diverged tree.
-git -C "$worktree" fetch --quiet origin main >>"$log" 2>&1
-git -C "$worktree" checkout --quiet main >>"$log" 2>&1
-if ! git -C "$worktree" merge --ff-only origin/main >>"$log" 2>&1; then
-    echo "=== publish worktree has diverged from origin/main; not publishing" >>"$log"
-    exit 1
+git -C "$worktree" fetch --quiet origin main >>"$log" 2>&1 || exit 1
+ahead=$(git -C "$worktree" rev-list --count origin/main..HEAD 2>/dev/null || echo 0)
+if [ "$ahead" -gt 0 ]; then
+    # A previous run committed but could not push; send it up before rebuilding
+    # so the reset below cannot discard it.
+    echo "=== $ahead unpushed commit(s) from an earlier run" >>"$log"
+    git -C "$worktree" push -q origin HEAD:main >>"$log" 2>&1 \
+        || { echo "=== push still failing; leaving the commit in place" >>"$log"; exit 1; }
+    git -C "$worktree" fetch --quiet origin main >>"$log" 2>&1
 fi
+git -C "$worktree" reset --hard --quiet origin/main >>"$log" 2>&1 || exit 1
 
 cd "$repo/tools/radio" || exit 1
 if ! uv run podly-radio build --out "$worktree/site/radio" >>"$log" 2>&1; then
@@ -51,12 +57,9 @@ git commit -q -m "Refresh radio pools $(date +%Y-%m-%d)" >>"$log" 2>&1 || exit 1
 
 # Push whatever is unpushed, not just this run's commit: a refresh made while
 # the network was down should still go up next time.
-ahead=$(git rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)
-if [ "$ahead" -gt 0 ]; then
-    if git push -q >>"$log" 2>&1; then
-        echo "=== pushed $ahead commit(s)" >>"$log"
-    else
-        echo "=== push failed; the commit is waiting locally" >>"$log"
-        exit 1
-    fi
+if git push -q origin HEAD:main >>"$log" 2>&1; then
+    echo "=== published" >>"$log"
+else
+    echo "=== push failed; the commit waits in the worktree for the next run" >>"$log"
+    exit 1
 fi
