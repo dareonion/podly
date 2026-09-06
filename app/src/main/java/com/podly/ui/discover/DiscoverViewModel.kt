@@ -3,6 +3,7 @@ package com.podly.ui.discover
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.podly.ui.util.friendlyError
 import com.podly.AppGraph
 import com.podly.data.ArchiveRescuer
 import com.podly.data.db.PodcastEntity
@@ -121,7 +122,15 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
 
     fun setQuery(query: String) = _state.update { it.copy(query = query) }
 
+    /** What to re-run when the user taps Retry on the error notice. */
+    private var lastFailedAction: (() -> Unit)? = null
+
+    fun retry() = lastFailedAction?.invoke() ?: Unit
+
+    fun clearError() = _state.update { it.copy(error = null) }
+
     fun search() {
+        lastFailedAction = { search() }
         val term = _state.value.query.trim()
         if (term.isEmpty()) {
             _state.update { it.copy(searchResults = null) }
@@ -147,13 +156,14 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
             _state.update { it.copy(searching = true, error = null) }
             runCatching { graph.podcasts.search(term) }
                 .onSuccess { results -> _state.update { it.copy(searchResults = results, searching = false) } }
-                .onFailure { e -> _state.update { it.copy(error = e.message, searching = false) } }
+                .onFailure { e -> _state.update { it.copy(error = friendlyError(e), searching = false) } }
         }
     }
 
     fun clearSearch() = _state.update { it.copy(query = "", searchResults = null) }
 
     fun loadTrending(period: TrendingPeriod) {
+        lastFailedAction = { loadTrending(period) }
         viewModelScope.launch {
             _state.update { it.copy(trendingPeriod = period, trendingLoading = true, error = null) }
             runCatching {
@@ -168,11 +178,12 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                 }
             }
                 .onSuccess { list -> _state.update { it.copy(trending = list, trendingLoading = false) } }
-                .onFailure { e -> _state.update { it.copy(error = e.message, trendingLoading = false) } }
+                .onFailure { e -> _state.update { it.copy(error = friendlyError(e), trendingLoading = false) } }
         }
     }
 
     fun loadRecommendations() {
+        lastFailedAction = { loadRecommendations() }
         viewModelScope.launch {
             _state.update { it.copy(recsLoading = true, error = null) }
             runCatching {
@@ -196,12 +207,13 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                 }
                 .onFailure { e ->
                     Log.e(TAG, "AI picks failed", e)
-                    _state.update { it.copy(error = describe(e), recsLoading = false) }
+                    _state.update { it.copy(error = friendlyError(e), recsLoading = false) }
                 }
         }
     }
 
     fun loadAcclaimed(force: Boolean = false) {
+        lastFailedAction = { loadAcclaimed(force = true) }
         // Awards and best-of lists barely move — serve the cached result unless it's
         // stale or the user explicitly refreshes, then re-fetch the static file.
         val cacheFresh = System.currentTimeMillis() - acclaimedFetchedAtMs < ACCLAIMED_MAX_AGE_MS
@@ -227,11 +239,11 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                     // error, but say the refresh itself failed — a silently vanishing
                     // spinner reads as a no-op.
                     if (_state.value.acclaimed != null) {
-                        graph.messages.post("Refresh failed: ${describe(e)}")
+                        graph.messages.post("Refresh failed: ${friendlyError(e)}")
                     }
                     _state.update {
                         it.copy(
-                            error = if (it.acclaimed == null) describe(e) else it.error,
+                            error = if (it.acclaimed == null) friendlyError(e) else it.error,
                             acclaimedLoading = false,
                         )
                     }
@@ -246,6 +258,7 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
      * web-search work now happens off-device, so this is just a quick download.
      */
     fun loadRecentEpisodes(window: RecentEpisodeWindow = _state.value.recentEpisodeWindow, force: Boolean = false) {
+        lastFailedAction = { loadRecentEpisodes(window, force = true) }
         val sameWindow = _state.value.recentEpisodeWindow == window
         _state.update {
             it.copy(
@@ -279,12 +292,12 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                     // error, but say the refresh itself failed — a silently vanishing
                     // spinner reads as a no-op.
                     if (_state.value.recentEpisodes != null) {
-                        graph.messages.post("Refresh failed: ${describe(e)}")
+                        graph.messages.post("Refresh failed: ${friendlyError(e)}")
                     }
                     _state.update {
                         it.copy(
                             recentEpisodesLoading = false,
-                            error = if (it.recentEpisodes == null) describe(e) else it.error,
+                            error = if (it.recentEpisodes == null) friendlyError(e) else it.error,
                         )
                     }
                 }
@@ -343,7 +356,7 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
             }.onSuccess { result ->
                 _state.update { it.copy(savingPlaylist = false, recentPlaylistResult = result) }
             }.onFailure { e ->
-                _state.update { it.copy(savingPlaylist = false, error = describe(e)) }
+                _state.update { it.copy(savingPlaylist = false, error = friendlyError(e)) }
             }
         }
     }
@@ -396,7 +409,7 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                     _state.update { s -> s.copy(opening = false) }
                     onOpened(podcast.id)
                 }
-                .onFailure { e -> _state.update { s -> s.copy(error = e.message, opening = false) } }
+                .onFailure { e -> _state.update { s -> s.copy(error = friendlyError(e), opening = false) } }
         }
     }
 
@@ -423,7 +436,7 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                     _state.update { s -> s.copy(opening = false) }
                     onOpened(id)
                 }
-                .onFailure { e -> _state.update { s -> s.copy(error = e.message, opening = false) } }
+                .onFailure { e -> _state.update { s -> s.copy(error = friendlyError(e), opening = false) } }
         }
     }
 
@@ -432,10 +445,6 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
         _state.update { it.copy(query = title) }
         search()
     }
-
-    /** SDK errors like "Request failed" are useless alone — append the cause. */
-    private fun describe(e: Throwable): String =
-        listOfNotNull(e.message, e.cause?.message).distinct().joinToString(": ").ifEmpty { e.toString() }
 
     private companion object {
         const val TAG = "DiscoverViewModel"

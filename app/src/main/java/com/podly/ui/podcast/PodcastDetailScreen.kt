@@ -44,6 +44,8 @@ import com.podly.data.CachedEpisodePicks
 import com.podly.data.db.EpisodeEntity
 import com.podly.data.db.PodcastEpisodeSortOrder
 import com.podly.network.ai.AiEpisodePick
+import com.podly.ui.util.friendlyError
+import com.podly.ui.components.ErrorNotice
 import com.podly.ui.EpisodeActions
 import com.podly.ui.appViewModel
 import com.podly.ui.components.AddToPlaylistDialog
@@ -127,7 +129,7 @@ class PodcastDetailViewModel(
             runCatching { graph.podcasts.refreshEpisodes(current) }
                 .onFailure { e ->
                     Log.e(TAG, "Feed refresh failed", e)
-                    refreshError.value = "Refresh failed: ${e.message ?: e.toString()}"
+                    refreshError.value = "Refresh failed: ${friendlyError(e)}"
                 }
             graph.downloader.applyPolicies()
             _refreshing.value = false
@@ -141,6 +143,8 @@ class PodcastDetailViewModel(
     fun setEpisodeSortOrder(sortOrder: PodcastEpisodeSortOrder) = viewModelScope.launch {
         graph.podcasts.setEpisodeSortOrder(podcastId, sortOrder)
     }
+
+    fun clearStartersError() { startersError.value = null }
 
     fun loadStarters(force: Boolean = false) {
         val cacheFresh = System.currentTimeMillis() - startersFetchedAtMs < STARTERS_MAX_AGE_MS
@@ -168,8 +172,7 @@ class PodcastDetailViewModel(
                 }
                 .onFailure { e ->
                     Log.e(TAG, "Where-to-start failed", e)
-                    startersError.value = listOfNotNull(e.message, e.cause?.message)
-                        .distinct().joinToString(": ").ifEmpty { e.toString() }
+                    startersError.value = friendlyError(e)
                     startersLoading.value = false
                 }
         }
@@ -264,10 +267,10 @@ fun PodcastDetailScreen(podcastId: String, onOpenEpisode: (String) -> Unit) {
             }
             refreshError?.let { error ->
                 item {
-                    Text(
+                    ErrorNotice(
                         error,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        onRetry = { viewModel.refresh() },
+                        onDismiss = { viewModel.refreshError.value = null },
                     )
                 }
             }
@@ -295,10 +298,10 @@ fun PodcastDetailScreen(podcastId: String, onOpenEpisode: (String) -> Unit) {
             }
             startersState.error?.let { error ->
                 item {
-                    Text(
+                    ErrorNotice(
                         error,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp),
+                        onRetry = { viewModel.loadStarters(force = true) },
+                        onDismiss = { viewModel.clearStartersError() },
                     )
                 }
             }

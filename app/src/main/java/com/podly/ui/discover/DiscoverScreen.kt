@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.podly.ui.components.ErrorNotice
 import com.podly.data.db.PodcastEntity
 import com.podly.ui.appViewModel
 
@@ -53,10 +54,10 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit, onOpenPlaylist: (Long) -> Un
 
             state.error?.let { error ->
                 item {
-                    Text(
+                    ErrorNotice(
                         error,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp),
+                        onRetry = viewModel::retry,
+                        onDismiss = viewModel::clearError,
                     )
                 }
             }
