@@ -1,0 +1,30 @@
+# Pool generation config. Profile ids must match RadioProfiles in the app.
+profiles:
+  - id: you
+    label: You
+    languages: [en, zh-Hant, zh-Hans]
+    countries: [us, tw]
+    target_entries: 250
+    min_entries: 60
+    min_shows: 20
+    max_per_show: 3
+    sweet_spot_minutes: [20, 75]
+    hard_minutes: [3, 240]
+    roster_size: 60
+
+  - id: toddler_zh
+    label: "Toddler — Chinese"
+    languages: [zh-Hant, zh-Hans]
+    countries: [tw]
+    # Kids & Family, Education for Kids, Stories for Kids.
+    genres: [1305, 1519, 1520]
+    search_terms: ["兒童故事", "幼兒", "睡前故事", "童謠", "親子", "繪本"]
+    target_entries: 150
+    min_entries: 30
+    min_shows: 6
+    max_per_show: 6
+    sweet_spot_minutes: [3, 12]
+    hard_minutes: [1, 20]
+    roster_size: 30
+    # Belt and braces on top of the app's own allowlist.
+    require_clean: true
