@@ -268,11 +268,11 @@ fun PlayerScreen() {
         }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { speedMenuOpen = true }) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Speed, "Speed")
-                    Text(" ${state.speed}x", style = MaterialTheme.typography.bodyMedium)
-                }
+            // A TextButton, like "Up next" beside it: Material3's IconButton is a
+            // fixed ~40dp circle that clipped this label down to "1.".
+            TextButton(onClick = { speedMenuOpen = true }) {
+                Icon(Icons.Filled.Speed, "Speed")
+                Text(" ${state.speed}x")
                 DropdownMenu(expanded = speedMenuOpen, onDismissRequest = { speedMenuOpen = false }) {
                     SPEEDS.forEach { speed ->
                         DropdownMenuItem(
