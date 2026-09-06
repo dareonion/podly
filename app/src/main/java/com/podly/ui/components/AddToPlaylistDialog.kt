@@ -1,6 +1,8 @@
 package com.podly.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,7 +38,11 @@ fun AddToPlaylistDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add to playlist") },
         text = {
-            Column {
+            // Scrolls: the dialog's text slot is height-bounded, so past about
+            // eight playlists the "New playlist name" field was pushed out of
+            // view and "Create & add" could never be enabled. Picks imports add
+            // a playlist every time, so this fills up on its own.
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 if (playlists.isEmpty()) {
                     Text("No playlists yet — create one below.")
                 }
