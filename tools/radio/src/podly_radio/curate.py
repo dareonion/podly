@@ -139,7 +139,10 @@ def curate(
         env=_child_env(),
     )
     if result.returncode != 0:
-        raise RuntimeError(f"claude exited {result.returncode}: {result.stderr[:300]}")
+        raise RuntimeError(
+            f"claude exited {result.returncode}: "
+            f"stderr={result.stderr[:300]!r} stdout={result.stdout[:300]!r}"
+        )
 
     envelope = json.loads(result.stdout)
     if envelope.get("is_error"):

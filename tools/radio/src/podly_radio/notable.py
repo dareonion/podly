@@ -113,7 +113,7 @@ def ask_for_nominations(
     if allow_search:
         # Awards move faster than a training cutoff, so this one hunt gets the
         # web. Everything it returns is verified against a feed afterwards.
-        command += ["--allowed-tools", "WebSearch", "--max-turns", "12"]
+        command += ["--allowed-tools", "WebSearch", "--max-turns", "8"]
     else:
         command += ["--tools", "", "--max-turns", "1"]
 
@@ -123,7 +123,12 @@ def ask_for_nominations(
         timeout=timeout, env=_child_env(),
     )
     if result.returncode != 0:
-        raise RuntimeError(f"claude exited {result.returncode}: {result.stderr[:300]}")
+        # The CLI sometimes exits non-zero with an empty stderr and the detail in
+        # stdout, so log both or the next failure is undiagnosable.
+        raise RuntimeError(
+            f"claude exited {result.returncode}: "
+            f"stderr={result.stderr[:300]!r} stdout={result.stdout[:300]!r}"
+        )
     envelope = json.loads(result.stdout)
     if envelope.get("is_error"):
         raise RuntimeError(f"claude reported an error: {envelope.get('result')}")
