@@ -110,6 +110,27 @@ data class EpisodeHistorySummary(
 )
 
 /** Where a radio candidate came from. */
+/**
+ * A show's genres, lowercased, one row each — the signal radio profiles filter on.
+ *
+ * Its own table rather than a column on [PodcastEntity] so the picker can express
+ * "not in these categories" as a plain `NOT IN (SELECT ...)` instead of matching
+ * inside a delimited string.
+ *
+ * Two sources feed it: `<itunes:category>` from the feed, and the generator's
+ * Apple genre names for pool shows. Not every feed declares a category (SoundOn's
+ * do not), so [com.podly.network.ItunesApi.genresForFeed] fills the gap.
+ */
+@Entity(
+    tableName = "podcast_categories",
+    primaryKeys = ["podcastId", "category"],
+    indices = [Index("category")],
+)
+data class PodcastCategoryEntity(
+    val podcastId: String,
+    val category: String,
+)
+
 enum class RadioSource { CATALOG, MANUAL }
 
 /**

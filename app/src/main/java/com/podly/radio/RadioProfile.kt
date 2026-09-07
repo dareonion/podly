@@ -36,8 +36,72 @@ data class RadioProfile(
      * until a grown-up picks the shows, which is the only content gate that exists.
      */
     val restrictBacklogToSelectedShows: Boolean = false,
+    /**
+     * Show genres this profile never plays, lowercased to match `podcast_categories`.
+     *
+     * Applied to the backlog as well as to generated picks: the shows a listener
+     * subscribes to for someone else in the house are exactly the ones that keep
+     * turning up uninvited.
+     */
+    val excludedCategories: Set<String> = emptySet(),
+    /**
+     * Genres that mean "not for this profile" only when nothing in
+     * [exemptCategories] says otherwise.
+     *
+     * "Kids & Family" is the whole reason this exists: Apple files both a
+     * toddler's story show and "Good Inside with Dr. Becky" under it, so it
+     * cannot be read as either on its own.
+     */
+    val ambiguousCategories: Set<String> = emptySet(),
+    /**
+     * Genres that rescue a show from [ambiguousCategories] — never from
+     * [excludedCategories]. Publishers tag liberally: 交通工具故事大集合 declares
+     * Parenting *and* Stories for Kids, and it is a children's show. An
+     * unambiguous genre therefore has the last word.
+     */
+    val exemptCategories: Set<String> = emptySet(),
     val weights: RadioWeights = RadioWeights(),
 )
+
+/**
+ * Apple's genre names, lowercased, grouped so a profile can name a whole subtree.
+ *
+ * Excluding [KIDS] has to name the top-level "Kids & Family", because plenty of
+ * children's shows declare nothing more specific. [PARENTING] then rescues the
+ * shows filed there that are aimed at adults.
+ */
+object RadioCategories {
+    /** Unambiguously programming for children, whatever else a show also claims. */
+    val KIDS_PROGRAMMING = setOf(
+        "stories for kids", "education for kids", "kids", "children", "children's",
+    )
+
+    /** Holds children's shows and shows for their parents alike. */
+    val KIDS_FAMILY = setOf("kids & family", "kids and family")
+    val TRUE_CRIME = setOf("true crime", "crime")
+
+    /** For grown-ups about children, which is not children's programming. */
+    val PARENTING = setOf("parenting", "pets & animals", "pets and animals")
+    val RELIGION = setOf(
+        "religion & spirituality", "religion and spirituality", "religion",
+        "spirituality", "christianity", "buddhism", "hinduism", "islam", "judaism",
+    )
+
+    /**
+     * "kids, true crime, religion" for a profile's exclusions, or null when it
+     * excludes nothing. Named groups only: a list that read out all twenty raw
+     * genre names would be noise, and silently filtering is worse than either.
+     */
+    fun label(profile: RadioProfile): String? {
+        val excluded = profile.excludedCategories + profile.ambiguousCategories
+        val groups = buildList {
+            if (excluded.containsAll(KIDS_PROGRAMMING)) add("kids")
+            if (excluded.containsAll(TRUE_CRIME)) add("true crime")
+            if (excluded.containsAll(RELIGION)) add("religion")
+        }
+        return groups.joinToString(", ").ifEmpty { null }
+    }
+}
 
 /** Scoring weights, all in one place so tuning is a single diff. */
 data class RadioWeights(
@@ -59,6 +123,14 @@ object RadioProfiles {
         languages = setOf("en", "zh"),
         minDurationMs = 3 * 60_000L,
         discoveryShare = 0.3f,
+        // Darren's standing preference for his own radio. The shows are still in
+        // the library and still play when picked by hand; they just stop being
+        // suggested. The toddler profile carries no exclusions, which is why this
+        // belongs to the profile rather than to a global setting.
+        excludedCategories = RadioCategories.KIDS_PROGRAMMING +
+            RadioCategories.TRUE_CRIME + RadioCategories.RELIGION,
+        ambiguousCategories = RadioCategories.KIDS_FAMILY,
+        exemptCategories = RadioCategories.PARENTING,
     )
 
     val TODDLER_ZH = RadioProfile(

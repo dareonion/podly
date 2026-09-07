@@ -11,11 +11,19 @@ profiles:
     sweet_spot_minutes: [20, 75]
     hard_minutes: [3, 240]
     roster_size: 60
+    # Kids & Family (+ Education/Stories for Kids), True Crime, Religion &
+    # Spirituality and its subgenres. The app filters these out of "You" picks
+    # anyway; excluding them here stops the pool spending slots on them.
+    exclude_genres: [1305, 1519, 1520, 1488, 1314, 1438, 1439, 1440, 1441, 1442, 1444, 1445]
+    # Parenting and Pets & Animals sit under Kids & Family but are for adults.
+    exempt_genres: [1521, 1522]
     listener: >
       An adult who listens while commuting and doing chores. Wants the most
       worthwhile shows in English and Mandarin: award winners, critically
       praised reporting, sharp interviews, and the popular ones that earn it.
-      Avoid daily news churn and anything gimmicky.
+      Avoid daily news churn and anything gimmicky. Never children's
+      programming, true crime, or religious teaching. Shows for parents are
+      welcome; shows for children are not.
 
   - id: toddler_zh
     label: "Toddler — Chinese"

@@ -34,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.podly.AppGraph
 import com.podly.data.radio.RadioRepository
+import com.podly.radio.RadioCategories
 import com.podly.radio.RadioProfile
 import com.podly.radio.RadioProfiles
 import com.podly.ui.appViewModel
@@ -111,6 +112,15 @@ fun RadioPicksScreen(onOpenEpisode: (String) -> Unit, onBack: () -> Unit = {}) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // Say what is being withheld: a filter you cannot see reads as
+                    // a thin catalogue rather than a preference.
+                    RadioCategories.label(profile)?.let { skipped ->
+                        Text(
+                            "No $skipped",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 TextButton(onClick = viewModel::refresh) {
                     Icon(Icons.Filled.Refresh, null)

@@ -22,6 +22,8 @@ class ProfileConfig:
     hard_ms: tuple[int, int]
     roster_size: int
     genres: tuple[int, ...] = ()
+    exclude_genres: tuple[int, ...] = ()
+    exempt_genres: tuple[int, ...] = ()
     search_terms: tuple[str, ...] = ()
     require_clean: bool = False
     listener: str = ""
@@ -58,6 +60,8 @@ def load(path: Path) -> Config:
                 hard_ms=(int(hard[0]) * 60_000, int(hard[1]) * 60_000),
                 roster_size=int(entry.get("roster_size", 40)),
                 genres=tuple(int(g) for g in entry.get("genres", ())),
+                exclude_genres=tuple(int(g) for g in entry.get("exclude_genres", ())),
+                exempt_genres=tuple(int(g) for g in entry.get("exempt_genres", ())),
                 search_terms=tuple(entry.get("search_terms", ())),
                 require_clean=bool(entry.get("require_clean", False)),
                 listener=str(entry.get("listener", "")).strip(),

@@ -16,8 +16,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaylistItemEntity::class,
         RadioPoolEntity::class,
         RadioFeedbackEntity::class,
+        PodcastCategoryEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class PodlyDatabase : RoomDatabase() {
@@ -115,10 +116,34 @@ abstract class PodlyDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Show categories, so a radio profile can exclude genres.
+         *
+         * Clears the feed cache validators on purpose: categories come from the
+         * feed body, and a 304 would skip the parse — every subscription would sit
+         * uncategorised until its publisher happened to change something.
+         */
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS podcast_categories (
+                        podcastId TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        PRIMARY KEY(podcastId, category)
+                    )"""
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_podcast_categories_category " +
+                        "ON podcast_categories(category)"
+                )
+                db.execSQL("UPDATE podcasts SET etag = NULL, lastModified = NULL")
+            }
+        }
+
         internal val MIGRATIONS =
             arrayOf(
                 MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
-                MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
+                MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
             )
 
         fun build(context: Context): PodlyDatabase =

@@ -103,6 +103,9 @@ class RadioRepository(
                 nowMs = nowMs,
                 maxDurationMs = profile.maxDurationMs ?: 0L,
                 limit = PREFILTER_LIMIT,
+                excludedCategories = profile.excludedCategories.orNone(),
+                ambiguousCategories = profile.ambiguousCategories.orNone(),
+                exemptCategories = profile.exemptCategories.orNone(),
             )
         } else {
             emptyList()
@@ -113,6 +116,9 @@ class RadioRepository(
                 nowMs = nowMs,
                 maxDurationMs = profile.maxDurationMs ?: 0L,
                 limit = PREFILTER_LIMIT,
+                excludedCategories = profile.excludedCategories.orNone(),
+                ambiguousCategories = profile.ambiguousCategories.orNone(),
+                exemptCategories = profile.exemptCategories.orNone(),
             ) + notable
             ).distinctBy { it.episodeId }
         // An unsubscribed pool episode satisfies the backlog query too (that query
@@ -150,6 +156,9 @@ class RadioRepository(
         maxDurationMs = a.profile.maxDurationMs ?: 0L,
         minDurationMs = a.profile.minDurationMs ?: 0L,
         limit = PREFILTER_LIMIT,
+        excludedCategories = a.profile.excludedCategories.orNone(),
+        ambiguousCategories = a.profile.ambiguousCategories.orNone(),
+        exemptCategories = a.profile.exemptCategories.orNone(),
     )
 
     private suspend fun randomBacklog(a: BacklogArgs) = radioDao.backlogRandom(
@@ -161,6 +170,9 @@ class RadioRepository(
         maxDurationMs = a.profile.maxDurationMs ?: 0L,
         minDurationMs = a.profile.minDurationMs ?: 0L,
         limit = PREFILTER_LIMIT,
+        excludedCategories = a.profile.excludedCategories.orNone(),
+        ambiguousCategories = a.profile.ambiguousCategories.orNone(),
+        exemptCategories = a.profile.exemptCategories.orNone(),
     )
 
     suspend fun onServed(profileId: String, episodeId: String, nowMs: Long = System.currentTimeMillis()) {
@@ -225,6 +237,9 @@ class RadioRepository(
         val podcasts = mutableMapOf<String, PodcastEntity>()
         val episodes = mutableListOf<EpisodeEntity>()
         val rows = mutableListOf<RadioPoolEntity>()
+        // The generator ships each show's Apple genres; storing them in the same
+        // table the feed parser writes to means one filter covers picks and backlog.
+        val categoriesByPodcast = mutableMapOf<String, MutableSet<String>>()
         val now = System.currentTimeMillis()
 
         pool.entries.forEach { entry ->
@@ -252,6 +267,9 @@ class RadioRepository(
                 durationMs = entry.episode.durationMs,
                 artworkUrl = entry.episode.artworkUrl ?: entry.podcast.artworkUrl,
             )
+            if (entry.tags.isNotEmpty()) {
+                categoriesByPodcast.getOrPut(entry.podcast.id) { mutableSetOf() } += entry.tags
+            }
             rows += RadioPoolEntity(
                 profileId = profileId,
                 episodeId = entry.episode.id,
@@ -264,6 +282,9 @@ class RadioRepository(
         }
 
         podcasts.values.forEach { podcastDao.insertIgnore(it) }
+        categoriesByPodcast.forEach { (podcastId, tags) ->
+            podcastDao.replaceCategories(podcastId, tags.toList())
+        }
         episodeDao.upsertFromFeed(episodes)
         radioDao.upsertPool(rows)
         radioDao.pruneOldCatalog(profileId, catalogVersion)
@@ -281,6 +302,9 @@ class RadioRepository(
                 restrictShows = if (profile.restrictBacklogToSelectedShows) 1 else 0,
                 allowedPodcastIds = allowed.toList().ifEmpty { listOf("") },
                 maxDurationMs = profile.maxDurationMs ?: 0L,
+                excludedCategories = profile.excludedCategories.orNone(),
+                ambiguousCategories = profile.ambiguousCategories.orNone(),
+                exemptCategories = profile.exemptCategories.orNone(),
             )
         }
     }
@@ -294,3 +318,9 @@ class RadioRepository(
         const val PREFILTER_LIMIT = 150
     }
 }
+
+/**
+ * Room expands an empty list to `IN ()`, which SQLite rejects, so a profile with
+ * nothing excluded passes one value that can never match a lowercased category.
+ */
+private fun Set<String>.orNone(): List<String> = toList().ifEmpty { listOf("\u0000") }

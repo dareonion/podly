@@ -16,9 +16,31 @@ private data class ItunesResult(
     val artworkUrl600: String? = null,
     val artworkUrl100: String? = null,
     val primaryGenreName: String? = null,
+    val genres: List<String> = emptyList(),
 )
 
 class ItunesApi {
+    /**
+     * The directory's genres for a show already known by feed URL.
+     *
+     * The fallback for feeds that declare no `<itunes:category>` — SoundOn's do
+     * not, and one of those is a children's show that would otherwise look
+     * uncategorised to a radio profile that excludes them. Matched on feedUrl,
+     * never on the first search hit: several shows share a title.
+     */
+    suspend fun genresForFeed(title: String, feedUrl: String): List<String> {
+        if (title.isBlank()) return emptyList()
+        val encoded = URLEncoder.encode(title, "UTF-8")
+        val body = Http.get("https://itunes.apple.com/search?media=podcast&limit=50&term=$encoded")
+        val wanted = feedUrl.normalizedFeedUrl()
+        return Http.json.decodeFromString<ItunesSearchResponse>(body).results
+            .firstOrNull { it.feedUrl?.normalizedFeedUrl() == wanted }
+            ?.genres
+            .orEmpty()
+            // "Podcasts" is on nearly every show and says nothing.
+            .filter { !it.equals("Podcasts", ignoreCase = true) }
+    }
+
     suspend fun searchPodcasts(term: String): List<PodcastEntity> {
         val encoded = URLEncoder.encode(term, "UTF-8")
         val body = Http.get("https://itunes.apple.com/search?media=podcast&limit=50&term=$encoded")
@@ -37,3 +59,7 @@ class ItunesApi {
         }.distinctBy { it.id }
     }
 }
+
+/** Feed URLs differ by scheme and trailing slash across Apple and the feed itself. */
+private fun String.normalizedFeedUrl(): String =
+    trim().removePrefix("https://").removePrefix("http://").removeSuffix("/").lowercase()

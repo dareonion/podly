@@ -101,4 +101,11 @@ def is_suitable(show: Show, profile: ProfileConfig) -> bool:
     if profile.genres and show.genre_ids:
         if not set(profile.genres) & set(show.genre_ids):
             return False
+    # An excluded genre wins over an included one: a show filed under both
+    # "Society & Culture" and "True Crime" is still true crime. An exempt genre
+    # then wins over the exclusion — Apple files parenting shows for adults under
+    # Kids & Family, and those are wanted.
+    if profile.exclude_genres and set(profile.exclude_genres) & set(show.genre_ids):
+        if not (set(profile.exempt_genres) & set(show.genre_ids)):
+            return False
     return True

@@ -15,6 +15,8 @@ data class ParsedFeed(
     val description: String?,
     val imageUrl: String?,
     val episodes: List<ParsedEpisode>,
+    /** Channel-level `<itunes:category text="...">`, parents and subcategories alike. */
+    val categories: List<String> = emptyList(),
 )
 
 data class ParsedEpisode(
@@ -43,6 +45,7 @@ class RssParser {
         var channelAuthor: String? = null
         var channelDescription: String? = null
         var channelImage: String? = null
+        val channelCategories = mutableListOf<String>()
         val episodes = mutableListOf<ParsedEpisode>()
 
         var inItem = false
@@ -88,6 +91,13 @@ class RssParser {
                             "description" -> if (channelDescription == null) channelDescription = parser.nextTextSafe()
                             "itunes:image" -> channelImage = parser.getAttributeValue(null, "href") ?: channelImage
                             "url" -> if (channelImage == null) channelImage = parser.nextTextSafe()
+                            // Subcategories nest inside their parent, and both arrive
+                            // here as start tags, so this collects "Kids & Family" and
+                            // "Stories for Kids" without tracking depth.
+                            "itunes:category" ->
+                                parser.getAttributeValue(null, "text")
+                                    ?.trim()?.takeIf { it.isNotEmpty() }
+                                    ?.let { channelCategories += it }
                         }
                     }
                 }
@@ -113,7 +123,10 @@ class RssParser {
             event = parser.next()
         }
 
-        return ParsedFeed(channelTitle, channelAuthor, channelDescription, channelImage, episodes)
+        return ParsedFeed(
+            channelTitle, channelAuthor, channelDescription, channelImage, episodes,
+            channelCategories.distinct(),
+        )
     }
 
     private fun XmlPullParser.nextTextSafe(): String? = try {

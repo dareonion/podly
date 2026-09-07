@@ -46,6 +46,44 @@ interface PodcastDao {
     @Query("UPDATE podcasts SET subscribed = :subscribed WHERE id = :id")
     suspend fun setSubscribed(id: String, subscribed: Boolean)
 
+    @Query("SELECT category FROM podcast_categories WHERE podcastId = :podcastId")
+    suspend fun categoriesFor(podcastId: String): List<String>
+
+    /** Subscribed shows first: those are the ones radio draws on most. */
+    @Query(
+        """SELECT * FROM podcasts
+           WHERE id NOT IN (SELECT DISTINCT podcastId FROM podcast_categories)
+           ORDER BY subscribed DESC, addedAt DESC
+           LIMIT :limit"""
+    )
+    suspend fun podcastsMissingCategories(limit: Int): List<PodcastEntity>
+
+    @Query("DELETE FROM podcast_categories WHERE podcastId = :podcastId")
+    suspend fun clearCategories(podcastId: String)
+
+    @Query("SELECT * FROM podcast_categories")
+    suspend fun allCategories(): List<PodcastCategoryEntity>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertCategories(rows: List<PodcastCategoryEntity>)
+
+    /**
+     * Replaces a show's categories, normalised through [PodcastCategories] so a
+     * feed that declares its genre in Chinese still matches an English exclusion.
+     *
+     * An empty list is ignored rather than applied: a feed that stopped declaring
+     * a category, or a lookup that failed, must not silently un-filter a show that
+     * was correctly excluded yesterday.
+     */
+    @Transaction
+    suspend fun replaceCategories(podcastId: String, categories: List<String>) {
+        val rows = PodcastCategories.normalize(categories)
+            .map { PodcastCategoryEntity(podcastId, it) }
+        if (rows.isEmpty()) return
+        clearCategories(podcastId)
+        insertCategories(rows)
+    }
+
     @Query("UPDATE podcasts SET etag = :etag, lastModified = :lastModified WHERE id = :id")
     suspend fun updateCacheValidators(id: String, etag: String?, lastModified: String?)
 
@@ -373,6 +411,14 @@ interface RadioDao {
              AND (:restrictShows = 0 OR e.podcastId IN (:allowedPodcastIds))
              AND (:maxDurationMs = 0 OR e.durationMs IS NULL OR e.durationMs <= :maxDurationMs)
              AND (:minDurationMs = 0 OR e.durationMs IS NULL OR e.durationMs >= :minDurationMs)
+             AND e.podcastId NOT IN (
+               SELECT podcastId FROM podcast_categories WHERE category IN (:excludedCategories)
+             )
+             AND e.podcastId NOT IN (
+               SELECT podcastId FROM podcast_categories WHERE category IN (:ambiguousCategories)
+               EXCEPT
+               SELECT podcastId FROM podcast_categories WHERE category IN (:exemptCategories)
+             )
              AND COALESCE(f.blockedUntil, 0) <= :nowMs
            ORDER BY e.pubDateMs DESC LIMIT :limit"""
     )
@@ -385,6 +431,9 @@ interface RadioDao {
         maxDurationMs: Long,
         minDurationMs: Long,
         limit: Int,
+        excludedCategories: List<String>,
+        ambiguousCategories: List<String>,
+        exemptCategories: List<String>,
     ): List<RadioCandidateRow>
 
     /** The same slice ordered randomly, so the old backlog is not starved by recency. */
@@ -404,6 +453,14 @@ interface RadioDao {
              AND (:restrictShows = 0 OR e.podcastId IN (:allowedPodcastIds))
              AND (:maxDurationMs = 0 OR e.durationMs IS NULL OR e.durationMs <= :maxDurationMs)
              AND (:minDurationMs = 0 OR e.durationMs IS NULL OR e.durationMs >= :minDurationMs)
+             AND e.podcastId NOT IN (
+               SELECT podcastId FROM podcast_categories WHERE category IN (:excludedCategories)
+             )
+             AND e.podcastId NOT IN (
+               SELECT podcastId FROM podcast_categories WHERE category IN (:ambiguousCategories)
+               EXCEPT
+               SELECT podcastId FROM podcast_categories WHERE category IN (:exemptCategories)
+             )
              AND COALESCE(f.blockedUntil, 0) <= :nowMs
            ORDER BY RANDOM() LIMIT :limit"""
     )
@@ -416,6 +473,9 @@ interface RadioDao {
         maxDurationMs: Long,
         minDurationMs: Long,
         limit: Int,
+        excludedCategories: List<String>,
+        ambiguousCategories: List<String>,
+        exemptCategories: List<String>,
     ): List<RadioCandidateRow>
 
     /** Pool candidates. The JOIN is the guarantee that every id is playable. */
@@ -434,6 +494,14 @@ interface RadioDao {
              AND e.completed = 0
              AND (r.expiresAt IS NULL OR r.expiresAt > :nowMs)
              AND (:maxDurationMs = 0 OR e.durationMs IS NULL OR e.durationMs <= :maxDurationMs)
+             AND e.podcastId NOT IN (
+               SELECT podcastId FROM podcast_categories WHERE category IN (:excludedCategories)
+             )
+             AND e.podcastId NOT IN (
+               SELECT podcastId FROM podcast_categories WHERE category IN (:ambiguousCategories)
+               EXCEPT
+               SELECT podcastId FROM podcast_categories WHERE category IN (:exemptCategories)
+             )
              AND COALESCE(f.blockedUntil, 0) <= :nowMs
            ORDER BY r.priority DESC, r.addedAt DESC LIMIT :limit"""
     )
@@ -442,6 +510,9 @@ interface RadioDao {
         nowMs: Long,
         maxDurationMs: Long,
         limit: Int,
+        excludedCategories: List<String>,
+        ambiguousCategories: List<String>,
+        exemptCategories: List<String>,
     ): List<RadioCandidateRow>
 
     @Query(
@@ -452,6 +523,14 @@ interface RadioDao {
              AND (:includeUnsubscribed = 1 OR p.subscribed = 1 OR e.inLibrary = 1)
              AND (:restrictShows = 0 OR e.podcastId IN (:allowedPodcastIds))
              AND (:maxDurationMs = 0 OR e.durationMs IS NULL OR e.durationMs <= :maxDurationMs)
+             AND e.podcastId NOT IN (
+               SELECT podcastId FROM podcast_categories WHERE category IN (:excludedCategories)
+             )
+             AND e.podcastId NOT IN (
+               SELECT podcastId FROM podcast_categories WHERE category IN (:ambiguousCategories)
+               EXCEPT
+               SELECT podcastId FROM podcast_categories WHERE category IN (:exemptCategories)
+             )
              AND COALESCE(f.blockedUntil, 0) <= :nowMs"""
     )
     fun backlogCount(
@@ -461,6 +540,9 @@ interface RadioDao {
         restrictShows: Int,
         allowedPodcastIds: List<String>,
         maxDurationMs: Long,
+        excludedCategories: List<String>,
+        ambiguousCategories: List<String>,
+        exemptCategories: List<String>,
     ): Flow<Int>
 
     @Query(

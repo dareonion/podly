@@ -27,6 +27,9 @@ class RadioDaoTest {
     private val now = 1_760_000_000_000L
     private val day = 86_400_000L
 
+    /** Room expands an empty list to `IN ()`, which SQLite rejects. */
+    private val NO_CATEGORY = "\u0000"
+
     @Before
     fun setUp() {
         db = Room.inMemoryDatabaseBuilder(
@@ -73,10 +76,15 @@ class RadioDaoTest {
         maxDurationMs: Long = 0,
         restrictShows: Int = 0,
         allowed: List<String> = listOf(""),
+        excluded: List<String> = listOf(NO_CATEGORY),
+        exempt: List<String> = listOf(NO_CATEGORY),
+        ambiguous: List<String> = listOf(NO_CATEGORY),
     ) = db.radioDao().backlogRecent(
         profileId = "you", nowMs = now, includeUnsubscribed = includeUnsubscribed,
         restrictShows = restrictShows, allowedPodcastIds = allowed,
         maxDurationMs = maxDurationMs, minDurationMs = 0, limit = 50,
+        excludedCategories = excluded, exemptCategories = exempt,
+        ambiguousCategories = ambiguous,
     ).map { it.episodeId }
 
     @Test
@@ -135,10 +143,20 @@ class RadioDaoTest {
             ),
         )
         val own = db.radioDao()
-            .discovery(profileId = "you", nowMs = now, maxDurationMs = 0, limit = 50)
+            .discovery(
+                profileId = "you", nowMs = now, maxDurationMs = 0, limit = 50,
+                excludedCategories = listOf(NO_CATEGORY),
+                exemptCategories = listOf(NO_CATEGORY),
+                ambiguousCategories = listOf(NO_CATEGORY),
+            )
             .map { it.episodeId }
         val notable = db.radioDao()
-            .discovery(profileId = "notable", nowMs = now, maxDurationMs = 0, limit = 50)
+            .discovery(
+                profileId = "notable", nowMs = now, maxDurationMs = 0, limit = 50,
+                excludedCategories = listOf(NO_CATEGORY),
+                exemptCategories = listOf(NO_CATEGORY),
+                ambiguousCategories = listOf(NO_CATEGORY),
+            )
         assertEquals(listOf("a"), own)
         assertEquals(listOf("outside"), notable.map { it.episodeId })
         // The citation rides along, so radio can say why it picked this.
@@ -155,9 +173,80 @@ class RadioDaoTest {
             ),
         )
         val ids = db.radioDao()
-            .discovery(profileId = "you", nowMs = now, maxDurationMs = 0, limit = 50)
+            .discovery(
+                profileId = "you", nowMs = now, maxDurationMs = 0, limit = 50,
+                excludedCategories = listOf(NO_CATEGORY),
+                exemptCategories = listOf(NO_CATEGORY),
+                ambiguousCategories = listOf(NO_CATEGORY),
+            )
             .map { it.episodeId }
         // The JOIN against episodes is what guarantees every candidate is playable.
         assertEquals(listOf("outside"), ids)
+    }
+
+    @Test
+    fun `a profile's excluded categories drop the show from both buckets`() = runBlocking {
+        seed()
+        db.radioDao().upsertPool(
+            listOf(RadioPoolEntity(profileId = "you", episodeId = "outside", priority = 0.9f)),
+        )
+        db.podcastDao().replaceCategories("unsubbed", listOf("Kids & Family", "Stories for Kids"))
+        db.podcastDao().replaceCategories("subbed", listOf("News"))
+
+        val excluded = listOf("kids & family")
+        assertTrue("outside" !in backlog(excluded = excluded))
+        assertTrue("a" in backlog(excluded = excluded))
+        val picks = db.radioDao().discovery(
+            profileId = "you", nowMs = now, maxDurationMs = 0, limit = 50,
+            excludedCategories = excluded, exemptCategories = listOf(NO_CATEGORY),
+            ambiguousCategories = listOf(NO_CATEGORY),
+        )
+        assertTrue(picks.isEmpty())
+        // Without the exclusion the same show is a candidate, so the filter is
+        // what removed it and not some other predicate.
+        assertTrue("outside" in backlog())
+    }
+
+    @Test
+    fun `an exempt category rescues a show from an exclusion`() = runBlocking {
+        seed()
+        // Apple files parenting shows for adults under Kids & Family; excluding
+        // that genre alone would take them along with the children's programming.
+        db.podcastDao().replaceCategories("unsubbed", listOf("Kids & Family", "Parenting"))
+        db.podcastDao().replaceCategories("subbed", listOf("Kids & Family", "Stories for Kids"))
+        val ids = backlog(
+            excluded = listOf("stories for kids"),
+            ambiguous = listOf("kids & family"),
+            exempt = listOf("parenting"),
+        )
+        assertTrue("outside" in ids)
+        assertTrue("a" !in ids)
+    }
+
+    @Test
+    fun `an unambiguous genre outranks the exemption`() = runBlocking {
+        seed()
+        // 交通工具故事大集合 declares Parenting *and* Stories for Kids, and is a
+        // children's show: publishers tag liberally, so the specific genre wins.
+        db.podcastDao().replaceCategories(
+            "unsubbed", listOf("Kids & Family", "Parenting", "Stories for Kids"),
+        )
+        val ids = backlog(
+            excluded = listOf("stories for kids"),
+            ambiguous = listOf("kids & family"),
+            exempt = listOf("parenting"),
+        )
+        assertTrue("outside" !in ids)
+    }
+
+    @Test
+    fun `categories are stored lowercased and an empty list never clears them`() = runBlocking {
+        seed()
+        db.podcastDao().replaceCategories("subbed", listOf(" True Crime ", "true crime", "News"))
+        assertEquals(setOf("true crime", "news"), db.podcastDao().categoriesFor("subbed").toSet())
+        // A feed that stops declaring categories, or a failed lookup, must not
+        // silently un-filter a show that was correctly excluded yesterday.
+        db.podcastDao().replaceCategories("subbed", emptyList())
+        assertEquals(setOf("true crime", "news"), db.podcastDao().categoriesFor("subbed").toSet())
     }
 }

@@ -4,6 +4,8 @@ import com.podly.data.db.EpisodeEntity
 import com.podly.data.db.EpisodeHistorySummary
 import com.podly.data.db.EpisodeDao
 import com.podly.data.db.ListeningSegmentEntity
+import com.podly.data.db.PodcastCategories
+import com.podly.data.db.PodcastCategoryEntity
 import com.podly.data.db.PodcastDao
 import com.podly.data.db.PodcastEpisodeSortOrder
 import com.podly.data.db.PodcastEntity
@@ -22,6 +24,12 @@ import java.io.Reader
 import java.io.StringReader
 
 data class RefreshSummary(val total: Int, val failures: Int)
+
+/**
+ * Marks a show the directory could not categorise, so the backfill stops asking.
+ * Never matches a profile exclusion; a later feed parse replaces it outright.
+ */
+const val UNKNOWN_CATEGORY = "__none"
 
 class PodcastRepository(
     private val podcastDao: PodcastDao,
@@ -92,8 +100,76 @@ class PodcastRepository(
             description = feed.description ?: podcast.description,
         )
         episodeDao.upsertFromFeed(feed.toEpisodeEntities(podcast))
+        storeCategories(podcast, feed.categories)
         // Stored last: a failed parse/insert must refetch next time, not 304-skip.
         podcastDao.updateCacheValidators(podcast.id, response.etag, response.lastModified)
+    }
+
+    /**
+     * Records a show's genres so radio profiles can exclude them.
+     *
+     * The directory lookup only runs for a show that has none from either source,
+     * so it costs one search per uncategorised feed rather than one per refresh,
+     * and a failure leaves whatever was already known.
+     */
+    /**
+     * Fills in categories for shows that have none, from the iTunes directory.
+     *
+     * Feed refresh is the main source and costs nothing extra, but it only runs
+     * every few hours and some feeds declare no category at all — so without this
+     * a profile that excludes a genre would filter nothing for the first cycle.
+     *
+     * A show the directory does not know is marked [UNKNOWN_CATEGORY] rather than
+     * left blank, so a handful of unlisted feeds cannot monopolise every run.
+     */
+    suspend fun backfillCategories(limit: Int = 25): Int {
+        var filled = 0
+        podcastDao.podcastsMissingCategories(limit).forEach { podcast ->
+            val genres = runCatching {
+                itunesApi.genresForFeed(podcast.title, podcast.feedUrl)
+            }.getOrNull() ?: return@forEach
+            podcastDao.replaceCategories(
+                podcast.id,
+                genres.ifEmpty { listOf(UNKNOWN_CATEGORY) },
+            )
+            if (genres.isNotEmpty()) filled++
+        }
+        return filled
+    }
+
+    /**
+     * Adds the canonical genre for category rows stored before that alias existed.
+     *
+     * Rows written by an earlier build kept only the publisher's own wording, so a
+     * Chinese children's show sits there as 兒童與家庭 and matches no English
+     * exclusion. A conditional GET means its feed may not be re-parsed for months,
+     * so waiting for the next refresh is not a fix.
+     *
+     * Insert-only and idempotent, so it is safe to run on every pass and it
+     * self-heals whenever [PodcastCategories] learns a new name.
+     */
+    suspend fun renormalizeCategories(): Int {
+        val added = podcastDao.allCategories()
+            .groupBy { it.podcastId }
+            .flatMap { (podcastId, rows) ->
+                val have = rows.map { it.category }
+                (PodcastCategories.normalize(have) - have.toSet())
+                    .map { PodcastCategoryEntity(podcastId, it) }
+            }
+        if (added.isNotEmpty()) podcastDao.insertCategories(added)
+        return added.size
+    }
+
+    private suspend fun storeCategories(podcast: PodcastEntity, fromFeed: List<String>) {
+        if (fromFeed.isNotEmpty()) {
+            podcastDao.replaceCategories(podcast.id, fromFeed)
+            return
+        }
+        if (podcastDao.categoriesFor(podcast.id).isNotEmpty()) return
+        val genres = runCatching {
+            itunesApi.genresForFeed(podcast.title, podcast.feedUrl)
+        }.getOrNull().orEmpty()
+        podcastDao.replaceCategories(podcast.id, genres)
     }
 
     suspend fun refreshAllSubscribed(): RefreshSummary {

@@ -27,6 +27,12 @@ class RadioPoolWorker(context: Context, params: WorkerParameters) :
 
     override suspend fun doWork(): Result {
         val graph = applicationContext.appGraph
+        // Radio can only exclude a genre it knows about, and a fresh install (or a
+        // just-migrated one) knows none until feeds are re-parsed.
+        runCatching {
+            graph.podcasts.renormalizeCategories()
+            graph.podcasts.backfillCategories()
+        }.onFailure { Log.w(TAG, "category backfill failed", it) }
         var attempted = 0
         var failed = 0
         RadioProfiles.POOL_IDS.forEach { poolId ->
