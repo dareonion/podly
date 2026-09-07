@@ -84,3 +84,52 @@ def test_the_notable_prompt_demands_recent_acclaim() -> None:
     # Rolled-off episodes cannot be played, so the model is told not to spend
     # nominations on them.
     assert "rolled out of the feed" in prompt
+
+
+def test_the_hunt_is_split_per_kind_so_one_failure_is_survivable() -> None:
+    """A single long ask hit the turn budget mid-search and returned nothing."""
+    from podly_radio import notable
+
+    calls = []
+
+    def fake_ask(kind, count, *args, **kwargs):
+        calls.append(kind)
+        if kind == "popular":
+            raise RuntimeError("simulated failure")
+        return [notable.Nomination("Show", "Ep", "Won something", "en", kind)]
+
+    original = notable._ask_one_kind
+    notable._ask_one_kind = fake_ask
+    try:
+        result = notable.ask_for_nominations(10)
+    finally:
+        notable._ask_one_kind = original
+
+    assert calls == ["popular", "acclaimed"]
+    # The acclaimed half still lands even though the popular half blew up.
+    assert [n.kind for n in result] == ["acclaimed"]
+
+
+def test_the_prompt_bounds_searching_and_forbids_ending_on_a_tool_call() -> None:
+    from podly_radio import notable
+
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["prompt"] = kwargs["input"]
+        captured["command"] = command
+        raise RuntimeError("stop here")
+
+    original = notable.subprocess.run
+    notable.subprocess.run = fake_run
+    try:
+        notable._ask_one_kind("popular", 8, "m", 60, True, 2025, 0.7)
+    except Exception:
+        pass
+    finally:
+        notable.subprocess.run = original
+
+    assert "at most 5 web searches" in captured["prompt"]
+    assert "do not end your turn" in captured["prompt"]
+    # Too small a turn budget is what left it mid-search with nothing to show.
+    assert "30" in captured["command"]

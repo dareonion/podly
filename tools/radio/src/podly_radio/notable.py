@@ -82,25 +82,61 @@ def ask_for_nominations(
     recent_share: float = 0.7,
     popular_share: float = 0.5,
 ) -> list[Nomination]:
+    """
+    Asks once per kind, so one failure costs half the hunt rather than all of it.
+
+    Splitting also keeps each turn short. A single 24-episode ask ran the model
+    through a seven-minute search loop, hit the turn budget mid-tool-call and
+    exited without ever emitting its answer (stop_reason "tool_use").
+    """
+    recent_year = recent_year or (datetime.date.today().year - 1)
+    nominations: list[Nomination] = []
+    plan = (
+        ("popular", max(1, int(count * popular_share))),
+        ("acclaimed", max(1, count - int(count * popular_share))),
+    )
+    for kind, want in plan:
+        try:
+            nominations += _ask_one_kind(
+                kind, want, model, timeout, allow_search, recent_year, recent_share
+            )
+        except Exception as error:  # noqa: BLE001 - one kind failing is survivable
+            LOG.error("the %s hunt failed (%s); continuing", kind, error)
+    return nominations
+
+
+def _ask_one_kind(
+    kind: str,
+    count: int,
+    model: str,
+    timeout: int,
+    allow_search: bool,
+    recent_year: int,
+    recent_share: float,
+) -> list[Nomination]:
     claude = resolve_claude()
     if claude is None:
         raise RuntimeError("the claude CLI is not installed")
-    recent_year = recent_year or (datetime.date.today().year - 1)
     recent = max(1, int(count * recent_share))
-    popular = max(1, int(count * popular_share))
+    what = (
+        "episodes that a lot of people actually heard and talked about — a "
+        "breakout interview, an instalment that went viral, the one everyone "
+        "was quoting, a record-breaking guest"
+        if kind == "popular"
+        else "episodes that won or were nominated for a major award, or that "
+        "appeared on a prominent critic's best-of list"
+    )
     prompt = (
-        f"List {count} podcast episodes worth singling out. "
-        f"About {popular} of them should be POPULAR rather than acclaimed — "
-        "episodes that were widely heard and widely discussed, whether or not "
-        "any jury noticed them. The remainder should be ACCLAIMED. "
-        f"At least {recent} of the {count} MUST be from {recent_year} or later "
-        "— this year's and last year's award cycles, recent nominees, current "
-        "best-of lists, and the episodes people were actually talking about "
-        "recently. Search for them rather than relying on memory. "
+        f"List {count} podcast {what}. "
+        f"At least {recent} of them MUST be from {recent_year} or later. "
         "Cover both English and Mandarin-language podcasts. "
-        "Strongly prefer episodes still present in the show's RSS feed: an "
-        "episode that has rolled out of the feed cannot be played and will be "
-        "discarded. "
+        "Strongly prefer episodes still present in the show's RSS feed: one "
+        "that has rolled out of the feed cannot be played and will be discarded. "
+        "Make at most 5 web searches in total, then answer from what you have — "
+        "do not keep searching for perfect coverage, and do not end your turn "
+        "with a tool call. A shorter list delivered is worth more than a longer "
+        "one you never finish. "
+        f'Every entry must have "kind":"{kind}". '
         + RESPONSE_SHAPE
     )
     command = [
@@ -113,11 +149,14 @@ def ask_for_nominations(
     if allow_search:
         # Awards move faster than a training cutoff, so this one hunt gets the
         # web. Everything it returns is verified against a feed afterwards.
-        command += ["--allowed-tools", "WebSearch", "--max-turns", "8"]
+        # Generous turn budget: the prompt is what limits searching. Too few
+        # turns and the model is still mid-search when the budget expires,
+        # which ends the run with no answer at all.
+        command += ["--allowed-tools", "WebSearch", "--max-turns", "30"]
     else:
         command += ["--tools", "", "--max-turns", "1"]
 
-    LOG.info("asking for up to %d notable episodes (search=%s)", count, allow_search)
+    LOG.info("asking for %d %s episodes (search=%s)", count, kind, allow_search)
     result = subprocess.run(
         command, input=prompt, capture_output=True, text=True,
         timeout=timeout, env=_child_env(),
@@ -139,13 +178,13 @@ def ask_for_nominations(
         show = str(item.get("show", "")).strip()
         episode = str(item.get("episode", "")).strip()
         accolade = " ".join(str(item.get("accolade", "")).split())[:200]
-        kind = str(item.get("kind", "acclaimed")).strip().lower()
-        if kind not in ("acclaimed", "popular"):
-            kind = "acclaimed"
+        item_kind = str(item.get("kind", kind)).strip().lower()
+        if item_kind not in ("acclaimed", "popular"):
+            item_kind = kind
         if show and episode and accolade:
             nominations.append(
                 Nomination(
-                    show, episode, accolade, str(item.get("language", "en")), kind
+                    show, episode, accolade, str(item.get("language", "en")), item_kind
                 )
             )
     return nominations
