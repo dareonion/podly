@@ -17,6 +17,28 @@ fun formatDate(epochMs: Long): String? {
     return DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(epochMs))
 }
 
+/**
+ * "Aug 20, 2026 · 2 weeks ago · 47m" — the line under a recommendation.
+ *
+ * The absolute date is what Darren asked to see; the relative age is what makes
+ * a list of picks scannable for "these are all ancient", which reading a column
+ * of formatted dates does not. An episode with no usable date keeps its duration
+ * rather than rendering a 1970 one.
+ */
+fun publishedText(
+    pubDateMs: Long,
+    durationMs: Long? = null,
+    nowMs: Long = System.currentTimeMillis(),
+): String? {
+    val date = formatDate(pubDateMs)
+    val parts = listOfNotNull(
+        date,
+        date?.let { relativeAge(pubDateMs, nowMs) },
+        formatDuration(durationMs),
+    )
+    return parts.joinToString(" · ").ifBlank { null }
+}
+
 fun formatDateTime(epochMs: Long): String? {
     if (epochMs <= 0) return null
     return DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(epochMs))
