@@ -39,7 +39,7 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit, onOpenPlaylist: (Long) -> Un
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = viewModel::setQuery,
-                    label = { Text("Search podcasts (or paste a feed URL)") },
+                    label = { Text("Search, or paste an RSS or Apple Podcasts link") },
                     singleLine = true,
                     trailingIcon = {
                         IconButton(onClick = viewModel::search) {

@@ -8,6 +8,7 @@ import com.podly.AppGraph
 import com.podly.data.ArchiveRescuer
 import com.podly.data.db.PodcastEntity
 import com.podly.data.db.stableId
+import com.podly.network.PodcastLink
 import com.podly.network.TrendingPeriod
 import com.podly.network.TrendingPodcast
 import com.podly.network.ai.AiAcclaimedPick
@@ -136,21 +137,50 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
             _state.update { it.copy(searchResults = null) }
             return
         }
-        // A pasted feed URL: offer it as a direct result — opening it pulls the
-        // feed and fills in the real title/artwork.
-        if (term.startsWith("http://", ignoreCase = true) ||
-            term.startsWith("https://", ignoreCase = true)
-        ) {
-            val podcast = PodcastEntity(
-                id = stableId(term),
-                title = term.substringAfter("://"),
-                author = "RSS feed",
-                feedUrl = term,
-                artworkUrl = null,
-                description = null,
-            )
-            _state.update { it.copy(searchResults = listOf(podcast), searching = false) }
-            return
+        when (val link = PodcastLink.parse(term)) {
+            // A pasted feed URL: offer it as a direct result — opening it pulls
+            // the feed and fills in the real title/artwork.
+            is PodcastLink.Feed -> {
+                val podcast = PodcastEntity(
+                    id = stableId(link.url),
+                    title = link.url.substringAfter("://"),
+                    author = "RSS feed",
+                    feedUrl = link.url,
+                    artworkUrl = null,
+                    description = null,
+                )
+                _state.update { it.copy(searchResults = listOf(podcast), searching = false) }
+                return
+            }
+            // An Apple Podcasts link carries no feed, so the directory has to
+            // supply one before there is anything to subscribe to.
+            is PodcastLink.Apple -> {
+                viewModelScope.launch {
+                    _state.update { it.copy(searching = true, error = null) }
+                    runCatching { graph.podcasts.podcastByAppleId(link.collectionId) }
+                        .onSuccess { podcast ->
+                            _state.update {
+                                it.copy(
+                                    searching = false,
+                                    searchResults = listOfNotNull(podcast),
+                                    error = if (podcast == null) {
+                                        "Apple has no podcast with that link."
+                                    } else {
+                                        null
+                                    },
+                                )
+                            }
+                        }
+                        .onFailure { error ->
+                            Log.w(TAG, "apple link lookup failed", error)
+                            _state.update {
+                                it.copy(searching = false, error = friendlyError(error))
+                            }
+                        }
+                }
+                return
+            }
+            null -> Unit // an ordinary search term
         }
         viewModelScope.launch {
             _state.update { it.copy(searching = true, error = null) }

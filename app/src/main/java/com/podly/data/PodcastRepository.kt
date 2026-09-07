@@ -58,6 +58,9 @@ class PodcastRepository(
         refreshEpisodes(podcast, force = true)
     }
 
+    /** @see ItunesApi.podcastById */
+    suspend fun podcastByAppleId(collectionId: String): PodcastEntity? =
+        itunesApi.podcastById(collectionId)
 
     /**
      * Matches a free-text podcast title against the iTunes directory. Requires an

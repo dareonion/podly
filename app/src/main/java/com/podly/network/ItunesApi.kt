@@ -41,6 +41,31 @@ class ItunesApi {
             .filter { !it.equals("Podcasts", ignoreCase = true) }
     }
 
+    /**
+     * The show behind an Apple Podcasts link, or null if the directory has no
+     * such podcast.
+     *
+     * Null rather than a placeholder on purpose: without a feedUrl there is
+     * nothing to subscribe to, and inventing a row would produce a subscription
+     * that can never refresh.
+     */
+    suspend fun podcastById(collectionId: String): PodcastEntity? {
+        val body = Http.get("https://itunes.apple.com/lookup?id=$collectionId&entity=podcast")
+        return Http.json.decodeFromString<ItunesSearchResponse>(body).results
+            .firstOrNull { it.feedUrl != null }
+            ?.let { result ->
+                val feedUrl = result.feedUrl ?: return null
+                PodcastEntity(
+                    id = stableId(feedUrl),
+                    title = result.collectionName ?: feedUrl,
+                    author = result.artistName ?: "",
+                    feedUrl = feedUrl,
+                    artworkUrl = result.artworkUrl600 ?: result.artworkUrl100,
+                    description = null,
+                )
+            }
+    }
+
     suspend fun searchPodcasts(term: String): List<PodcastEntity> {
         val encoded = URLEncoder.encode(term, "UTF-8")
         val body = Http.get("https://itunes.apple.com/search?media=podcast&limit=50&term=$encoded")
