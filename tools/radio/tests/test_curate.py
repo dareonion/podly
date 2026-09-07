@@ -56,3 +56,31 @@ def test_the_child_environment_cannot_reach_a_metered_api(monkeypatch) -> None:
 
 def test_json_is_extracted_from_fenced_prose() -> None:
     assert _extract_json('Sure!\n```json\n{"roster": []}\n```')["roster"] == []
+
+
+def test_the_notable_prompt_demands_recent_acclaim() -> None:
+    """The first hunt returned 2014-2015 classics because nothing asked for recency."""
+    import datetime
+    from podly_radio import notable
+
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["prompt"] = kwargs["input"]
+        raise RuntimeError("stop here")
+
+    original = notable.subprocess.run
+    notable.subprocess.run = fake_run
+    try:
+        notable.ask_for_nominations(30)
+    except Exception:
+        pass
+    finally:
+        notable.subprocess.run = original
+
+    prompt = captured.get("prompt", "")
+    assert str(datetime.date.today().year - 1) in prompt
+    assert "MUST be from" in prompt
+    # Rolled-off episodes cannot be played, so the model is told not to spend
+    # nominations on them.
+    assert "rolled out of the feed" in prompt

@@ -24,6 +24,7 @@ data class RadioCardState(
     val backlogCount: Int = 0,
     val poolCount: Int = 0,
     val selectedShows: Set<String> = emptySet(),
+    val notableCount: Int = 0,
 ) {
     /** True when the session belongs to the profile the card is showing. */
     val isActive: Boolean get() = isPlaying
@@ -57,7 +58,15 @@ class RadioViewModel(private val graph: AppGraph) : ViewModel() {
                 graph.radioProfiles.selectedShows(profile.id),
                 graph.radioSession.active,
                 graph.player.state,
-            ) { backlog, pool, shows, session, player ->
+                graph.radio.poolCount(RadioProfiles.NOTABLE_ID),
+            ) { values ->
+                @Suppress("UNCHECKED_CAST")
+                val backlog = values[0] as Int
+                val pool = values[1] as Int
+                val shows = values[2] as Set<String>
+                val session = values[3] as com.podly.data.radio.RadioSession?
+                val player = values[4] as com.podly.playback.PlayerUiState
+                val notable = values[5] as Int
                 RadioCardState(
                     profile = profile,
                     isPlaying = session != null && player.radioProfileId != null,
@@ -66,6 +75,7 @@ class RadioViewModel(private val graph: AppGraph) : ViewModel() {
                     backlogCount = backlog,
                     poolCount = pool,
                     selectedShows = shows,
+                    notableCount = notable,
                 )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RadioCardState())

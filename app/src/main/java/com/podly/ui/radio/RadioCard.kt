@@ -42,7 +42,7 @@ import com.podly.ui.appViewModel
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RadioCard(modifier: Modifier = Modifier) {
+fun RadioCard(modifier: Modifier = Modifier, onOpenNotable: () -> Unit = {}) {
     val viewModel = appViewModel { RadioViewModel(it) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showPicker by remember { mutableStateOf(false) }
@@ -115,6 +115,11 @@ fun RadioCard(modifier: Modifier = Modifier) {
                             Text("  Start radio")
                         }
                         TextButton(onClick = { showPicker = true }) { Text("Choose shows") }
+                    }
+                    if (state.notableCount > 0) {
+                        TextButton(onClick = onOpenNotable) {
+                            Text("Notable episodes (${state.notableCount})")
+                        }
                     }
                     Text(
                         buildString {

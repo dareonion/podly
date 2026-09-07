@@ -29,12 +29,12 @@ class RadioPoolWorker(context: Context, params: WorkerParameters) :
         val graph = applicationContext.appGraph
         var attempted = 0
         var failed = 0
-        RadioProfiles.ALL.forEach { profile ->
+        RadioProfiles.POOL_IDS.forEach { poolId ->
             attempted++
-            runCatching { graph.radio.syncPool(profile.id) }
+            runCatching { graph.radio.syncPool(poolId) }
                 .onFailure { error ->
                     failed++
-                    Log.w(TAG, "pool sync failed for ${profile.id}", error)
+                    Log.w(TAG, "pool sync failed for $poolId", error)
                 }
         }
         // Individual flakiness isn't worth a retry; a total failure is.

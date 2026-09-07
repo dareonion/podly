@@ -467,6 +467,23 @@ interface RadioDao {
     )
     fun poolCount(profileId: String, nowMs: Long): Flow<Int>
 
+    /**
+     * Everything in one pool, newest acclaim first, for browsing rather than
+     * playing: no cooldown filter and completed episodes still listed, because a
+     * list you are reading should not silently omit things.
+     */
+    @Query(
+        """SELECT e.id AS episodeId, e.podcastId, e.podcastTitle, e.title, e.durationMs,
+                  e.pubDateMs, e.playbackPositionMs, e.lastPlayedAt, e.userRating,
+                  r.language, r.priority, r.reason,
+                  0 AS lastServedAt, 0 AS serveCount, 0 AS lastSkippedAt, 0 AS skipCount
+           FROM radio_pool r
+           JOIN episodes e ON e.id = r.episodeId
+           WHERE r.profileId = :profileId
+           ORDER BY r.priority DESC, e.pubDateMs DESC"""
+    )
+    fun poolEntries(profileId: String): Flow<List<RadioCandidateRow>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertPool(rows: List<RadioPoolEntity>)
 

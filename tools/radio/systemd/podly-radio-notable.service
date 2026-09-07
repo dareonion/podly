@@ -1,0 +1,16 @@
+[Unit]
+Description=podly-radio — hunt for notable episodes (acclaimed and popular)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/gitrepo/podcast_player/tools/radio
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment="GIT_SSH_COMMAND=ssh -i %h/.ssh/id_ed25519 -o BatchMode=yes"
+# Uses the Claude Code subscription with web search, never a metered API key.
+# The daily pool build re-applies whatever this publishes, so a failed hunt
+# simply leaves the previous notable list in place.
+ExecStart=%h/gitrepo/podcast_player/tools/radio/notable.sh
+# Web search over ~30 nominations, then a feed fetch to verify each one.
+TimeoutStartSec=40min

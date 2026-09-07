@@ -71,7 +71,11 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryScreen(onOpenPodcast: (String) -> Unit, onOpenEpisode: (String) -> Unit) {
+fun LibraryScreen(
+    onOpenPodcast: (String) -> Unit,
+    onOpenEpisode: (String) -> Unit,
+    onOpenNotable: () -> Unit = {},
+) {
     val viewModel = appViewModel { LibraryViewModel(it) }
     val podcasts by viewModel.podcasts.collectAsStateWithLifecycle()
     val episodes by viewModel.episodes.collectAsStateWithLifecycle()
@@ -87,7 +91,7 @@ fun LibraryScreen(onOpenPodcast: (String) -> Unit, onOpenEpisode: (String) -> Un
         modifier = Modifier.fillMaxSize(),
     ) {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            item(key = "radio") { RadioCard() }
+            item(key = "radio") { RadioCard(onOpenNotable = onOpenNotable) }
             if (continueListening.isNotEmpty()) {
                 item {
                     Text(

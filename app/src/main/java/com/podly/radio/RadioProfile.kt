@@ -66,6 +66,17 @@ object RadioProfiles {
 
     val ALL = listOf(YOU, TODDLER_ZH)
 
+    /**
+     * Episodes singled out for acclaim or for how widely they were heard. Not a
+     * listening profile — it has no chip and you do not "run radio as Notable" —
+     * but it is a pool, so it downloads, hydrates and is browsable through
+     * exactly the same machinery.
+     */
+    const val NOTABLE_ID = "notable"
+
+    /** Every pool the app downloads, which is the profiles plus Notable. */
+    val POOL_IDS = ALL.map { it.id } + NOTABLE_ID
+
     val DEFAULT_ID = YOU.id
 
     /** Unknown ids resolve to the default rather than crashing. */

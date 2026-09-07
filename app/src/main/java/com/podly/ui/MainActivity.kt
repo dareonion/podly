@@ -39,6 +39,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.podly.ui.notable.NotableScreen
 import com.podly.ui.discover.DiscoverScreen
 import com.podly.ui.episode.EpisodeDetailScreen
 import com.podly.ui.history.HistoryScreen
@@ -142,6 +143,7 @@ private fun PodlyApp() {
                 LibraryScreen(
                     onOpenPodcast = { navController.navigate("podcast/$it") },
                     onOpenEpisode = { navController.navigate("episode/$it") },
+                    onOpenNotable = { navController.navigate("notable") },
                 )
             }
             composable("discover") {
@@ -179,6 +181,9 @@ private fun PodlyApp() {
                 )
             }
             composable("player") { PlayerScreen() }
+            composable("notable") {
+                NotableScreen(onOpenEpisode = { navController.navigate("episode/$it") })
+            }
         }
     }
 }

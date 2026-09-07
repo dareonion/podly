@@ -1,0 +1,12 @@
+[Unit]
+Description=podly-radio — weekly notable-episode hunt
+
+[Timer]
+# Weekly: award cycles and "the episode everyone is talking about" move faster
+# than the monthly roster, but not daily.
+OnCalendar=Sun *-*-* 05:30:00
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
