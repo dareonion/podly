@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Downloading
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.DropdownMenu
@@ -30,6 +31,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,10 +39,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.podly.data.db.DownloadStatus
+import com.podly.appGraph
 import com.podly.data.db.EpisodeEntity
 import com.podly.ui.util.formatDate
 import com.podly.ui.util.formatDuration
@@ -155,8 +159,24 @@ fun EpisodeRow(
             )
             else -> {}
         }
-        IconButton(onClick = onPlay) {
-            Icon(Icons.Filled.PlayArrow, "Play")
+        // The row has to know what the player is doing, or the button you just
+        // pressed keeps offering to start what is already playing. Read from the
+        // graph the way MiniPlayer does, so every list that shows a row gets this.
+        val player = LocalContext.current.appGraph.player
+        val playback by player.state.collectAsState()
+        val isCurrent = playback.episodeId == episode.id
+        // Buffering counts as playing: the button must not flick back to "play"
+        // in the second between the tap and the first audio.
+        val playing = isCurrent && (playback.isPlaying || playback.isBuffering)
+        IconButton(
+            // Resume rather than onPlay when this episode is already loaded:
+            // onPlay rebuilds the queue, which would throw away what is queued.
+            onClick = { if (isCurrent) player.togglePlayPause() else onPlay() },
+        ) {
+            Icon(
+                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                if (playing) "Pause" else "Play",
+            )
         }
         IconButton(onClick = { menuOpen = true }) {
             Icon(Icons.Filled.MoreVert, "More")
