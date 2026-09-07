@@ -37,6 +37,7 @@ import com.podly.data.radio.RadioRepository
 import com.podly.radio.RadioProfile
 import com.podly.radio.RadioProfiles
 import com.podly.ui.appViewModel
+import com.podly.ui.util.plainDescription
 import com.podly.ui.util.publishedText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -133,8 +134,8 @@ fun RadioPicksScreen(onOpenEpisode: (String) -> Unit, onBack: () -> Unit = {}) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onOpenEpisode(episode.id) }
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.Top,
             ) {
                 AsyncImage(
                     model = episode.artworkUrl,
@@ -172,6 +173,18 @@ fun RadioPicksScreen(onOpenEpisode: (String) -> Unit, onBack: () -> Unit = {}) {
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // Choosing between sixty episodes on title alone is guesswork;
+                    // the show notes are what the titles leave out.
+                    plainDescription(episode.description)?.let { blurb ->
+                        Text(
+                            blurb,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
                 IconButton(onClick = { viewModel.play(episode.id) }) {
                     Icon(Icons.Filled.PlayArrow, "Play")
