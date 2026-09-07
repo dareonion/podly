@@ -96,8 +96,12 @@ class PlaybackService : MediaLibraryService() {
      * While an episode is on probation nothing is written about it — no progress, no
      * listening segments, no auto-download — so a rejected pick leaves no trace in
      * Continue listening or History. Everything withheld is written on commit.
+     *
+     * Outlives [radio] on purpose: stopping radio is not the same as keeping what
+     * was playing. It carries its own profile id so it can still commit once the
+     * session that created it is gone.
      */
-    private var probation: Probation? = null
+    private var probation: RadioProbation? = null
     private var radioRefillJob: Job? = null
 
     override fun onCreate() {
@@ -462,8 +466,15 @@ class PlaybackService : MediaLibraryService() {
             // shifts currentMediaItemIndex and reports a PLAYLIST_CHANGED transition,
             // and treating that as a skip would reset probation on every refill.
             val newEpisodeId = mediaItem?.mediaId?.let(MediaIds::episodeIdOrNull)
-            if (radio != null && newEpisodeId != probation?.episodeId) {
-                probation = newEpisodeId?.let { Probation(it) }
+            if (newEpisodeId != probation?.episodeId) {
+                // Cleared even outside radio, so a withheld pick can never outlive
+                // the episode it belongs to and stall progress for anything else.
+                val profileId = radio?.profileId
+                probation = if (profileId != null && newEpisodeId != null) {
+                    RadioProbation(newEpisodeId, profileId)
+                } else {
+                    null
+                }
             }
             scope.launch {
                 flushListeningSegment()
@@ -551,39 +562,47 @@ class PlaybackService : MediaLibraryService() {
     private suspend fun flushListeningSegment() {
         val segment = takePendingSegment() ?: return
         val pending = probation
-        if (radio != null && pending != null && pending.episodeId == segment.episodeId) {
-            pending.segments += segment
-            pending.listenedMs +=
-                (segment.endPositionMs - segment.startPositionMs).coerceAtLeast(0)
+        if (pending != null && pending.covers(segment.episodeId)) {
+            pending.buffer(segment)
             return
         }
         appGraph.database.episodeDao().insertListeningSegment(segment)
     }
 
-    /** True while [episodeId] is a radio pick the user has not yet stuck with. */
+    /**
+     * True while [episodeId] is a radio pick the user has not yet stuck with.
+     *
+     * Deliberately not gated on `radio != null`: leaving radio does not earn a
+     * pick its place in Continue listening, and clearing the gate on stop let the
+     * next progress save write a fourteen-second pick straight into it. Bounded
+     * by the episode id and cleared on every transition, so a stale one can never
+     * withhold anything else.
+     */
     private fun isOnProbation(episodeId: String): Boolean =
-        radio != null && probation?.episodeId == episodeId
+        probation?.covers(episodeId) == true
 
-    /** Includes the in-flight segment, so a continuously playing pick commits on time. */
-    private fun probationListenedMs(): Long {
-        val pending = probation ?: return 0
-        val live = activeListenSegment
-            ?.takeIf { it.episodeId == pending.episodeId }
+    /** The segment still in flight, which [RadioProbation] cannot see for itself. */
+    private fun liveListenedMs(pending: RadioProbation): Long =
+        activeListenSegment
+            ?.takeIf { pending.covers(it.episodeId) }
             ?.let { (it.endPositionMs - it.startPositionMs).coerceAtLeast(0) }
             ?: 0
-        return pending.listenedMs + live
+
+    /** What a skip reports as listened, in-flight segment included. */
+    private fun probationListenedMs(): Long {
+        val pending = probation ?: return 0
+        return pending.listenedIncluding(liveListenedMs(pending))
     }
 
     /** Writes back everything probation withheld, once the pick has clearly been kept. */
     private suspend fun maybeCommitRadioEpisode(player: Player) {
         val pending = probation ?: return
-        val session = radio ?: return
         val ended = player.playbackState == Player.STATE_ENDED
-        if (probationListenedMs() < RADIO_COMMIT_MS && !ended) return
+        if (!pending.shouldCommit(liveListenedMs(pending), ended)) return
         probation = null
         val dao = appGraph.database.episodeDao()
         pending.segments.forEach { dao.insertListeningSegment(it) }
-        appGraph.radio.onAccepted(session.profileId, pending.episodeId, pending.listenedMs)
+        appGraph.radio.onAccepted(pending.profileId, pending.episodeId, pending.listenedMs)
         appGraph.downloader.autoDownloadStartedEpisode(pending.episodeId)
     }
 
@@ -680,7 +699,7 @@ class PlaybackService : MediaLibraryService() {
         val items = built.map { it.first }
         val (window, index) = if (isCasting()) castQueueWindow(items, 0) else items to 0
         radio = RadioSessionState(profileId)
-        probation = Probation(first.id)
+        probation = RadioProbation(first.id, profileId)
         appGraph.radioSession.start(profileId)
         publishRadioExtras(profileId)
         player.setMediaItems(window, index, first.playbackPositionMs.takeIf { !first.completed } ?: 0L)
@@ -710,7 +729,10 @@ class PlaybackService : MediaLibraryService() {
     /** Leaves radio; whatever is already queued keeps playing as an ordinary queue. */
     private suspend fun stopRadio() {
         radio = null
-        probation = null
+        // probation is deliberately left standing. Stopping a pick you have heard
+        // for fourteen seconds is not keeping it, and clearing the gate here let
+        // the next progress save write it straight into Continue listening. It
+        // still commits on its own once the episode earns its 90 seconds.
         radioRefillJob?.cancel()
         appGraph.radioSession.end()
         publishRadioExtras(null)
@@ -964,8 +986,6 @@ class PlaybackService : MediaLibraryService() {
         private const val MAX_BROWSE_CHILDREN = 100
         private const val MIN_LISTEN_SEGMENT_MS = 1_000L
 
-        /** Listening this long makes a radio pick count: it stops being probationary. */
-        private const val RADIO_COMMIT_MS = 90_000L
         private const val CONTINUOUS_POSITION_TOLERANCE_MS = 12_000L
         private const val TAG = "PodlyPlayback"
         private const val MAX_RECOVERY_ATTEMPTS = 5
@@ -977,11 +997,6 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private data class RadioSessionState(val profileId: String)
-
-    private class Probation(val episodeId: String) {
-        var listenedMs: Long = 0
-        val segments: MutableList<ListeningSegmentEntity> = mutableListOf()
-    }
 
     private data class ActiveListenSegment(
         val episodeId: String,
