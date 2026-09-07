@@ -123,6 +123,29 @@ class RadioDaoTest {
     }
 
     @Test
+    fun `the notable pool is queried separately from a profile's own`() = runBlocking {
+        seed()
+        db.radioDao().upsertPool(
+            listOf(
+                RadioPoolEntity(profileId = "you", episodeId = "a", priority = 0.4f),
+                RadioPoolEntity(
+                    profileId = "notable", episodeId = "outside", priority = 0.99f,
+                    reason = "Won a Peabody",
+                ),
+            ),
+        )
+        val own = db.radioDao()
+            .discovery(profileId = "you", nowMs = now, maxDurationMs = 0, limit = 50)
+            .map { it.episodeId }
+        val notable = db.radioDao()
+            .discovery(profileId = "notable", nowMs = now, maxDurationMs = 0, limit = 50)
+        assertEquals(listOf("a"), own)
+        assertEquals(listOf("outside"), notable.map { it.episodeId })
+        // The citation rides along, so radio can say why it picked this.
+        assertEquals("Won a Peabody", notable.single().reason)
+    }
+
+    @Test
     fun `a pool row whose episode is gone stops being a candidate`() = runBlocking {
         seed()
         db.radioDao().upsertPool(

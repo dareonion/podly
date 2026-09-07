@@ -52,12 +52,26 @@ class RadioRepository(
                 val args = BacklogArgs(profile, allowed, restrict, nowMs)
                 (recentBacklog(args) + randomBacklog(args)).distinctBy { it.episodeId }
             }
-        val discovery = radioDao.discovery(
-            profileId = profile.id,
-            nowMs = nowMs,
-            maxDurationMs = profile.maxDurationMs ?: 0L,
-            limit = PREFILTER_LIMIT,
-        )
+        // Notable episodes live in their own pool and are blended in here rather
+        // than copied into every profile's pool, so there is one list of them.
+        val notable = if (profile.includeNotable) {
+            radioDao.discovery(
+                profileId = RadioProfiles.NOTABLE_ID,
+                nowMs = nowMs,
+                maxDurationMs = profile.maxDurationMs ?: 0L,
+                limit = PREFILTER_LIMIT,
+            )
+        } else {
+            emptyList()
+        }
+        val discovery = (
+            radioDao.discovery(
+                profileId = profile.id,
+                nowMs = nowMs,
+                maxDurationMs = profile.maxDurationMs ?: 0L,
+                limit = PREFILTER_LIMIT,
+            ) + notable
+            ).distinctBy { it.episodeId }
         val picked = RadioScorer.nextBatch(
             backlog = backlog.map { RadioCandidate(it, discovery = false) },
             discovery = discovery.map { RadioCandidate(it, discovery = true) },
@@ -222,6 +236,7 @@ class RadioRepository(
         }
     }
 
+    /** Pool size as the card reports it: the profile's own picks plus notable. */
     fun poolCount(profileId: String): Flow<Int> =
         radioDao.poolCount(profileId, System.currentTimeMillis())
 

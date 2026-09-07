@@ -24,6 +24,13 @@ data class RadioProfile(
      */
     val includeUnsubscribed: Boolean = true,
     /**
+     * Whether the notable pool — award winners and widely-heard episodes — is
+     * blended into this profile's picks. Off for the toddler: that pool is
+     * adult material by default, and nothing about a Pulitzer makes an episode
+     * suitable for a three-year-old.
+     */
+    val includeNotable: Boolean = true,
+    /**
      * When true, the backlog is limited to shows explicitly chosen for this profile.
      * The toddler profile ships with this on and an empty allowlist: nothing plays
      * until a grown-up picks the shows, which is the only content gate that exists.
@@ -61,6 +68,7 @@ object RadioProfiles {
         languages = setOf("zh"),
         maxDurationMs = 15 * 60_000L,
         discoveryShare = 0.5f,
+        includeNotable = false,
         restrictBacklogToSelectedShows = true,
     )
 
