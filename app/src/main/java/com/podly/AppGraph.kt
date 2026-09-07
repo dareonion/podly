@@ -14,6 +14,7 @@ import com.podly.data.TaddyArchive
 import com.podly.network.TaddyApi
 import com.podly.data.PlaybackStateStore
 import com.podly.data.PlaylistRepository
+import com.podly.data.TranscriptRepository
 import com.podly.data.PodcastRepository
 import com.podly.data.SettingsRepository
 import com.podly.data.db.PodlyDatabase
@@ -44,6 +45,8 @@ class AppGraph(private val context: Context) {
     val podcasts: PodcastRepository =
         PodcastRepository(database.podcastDao(), database.episodeDao())
     val playlists: PlaylistRepository = PlaylistRepository(database.playlistDao())
+    val transcripts: TranscriptRepository =
+        TranscriptRepository(database.episodeDao(), context.cacheDir)
     val downloader: Downloader =
         Downloader(context, settings, database.podcastDao(), database.episodeDao())
     val appleCharts: AppleChartsApi = AppleChartsApi()

@@ -71,7 +71,10 @@ data class EpisodeEntity(
     val completed: Boolean = false,
     val lastPlayedAt: Long = 0,
     val userNote: String? = null,
-    val userRating: Int? = null,
+    val userRating: Int? = null,    /** From `<podcast:transcript>`; null when the feed declares none. */
+    val transcriptUrl: String? = null,
+    val transcriptType: String? = null,
+
 )
 
 @Entity(

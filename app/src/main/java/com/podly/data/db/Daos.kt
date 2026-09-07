@@ -266,7 +266,9 @@ interface EpisodeDao {
            description = COALESCE(:description, description),
            audioUrl = :audioUrl,
            durationMs = COALESCE(durationMs, :durationMs),
-           artworkUrl = COALESCE(:artworkUrl, artworkUrl)
+           artworkUrl = COALESCE(:artworkUrl, artworkUrl),
+           transcriptUrl = COALESCE(:transcriptUrl, transcriptUrl),
+           transcriptType = COALESCE(:transcriptType, transcriptType)
            WHERE id = :id"""
     )
     suspend fun updateFeedMetadata(
@@ -277,6 +279,8 @@ interface EpisodeDao {
         audioUrl: String,
         durationMs: Long?,
         artworkUrl: String?,
+        transcriptUrl: String?,
+        transcriptType: String?,
     )
 
     /** Inserts new episodes and refreshes feed metadata on existing ones. */
@@ -292,6 +296,8 @@ interface EpisodeDao {
                 audioUrl = it.audioUrl,
                 durationMs = it.durationMs,
                 artworkUrl = it.artworkUrl,
+                transcriptUrl = it.transcriptUrl,
+                transcriptType = it.transcriptType,
             )
         }
     }

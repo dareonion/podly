@@ -125,6 +125,7 @@ fun EpisodeDetailScreen(
     episodeId: String,
     onOpenPodcast: (String) -> Unit,
     onBack: () -> Unit,
+    onOpenTranscript: (String) -> Unit = {},
 ) {
     val viewModel = appViewModel(key = "episode_$episodeId") {
         EpisodeDetailViewModel(it, episodeId)
@@ -365,6 +366,9 @@ fun EpisodeDetailScreen(
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
                     )
+                    if (ep.transcriptUrl != null) {
+                        TextButton(onClick = { onOpenTranscript(ep.id) }) { Text("Transcript") }
+                    }
                     TextButton(onClick = viewModel::reloadNotes, enabled = !reloading) {
                         Text(if (reloading) "Reloading…" else "Reload")
                     }

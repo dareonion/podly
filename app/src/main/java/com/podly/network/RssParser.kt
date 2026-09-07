@@ -15,14 +15,25 @@ data class ParsedFeed(
     val description: String?,
     val imageUrl: String?,
     val episodes: List<ParsedEpisode>,
+    /** Channel `<language>`; a transcript that declares none is in this one. */
+    val language: String? = null,
     /** Channel-level `<itunes:category text="...">`, parents and subcategories alike. */
     val categories: List<String> = emptyList(),
+)
+
+/** A `<podcast:transcript>` declaration: where the transcript is, and in what format. */
+data class ParsedTranscript(
+    val url: String,
+    val type: String?,
+    val language: String?,
+    val rel: String?,
 )
 
 data class ParsedEpisode(
     val guid: String?,
     val title: String,
     val description: String?,
+    val transcripts: List<ParsedTranscript> = emptyList(),
     val audioUrl: String,
     /** Null when the feed has no date or one we can't parse. */
     val pubDateMs: Long?,
@@ -45,6 +56,7 @@ class RssParser {
         var channelAuthor: String? = null
         var channelDescription: String? = null
         var channelImage: String? = null
+        var channelLanguage: String? = null
         val channelCategories = mutableListOf<String>()
         val episodes = mutableListOf<ParsedEpisode>()
 
@@ -62,6 +74,7 @@ class RssParser {
         var itemPubDate: String? = null
         var itemDuration: String? = null
         var itemImage: String? = null
+        var itemTranscripts = mutableListOf<ParsedTranscript>()
 
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT) {
@@ -74,6 +87,7 @@ class RssParser {
                             itemTitle = null; itemGuid = null; itemDescription = null
                             itemNotes = null; itemSummary = null
                             itemAudioUrl = null; itemPubDate = null; itemDuration = null; itemImage = null
+                            itemTranscripts = mutableListOf()
                         }
                         inItem -> when (tag) {
                             "title" -> itemTitle = parser.nextTextSafe()
@@ -91,6 +105,19 @@ class RssParser {
                             "pubdate" -> itemPubDate = parser.nextTextSafe()
                             "itunes:duration" -> itemDuration = parser.nextTextSafe()
                             "itunes:image" -> itemImage = parser.getAttributeValue(null, "href") ?: itemImage
+                            // Podcasting 2.0. An item may declare several — different
+                            // formats and languages of the same episode.
+                            "podcast:transcript" ->
+                                parser.getAttributeValue(null, "url")
+                                    ?.trim()?.takeIf { it.isNotEmpty() }
+                                    ?.let { url ->
+                                        itemTranscripts += ParsedTranscript(
+                                            url = url,
+                                            type = parser.getAttributeValue(null, "type"),
+                                            language = parser.getAttributeValue(null, "language"),
+                                            rel = parser.getAttributeValue(null, "rel"),
+                                        )
+                                    }
                         }
                         else -> when (tag) {
                             "title" -> if (channelTitle == null) channelTitle = parser.nextTextSafe()
@@ -98,6 +125,8 @@ class RssParser {
                             "description" -> if (channelDescription == null) channelDescription = parser.nextTextSafe()
                             "itunes:image" -> channelImage = parser.getAttributeValue(null, "href") ?: channelImage
                             "url" -> if (channelImage == null) channelImage = parser.nextTextSafe()
+                            "language" ->
+                                if (channelLanguage == null) channelLanguage = parser.nextTextSafe()
                             // Subcategories nest inside their parent, and both arrive
                             // here as start tags, so this collects "Kids & Family" and
                             // "Stories for Kids" without tracking depth.
@@ -120,6 +149,7 @@ class RssParser {
                                 // The full show notes when there are any: links,
                                 // chapter lists and credits live in content:encoded.
                                 description = itemNotes ?: itemDescription ?: itemSummary,
+                                transcripts = itemTranscripts.toList(),
                                 audioUrl = audioUrl,
                                 pubDateMs = parseRfc822(itemPubDate),
                                 durationMs = parseDuration(itemDuration),
@@ -134,6 +164,7 @@ class RssParser {
 
         return ParsedFeed(
             channelTitle, channelAuthor, channelDescription, channelImage, episodes,
+            channelLanguage,
             channelCategories.distinct(),
         )
     }
@@ -184,6 +215,39 @@ class RssParser {
 }
 
 /** Maps a parsed feed onto entity rows for a given podcast. */
+/**
+ * The transcript worth storing, of however many an item declares.
+ *
+ * Timed formats first: only they let a line be tapped to seek. text/plain is
+ * last and is what publishers actually ship, so it is the common outcome rather
+ * than the fallback nobody hits.
+ */
+fun List<ParsedTranscript>.preferred(feedLanguage: String? = null): ParsedTranscript? {
+    // Format first, because only the timed ones can be tapped to seek. The spec's
+    // canonical SRT type is application/x-subrip; application/srt is tolerated
+    // because publishers write it.
+    fun format(t: ParsedTranscript) = when (t.type?.lowercase()?.trim()) {
+        "application/json" -> 0
+        "text/vtt" -> 1
+        "application/x-subrip", "application/srt" -> 2
+        "text/html" -> 3
+        else -> 4
+    }
+    // "If there is no language attribute given, the linked file is assumed to be
+    // the same language that is specified by the RSS <language> element."
+    fun wrongLanguage(t: ParsedTranscript): Int {
+        val declared = t.language?.substringBefore('-')?.lowercase()?.trim()
+        val feed = feedLanguage?.substringBefore('-')?.lowercase()?.trim()
+        return if (declared == null || feed == null || declared == feed) 0 else 1
+    }
+    // Captions are chunked for display; a full transcript reads better when both
+    // are offered in the same format.
+    fun captions(t: ParsedTranscript) = if (t.rel.equals("captions", true)) 1 else 0
+    return minWithOrNull(
+        compareBy({ wrongLanguage(it) }, { format(it) }, { captions(it) }),
+    )
+}
+
 fun ParsedFeed.toEpisodeEntities(podcast: PodcastEntity): List<EpisodeEntity> {
     // Undated episodes sort as "new when first seen" rather than 1970. Stable
     // because refresh inserts are IGNOREd and metadata updates skip pubDateMs.
@@ -200,6 +264,8 @@ fun ParsedFeed.toEpisodeEntities(podcast: PodcastEntity): List<EpisodeEntity> {
             pubDateMs = episode.pubDateMs ?: firstSeenMs,
             durationMs = episode.durationMs,
             artworkUrl = episode.imageUrl ?: imageUrl ?: podcast.artworkUrl,
+            transcriptUrl = episode.transcripts.preferred(language)?.url,
+            transcriptType = episode.transcripts.preferred(language)?.type,
         )
     }
 }

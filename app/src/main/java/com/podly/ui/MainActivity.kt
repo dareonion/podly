@@ -41,6 +41,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.podly.ui.notable.NotableScreen
 import com.podly.ui.radio.RadioPicksScreen
+import com.podly.ui.transcript.TranscriptScreen
 import com.podly.ui.discover.DiscoverScreen
 import com.podly.ui.episode.EpisodeDetailScreen
 import com.podly.ui.history.HistoryScreen
@@ -180,9 +181,14 @@ private fun PodlyApp() {
                     episodeId,
                     onOpenPodcast = { navController.navigate("podcast/$it") },
                     onBack = { navController.popBackStack() },
+                    onOpenTranscript = { navController.navigate("transcript/$it") },
                 )
             }
             composable("player") { PlayerScreen() }
+            composable("transcript/{episodeId}") { entry ->
+                val episodeId = entry.arguments?.getString("episodeId") ?: return@composable
+                TranscriptScreen(episodeId, onBack = { navController.popBackStack() })
+            }
             composable("radio_picks") {
                 RadioPicksScreen(
                     onOpenEpisode = { navController.navigate("episode/$it") },
