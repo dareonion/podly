@@ -13,6 +13,8 @@ object RadioCommands {
     const val ACTION_SKIP = "com.podly.radio.SKIP"
     const val ACTION_STOP = "com.podly.radio.STOP"
     const val EXTRA_PROFILE_ID = "com.podly.radio.PROFILE_ID"
+    /** Optional: start the session on this episode instead of the top pick. */
+    const val EXTRA_EPISODE_ID = "com.podly.radio.EPISODE_ID"
 
     val START = SessionCommand(ACTION_START, Bundle.EMPTY)
     val SKIP = SessionCommand(ACTION_SKIP, Bundle.EMPTY)

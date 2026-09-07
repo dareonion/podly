@@ -28,6 +28,36 @@ class RadioRepository(
     private val remoteRecs: RemoteRecsApi,
 ) {
 
+    /** An episode radio would play, and why it is on the list. */
+    data class Recommendation(
+        val episode: EpisodeEntity,
+        /** The pool's citation, or null for something out of the user's backlog. */
+        val reason: String?,
+        val discovery: Boolean,
+    )
+
+    /**
+     * What radio would play, in order, without committing to any of it.
+     *
+     * Deliberately does not mark anything served: this backs a list the user
+     * browses, and marking a hundred episodes as served because they scrolled
+     * past would poison the very ranking they are reading.
+     */
+    suspend fun recommendations(
+        profile: RadioProfile,
+        count: Int = 50,
+        nowMs: Long = System.currentTimeMillis(),
+        random: Random = Random(nowMs / 3_600_000),
+    ): List<Recommendation> {
+        val picked = pickCandidates(profile, count, emptySet(), nowMs, random)
+        val byId = episodeDao.byIds(picked.map { it.episodeId }).associateBy { it.id }
+        return picked.mapNotNull { candidate ->
+            byId[candidate.episodeId]?.let { episode ->
+                Recommendation(episode, candidate.row.reason, candidate.discovery)
+            }
+        }
+    }
+
     /**
      * The next [count] episodes for [profile], best first.
      *
@@ -41,6 +71,19 @@ class RadioRepository(
         nowMs: Long = System.currentTimeMillis(),
         random: Random = Random.Default,
     ): List<EpisodeEntity> {
+        val picked = pickCandidates(profile, count, exclude, nowMs, random)
+        return picked.mapNotNull { episodeDao.byId(it.episodeId) }
+            .also { episodes -> episodes.forEach { onServed(profile.id, it.id, nowMs) } }
+    }
+
+    /** The shared ranking behind both [nextBatch] and [recommendations]. */
+    private suspend fun pickCandidates(
+        profile: RadioProfile,
+        count: Int,
+        exclude: Set<String>,
+        nowMs: Long,
+        random: Random,
+    ): List<RadioCandidate> {
         val allowed = profiles.selectedShowsOnce(profile.id)
         val restrict = profile.restrictBacklogToSelectedShows
         // A restricted profile with nothing chosen must play nothing at all: that
@@ -72,8 +115,16 @@ class RadioRepository(
                 limit = PREFILTER_LIMIT,
             ) + notable
             ).distinctBy { it.episodeId }
-        val picked = RadioScorer.nextBatch(
-            backlog = backlog.map { RadioCandidate(it, discovery = false) },
+        // An unsubscribed pool episode satisfies the backlog query too (that query
+        // stopped requiring a subscription when radio was widened to unsubscribed
+        // shows), so the same row can arrive in both buckets. The pool copy wins:
+        // it is the one carrying the citation and the generator's priority, and
+        // whichever bucket wins also decides which share the pick is counted
+        // against.
+        val discoveryIds = discovery.mapTo(HashSet()) { it.episodeId }
+        val backlogOnly = backlog.filterNot { it.episodeId in discoveryIds }
+        return RadioScorer.nextBatch(
+            backlog = backlogOnly.map { RadioCandidate(it, discovery = false) },
             discovery = discovery.map { RadioCandidate(it, discovery = true) },
             profile = profile,
             nowMs = nowMs,
@@ -81,8 +132,6 @@ class RadioRepository(
             count = count,
             random = random,
         )
-        return picked.mapNotNull { episodeDao.byId(it.episodeId) }
-            .also { episodes -> episodes.forEach { onServed(profile.id, it.id, nowMs) } }
     }
 
     private class BacklogArgs(

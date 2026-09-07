@@ -118,6 +118,9 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE id = :id")
     suspend fun byId(id: String): EpisodeEntity?
 
+    @Query("SELECT * FROM episodes WHERE id IN (:ids)")
+    suspend fun byIds(ids: List<String>): List<EpisodeEntity>
+
     @Query("SELECT * FROM episodes WHERE id = :id")
     fun byIdFlow(id: String): Flow<EpisodeEntity?>
 

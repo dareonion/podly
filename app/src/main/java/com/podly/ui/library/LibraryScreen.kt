@@ -75,6 +75,7 @@ fun LibraryScreen(
     onOpenPodcast: (String) -> Unit,
     onOpenEpisode: (String) -> Unit,
     onOpenNotable: () -> Unit = {},
+    onOpenPicks: () -> Unit = {},
 ) {
     val viewModel = appViewModel { LibraryViewModel(it) }
     val podcasts by viewModel.podcasts.collectAsStateWithLifecycle()
@@ -91,7 +92,7 @@ fun LibraryScreen(
         modifier = Modifier.fillMaxSize(),
     ) {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            item(key = "radio") { RadioCard(onOpenNotable = onOpenNotable) }
+            item(key = "radio") { RadioCard(onOpenNotable = onOpenNotable, onOpenPicks = onOpenPicks) }
             if (continueListening.isNotEmpty()) {
                 item {
                     Text(

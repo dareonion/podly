@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,8 +29,7 @@ import com.podly.AppGraph
 import com.podly.data.db.RadioCandidateRow
 import com.podly.radio.RadioProfiles
 import com.podly.ui.appViewModel
-import com.podly.ui.util.formatDate
-import com.podly.ui.util.formatDuration
+import com.podly.ui.util.publishedText
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -51,7 +51,7 @@ class NotableViewModel(private val graph: AppGraph) : ViewModel() {
  * anything listed is genuinely playable.
  */
 @Composable
-fun NotableScreen(onOpenEpisode: (String) -> Unit) {
+fun NotableScreen(onOpenEpisode: (String) -> Unit, onBack: () -> Unit = {}) {
     val viewModel = appViewModel { NotableViewModel(it) }
     val entries by viewModel.entries.collectAsStateWithLifecycle()
 
@@ -73,13 +73,21 @@ fun NotableScreen(onOpenEpisode: (String) -> Unit) {
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
         item(key = "header") {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Notable episodes", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "${entries.size} acclaimed and widely-heard episodes",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(end = 16.dp, top = 4.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // The bottom bar can't get you out of here: Compose restores the
+                // Library tab's saved back stack, which now has this screen on top.
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                Column {
+                    Text("Notable episodes", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "${entries.size} acclaimed and widely-heard episodes",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         items(entries, key = { it.episodeId }) { entry ->
@@ -97,27 +105,20 @@ fun NotableScreen(onOpenEpisode: (String) -> Unit) {
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    val meta = listOfNotNull(
-                        formatDate(entry.pubDateMs),
-                        formatDuration(entry.durationMs),
-                    ).joinToString(" · ")
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        entry.podcastTitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    publishedText(entry.pubDateMs, entry.durationMs)?.let {
                         Text(
-                            entry.podcastTitle,
+                            it,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
                         )
-                        if (meta.isNotEmpty()) {
-                            Text(
-                                " · $meta",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                            )
-                        }
                     }
                     entry.reason?.let { accolade ->
                         Text(

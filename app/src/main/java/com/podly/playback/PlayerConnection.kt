@@ -179,9 +179,15 @@ class PlayerConnection(context: Context) {
         controller?.setPlaybackSpeed(speed)
     }
 
-    /** Starts radio for [profileId]; the service owns the queue from then on. */
-    fun startRadio(profileId: String) {
-        val args = Bundle().apply { putString(RadioCommands.EXTRA_PROFILE_ID, profileId) }
+    /**
+     * Starts radio for [profileId]; the service owns the queue from then on.
+     * Pass [episodeId] to begin on a specific pick chosen from a list.
+     */
+    fun startRadio(profileId: String, episodeId: String? = null) {
+        val args = Bundle().apply {
+            putString(RadioCommands.EXTRA_PROFILE_ID, profileId)
+            episodeId?.let { putString(RadioCommands.EXTRA_EPISODE_ID, it) }
+        }
         controller?.sendCustomCommand(RadioCommands.START, args)
     }
 

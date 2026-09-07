@@ -657,8 +657,20 @@ class PlaybackService : MediaLibraryService() {
      * setMediaItems does not pass through onSetMediaItems, so the C.TIME_UNSET
      * convention that normally restores a saved position does not apply here.
      */
-    private suspend fun startRadio(profileId: String) {
-        val built = radioItems(profileId, RADIO_LOOKAHEAD + 1)
+    private suspend fun startRadio(profileId: String, firstEpisodeId: String? = null) {
+        // Starting on a chosen episode still starts a *session*: the rest of the
+        // queue is the usual picks, so Next keeps working from there.
+        val chosen = firstEpisodeId?.let { appGraph.podcasts.episodeById(it) }
+        val rest = radioItems(
+            profileId,
+            RADIO_LOOKAHEAD + if (chosen == null) 1 else 0,
+            exclude = setOfNotNull(chosen?.id),
+        )
+        val built = if (chosen != null) {
+            listOf(MediaItemFactory.playable(chosen, forCast = isCasting()) to chosen) + rest
+        } else {
+            rest
+        }
         if (built.isEmpty()) {
             appGraph.messages.post("Radio has nothing to play for this profile yet.")
             return
@@ -774,7 +786,7 @@ class PlaybackService : MediaLibraryService() {
                 RadioCommands.ACTION_START -> scope.launch {
                     val profileId = args.getString(RadioCommands.EXTRA_PROFILE_ID)
                         ?: appGraph.radioProfiles.currentProfileId()
-                    startRadio(profileId)
+                    startRadio(profileId, args.getString(RadioCommands.EXTRA_EPISODE_ID))
                 }
                 RadioCommands.ACTION_SKIP -> scope.launch { skipRadio() }
                 RadioCommands.ACTION_STOP -> scope.launch { stopRadio() }
