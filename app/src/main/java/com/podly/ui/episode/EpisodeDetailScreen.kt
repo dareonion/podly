@@ -64,6 +64,8 @@ import com.podly.ui.EpisodeActions
 import com.podly.ui.appViewModel
 import com.podly.ui.components.AddToPlaylistDialog
 import com.podly.ui.components.EpisodeNoteDialog
+import com.podly.ui.util.friendlyError
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.podly.ui.util.formatDate
 import com.podly.ui.util.formatDuration
 import com.podly.ui.util.formatPosition
@@ -100,6 +102,21 @@ class EpisodeDetailViewModel(
 
     fun updateNoteAndRating(note: String?, rating: Int?) = viewModelScope.launch {
         graph.podcasts.updateEpisodeNoteAndRating(episodeId, note, rating)
+    }
+
+    private val _reloading = MutableStateFlow(false)
+    val reloading: StateFlow<Boolean> = _reloading
+
+    /** Publishers edit show notes after publication; this goes and looks again. */
+    fun reloadNotes() = viewModelScope.launch {
+        if (_reloading.value) return@launch
+        _reloading.value = true
+        try {
+            runCatching { graph.podcasts.reloadNotes(episodeId) }
+                .onFailure { graph.messages.post("Couldn't reload notes: ${friendlyError(it)}") }
+        } finally {
+            _reloading.value = false
+        }
     }
 }
 
@@ -335,21 +352,29 @@ fun EpisodeDetailScreen(
             }
         }
 
-        plainDescription(ep.description)?.let { description ->
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                ) {
-                    Text("Description", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(8.dp))
+        item {
+            val reloading by viewModel.reloading.collectAsStateWithLifecycle()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        description,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        "Description",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
                     )
+                    TextButton(onClick = viewModel::reloadNotes, enabled = !reloading) {
+                        Text(if (reloading) "Reloading…" else "Reload")
+                    }
                 }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    plainDescription(ep.description) ?: "No show notes.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

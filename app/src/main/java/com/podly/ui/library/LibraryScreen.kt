@@ -55,7 +55,7 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
         viewModelScope.launch {
             _refreshing.value = true
             try {
-                val summary = graph.podcasts.refreshAllSubscribed()
+                val summary = graph.podcasts.refreshAllSubscribed(force = true)
                 if (summary.failures > 0) {
                     graph.messages.post(
                         "${summary.failures} of ${summary.total} feeds failed to refresh"

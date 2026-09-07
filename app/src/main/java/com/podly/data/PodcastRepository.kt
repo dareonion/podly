@@ -51,6 +51,14 @@ class PodcastRepository(
 
     suspend fun search(term: String): List<PodcastEntity> = itunesApi.searchPodcasts(term)
 
+    /** Re-reads one episode's feed, ignoring cache validators, to refresh its notes. */
+    suspend fun reloadNotes(episodeId: String) {
+        val episode = episodeDao.byId(episodeId) ?: return
+        val podcast = podcastDao.byId(episode.podcastId) ?: return
+        refreshEpisodes(podcast, force = true)
+    }
+
+
     /**
      * Matches a free-text podcast title against the iTunes directory. Requires an
      * exact or containment match — an unrelated first search hit used to get
@@ -86,8 +94,20 @@ class PodcastRepository(
         return podcastDao.byId(podcast.id) ?: podcast
     }
 
-    suspend fun refreshEpisodes(podcast: PodcastEntity) {
-        val response = Http.getConditional(podcast.feedUrl, podcast.etag, podcast.lastModified)
+    /**
+     * @param force skips the conditional GET.
+     *
+     * Show notes are edited after publication, and a 304 is only as good as the
+     * publisher's cache headers — several hosts key theirs on the episode list
+     * rather than the body. Background refreshes stay conditional; a refresh the
+     * user asked for should actually go and look.
+     */
+    suspend fun refreshEpisodes(podcast: PodcastEntity, force: Boolean = false) {
+        val response = if (force) {
+            Http.getConditional(podcast.feedUrl)
+        } else {
+            Http.getConditional(podcast.feedUrl, podcast.etag, podcast.lastModified)
+        }
         if (response.notModified) return
         val feed = rssParser.parse(StringReader(response.body!!))
         podcastDao.updateMetadata(
@@ -150,12 +170,12 @@ class PodcastRepository(
         podcastDao.replaceCategories(podcast.id, genres)
     }
 
-    suspend fun refreshAllSubscribed(): RefreshSummary {
+    suspend fun refreshAllSubscribed(force: Boolean = false): RefreshSummary {
         val podcasts = podcastDao.subscribedPodcastsOnce()
         val succeeded = coroutineScope {
             val gate = Semaphore(MAX_CONCURRENT_REFRESHES)
             podcasts.map { podcast ->
-                async { gate.withPermit { runCatching { refreshEpisodes(podcast) }.isSuccess } }
+                async { gate.withPermit { runCatching { refreshEpisodes(podcast, force) }.isSuccess } }
             }.awaitAll()
         }
         return RefreshSummary(total = succeeded.size, failures = succeeded.count { !it })

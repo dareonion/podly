@@ -126,7 +126,7 @@ class PodcastDetailViewModel(
         viewModelScope.launch {
             _refreshing.value = true
             refreshError.value = null
-            runCatching { graph.podcasts.refreshEpisodes(current) }
+            runCatching { graph.podcasts.refreshEpisodes(current, force = true) }
                 .onFailure { e ->
                     Log.e(TAG, "Feed refresh failed", e)
                     refreshError.value = "Refresh failed: ${friendlyError(e)}"

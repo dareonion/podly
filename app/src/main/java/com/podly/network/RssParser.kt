@@ -51,7 +51,13 @@ class RssParser {
         var inItem = false
         var itemTitle: String? = null
         var itemGuid: String? = null
+        // Kept apart rather than first-wins: these arrive in whatever order a
+        // publisher likes, and they are not interchangeable. Megaphone's
+        // <content:encoded> runs 2,200 characters longer than its <description>,
+        // while The Daily's <itunes:summary> is a quarter the length of both.
+        var itemNotes: String? = null
         var itemDescription: String? = null
+        var itemSummary: String? = null
         var itemAudioUrl: String? = null
         var itemPubDate: String? = null
         var itemDuration: String? = null
@@ -66,14 +72,15 @@ class RssParser {
                         tag == "item" -> {
                             inItem = true
                             itemTitle = null; itemGuid = null; itemDescription = null
+                            itemNotes = null; itemSummary = null
                             itemAudioUrl = null; itemPubDate = null; itemDuration = null; itemImage = null
                         }
                         inItem -> when (tag) {
                             "title" -> itemTitle = parser.nextTextSafe()
                             "guid" -> itemGuid = parser.nextTextSafe()
                             "description" -> if (itemDescription == null) itemDescription = parser.nextTextSafe()
-                            "itunes:summary" -> if (itemDescription == null) itemDescription = parser.nextTextSafe()
-                            "content:encoded" -> if (itemDescription == null) itemDescription = parser.nextTextSafe()
+                            "itunes:summary" -> if (itemSummary == null) itemSummary = parser.nextTextSafe()
+                            "content:encoded" -> if (itemNotes == null) itemNotes = parser.nextTextSafe()
                             "enclosure" -> {
                                 val type = parser.getAttributeValue(null, "type") ?: ""
                                 val url = parser.getAttributeValue(null, "url")
@@ -110,7 +117,9 @@ class RssParser {
                             episodes += ParsedEpisode(
                                 guid = itemGuid,
                                 title = title,
-                                description = itemDescription,
+                                // The full show notes when there are any: links,
+                                // chapter lists and credits live in content:encoded.
+                                description = itemNotes ?: itemDescription ?: itemSummary,
                                 audioUrl = audioUrl,
                                 pubDateMs = parseRfc822(itemPubDate),
                                 durationMs = parseDuration(itemDuration),
