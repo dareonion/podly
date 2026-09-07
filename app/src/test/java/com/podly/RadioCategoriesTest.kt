@@ -24,7 +24,9 @@ class RadioCategoriesTest {
         // to catch them and the exemption has to give them back.
         val exempt = RadioProfiles.YOU.exemptCategories
         assertTrue("parenting" in exempt)
-        assertTrue("pets & animals" in exempt)
+        // Pets & Animals sits under Kids & Family too, but exempting it would hand
+        // back every children's animal show for a rescue nobody asked for.
+        assertTrue("pets & animals" !in exempt)
         assertEquals(exempt, exempt.map { it.lowercase() }.toSet())
         // Every entry is lowercase: podcast_categories stores lowercase, and a
         // capitalised entry here would silently match nothing.

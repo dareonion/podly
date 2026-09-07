@@ -80,8 +80,14 @@ object RadioCategories {
     val KIDS_FAMILY = setOf("kids & family", "kids and family")
     val TRUE_CRIME = setOf("true crime", "crime")
 
-    /** For grown-ups about children, which is not children's programming. */
-    val PARENTING = setOf("parenting", "pets & animals", "pets and animals")
+    /**
+     * For grown-ups about children, which is not children's programming.
+     *
+     * Just parenting. "Pets & Animals" also sits under Kids & Family, but
+     * exempting it would hand back every children's animal show — and nobody
+     * asked for pets, so the rescue is not worth the hole.
+     */
+    val PARENTING = setOf("parenting")
     val RELIGION = setOf(
         "religion & spirituality", "religion and spirituality", "religion",
         "spirituality", "christianity", "buddhism", "hinduism", "islam", "judaism",
