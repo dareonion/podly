@@ -4,8 +4,6 @@ import com.podly.data.db.EpisodeEntity
 import com.podly.data.db.EpisodeHistorySummary
 import com.podly.data.db.EpisodeDao
 import com.podly.data.db.ListeningSegmentEntity
-import com.podly.data.db.PodcastCategories
-import com.podly.data.db.PodcastCategoryEntity
 import com.podly.data.db.PodcastDao
 import com.podly.data.db.PodcastEpisodeSortOrder
 import com.podly.data.db.PodcastEntity
@@ -137,28 +135,8 @@ class PodcastRepository(
         return filled
     }
 
-    /**
-     * Adds the canonical genre for category rows stored before that alias existed.
-     *
-     * Rows written by an earlier build kept only the publisher's own wording, so a
-     * Chinese children's show sits there as 兒童與家庭 and matches no English
-     * exclusion. A conditional GET means its feed may not be re-parsed for months,
-     * so waiting for the next refresh is not a fix.
-     *
-     * Insert-only and idempotent, so it is safe to run on every pass and it
-     * self-heals whenever [PodcastCategories] learns a new name.
-     */
-    suspend fun renormalizeCategories(): Int {
-        val added = podcastDao.allCategories()
-            .groupBy { it.podcastId }
-            .flatMap { (podcastId, rows) ->
-                val have = rows.map { it.category }
-                (PodcastCategories.normalize(have) - have.toSet())
-                    .map { PodcastCategoryEntity(podcastId, it) }
-            }
-        if (added.isNotEmpty()) podcastDao.insertCategories(added)
-        return added.size
-    }
+    /** @see PodcastDao.renormalizeCategories */
+    suspend fun renormalizeCategories(): Int = podcastDao.renormalizeCategories()
 
     private suspend fun storeCategories(podcast: PodcastEntity, fromFeed: List<String>) {
         if (fromFeed.isNotEmpty()) {
@@ -233,7 +211,7 @@ class PodcastRepository(
 
     suspend fun setSubscribed(podcastId: String, subscribed: Boolean) {
         podcastDao.setSubscribed(podcastId, subscribed)
-        if (!subscribed) podcastDao.pruneOrphans()
+        if (!subscribed) podcastDao.pruneOrphansAndCategories()
     }
 
     suspend fun setEpisodeSortOrder(podcastId: String, sortOrder: PodcastEpisodeSortOrder) =

@@ -283,7 +283,9 @@ class RadioRepository(
 
         podcasts.values.forEach { podcastDao.insertIgnore(it) }
         categoriesByPodcast.forEach { (podcastId, tags) ->
-            podcastDao.replaceCategories(podcastId, tags.toList())
+            // Added, never replaced: the pool ships a truncated genre list, so
+            // replacing could drop the genre the show is being filtered on.
+            podcastDao.addCategories(podcastId, tags.toList())
         }
         episodeDao.upsertFromFeed(episodes)
         radioDao.upsertPool(rows)

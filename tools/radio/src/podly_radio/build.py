@@ -20,6 +20,19 @@ LOG = logging.getLogger(__name__)
 MAX_DESCRIPTION = 240
 
 
+# Every show carries it, in whatever language, and it says nothing.
+_NOISE_GENRES = frozenset({"podcasts", "podcast", "播客"})
+
+
+def useful_genres(genres: tuple[str, ...] | list[str]) -> list[str]:
+    """A show's genres, in full.
+
+    Not truncated: the app stores these as the signal its content filters read,
+    and a show's fourth genre is as disqualifying as its first.
+    """
+    return [g for g in genres if g.strip().lower() not in _NOISE_GENRES]
+
+
 def fetch_feed(client: httpx.Client, show: Show) -> tuple[Show, ParsedFeed | None]:
     try:
         response = client.get(show.feed_url, timeout=25)

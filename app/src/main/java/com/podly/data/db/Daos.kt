@@ -75,6 +75,41 @@ interface PodcastDao {
      * a category, or a lookup that failed, must not silently un-filter a show that
      * was correctly excluded yesterday.
      */
+    /**
+     * Adds categories without removing what is already known.
+     *
+     * For sources that carry a partial list. The generated pool ships only the
+     * first few of a show's Apple genres, so replacing with those would *narrow*
+     * what the feed correctly declared — a show could lose the very genre it was
+     * being filtered on.
+     */
+    @Transaction
+    suspend fun addCategories(podcastId: String, categories: List<String>) {
+        val rows = PodcastCategories.normalize(categories)
+            .map { PodcastCategoryEntity(podcastId, it) }
+        if (rows.isNotEmpty()) insertCategories(rows)
+    }
+
+    /**
+     * Adds the canonical genre for rows stored before that alias existed.
+     *
+     * One transaction over read and write: feed refresh runs four shows at a time
+     * and clears before it inserts, so computing from a snapshot outside a
+     * transaction could re-add a row that had just been deliberately removed.
+     */
+    @Transaction
+    suspend fun renormalizeCategories(): Int {
+        val added = allCategories()
+            .groupBy { it.podcastId }
+            .flatMap { (podcastId, rows) ->
+                val have = rows.map { it.category }
+                (PodcastCategories.normalize(have) - have.toSet())
+                    .map { PodcastCategoryEntity(podcastId, it) }
+            }
+        if (added.isNotEmpty()) insertCategories(added)
+        return added.size
+    }
+
     @Transaction
     suspend fun replaceCategories(podcastId: String, categories: List<String>) {
         val rows = PodcastCategories.normalize(categories)
@@ -103,6 +138,16 @@ interface PodcastDao {
                           JOIN radio_pool r ON r.episodeId = e.id)"""
     )
     suspend fun pruneOrphans()
+
+    @Query("DELETE FROM podcast_categories WHERE podcastId NOT IN (SELECT id FROM podcasts)")
+    suspend fun pruneOrphanCategories()
+
+    /** Categories have no foreign key, so dropping a show would strand its rows. */
+    @Transaction
+    suspend fun pruneOrphansAndCategories() {
+        pruneOrphans()
+        pruneOrphanCategories()
+    }
 }
 
 @Dao
