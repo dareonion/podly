@@ -1,0 +1,13 @@
+[Unit]
+Description=podly-radio — weekly digest, Monday morning
+
+[Timer]
+# Monday, once Sunday has finished everywhere the catalogue publishes from
+# (California included), and after the 04:15 pool refresh is done with the
+# shared publish worktree.
+OnCalendar=Mon *-*-* 06:30:00
+RandomizedDelaySec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

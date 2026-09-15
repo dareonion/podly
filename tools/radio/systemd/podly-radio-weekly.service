@@ -1,0 +1,16 @@
+[Unit]
+Description=podly-radio — weekly digest of last week's best episodes, by Claude and Codex
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/gitrepo/podcast_player/tools/radio
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment="GIT_SSH_COMMAND=ssh -i %h/.ssh/id_ed25519 -o BatchMode=yes"
+# Both CLIs on their subscriptions, never metered keys: agents.py strips
+# ANTHROPIC_* and OPENAI_* from the children, and refuses Codex unless it is
+# logged in with ChatGPT. A failed run leaves the published digest in place.
+ExecStart=%h/gitrepo/podcast_player/tools/radio/weekly.sh
+# Four web hunts, ~400 feeds, four judging calls and the blurbs.
+TimeoutStartSec=150min

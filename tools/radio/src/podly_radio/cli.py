@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import datetime
+import functools
 import json
 import logging
 import sys
@@ -11,7 +13,9 @@ from pathlib import Path
 
 import httpx
 
+from . import agents
 from . import build as build_module
+from . import weekly
 from .config import load
 from .curate import curate
 from .notable import ask_for_nominations, verify
@@ -24,6 +28,9 @@ LOG = logging.getLogger("podly_radio")
 # No contact URL: 小宇宙's feed host (feed.xyzfm.space) answers 403 to any agent
 # mentioning github.com, which silently dropped a large share of mainland shows.
 USER_AGENT = "Podly-Radio/1.0"
+# The latest weekly issue, as a pool the app blends into radio like Notable.
+WEEKLY_POOL_ID = "weekly"
+WEEKLY_POOL_FILE = f"{WEEKLY_POOL_ID}.json"
 
 
 def _client() -> httpx.Client:
@@ -185,6 +192,83 @@ def cmd_notable(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_weekly(args: argparse.Namespace) -> int:
+    """Builds last week's digest with Claude and Codex, and publishes it."""
+    config = load(Path(args.config))
+    profile = config.profile(args.profile)
+    site = Path(args.site)
+    weekly_dir = site / "weekly"
+    week = (
+        weekly.parse_week(args.week)
+        if args.week
+        else weekly.previous_week(datetime.date.today())
+    )
+    agent_names = tuple(name.strip() for name in args.agents.split(",") if name.strip())
+    unknown = set(agent_names) - set(agents.AGENTS)
+    if unknown or not agent_names:
+        LOG.error("unknown agents %s; choose from %s", sorted(unknown), agents.AGENTS)
+        return 2
+    ask = functools.partial(
+        agents.ask,
+        claude_model=args.claude_model,
+        codex_model=args.codex_model,
+        codex_effort=args.codex_effort,
+    )
+    LOG.info("weekly digest for %s (%s) with %s", week.id, week.label, ", ".join(agent_names))
+    with _client() as client:
+        result = weekly.run(
+            client,
+            profile,
+            week,
+            countries=tuple(c.strip() for c in args.countries.split(",") if c.strip()),
+            agent_names=agent_names,
+            per_language=args.per_language,
+            excluded_ids=weekly.previous_issue_ids(weekly_dir, week),
+            blurb_writer=args.blurb_writer,
+            ask=ask,
+            use_web=not args.no_web,
+            reuse_nominations=args.reuse_nominations,
+            work_dir=Path(args.config).parent / "data" / "weekly" / week.id,
+        )
+    if len(result.picks) < args.min_entries:
+        LOG.error(
+            "only %d picks (need %d); keeping the published digest",
+            len(result.picks), args.min_entries,
+        )
+        return 1
+
+    weekly_dir.mkdir(parents=True, exist_ok=True)
+    _write_atomic(
+        weekly_dir / f"{week.id}.json", weekly.issue_pool(result, week.pool_id, week.label)
+    )
+    index_path = weekly_dir / "index.json"
+    existing = json.loads(index_path.read_text("utf-8")) if index_path.exists() else None
+    index = weekly.updated_index(existing, weekly.index_entry(result))
+    _write_atomic(index_path, index)
+    # Only the newest week feeds radio: rebuilding an older issue must not
+    # replace this week's picks with last month's.
+    if index["issues"][0]["id"] == week.id:
+        radio_dir = site / "radio"
+        radio_dir.mkdir(parents=True, exist_ok=True)
+        _write_atomic(
+            radio_dir / WEEKLY_POOL_FILE,
+            weekly.issue_pool(result, WEEKLY_POOL_ID, week.label),
+        )
+    LOG.info(
+        "weekly %s: %d picks (en %d, zh %d); %d of %d nominations located; "
+        "catalogue %d; judges %s",
+        week.id,
+        len(result.picks),
+        sum(1 for p in result.picks if p.candidate.family == "en"),
+        sum(1 for p in result.picks if p.candidate.family == "zh"),
+        result.located,
+        result.nominated,
+        result.catalogue,
+        result.judges,
+    )
+    return 0
+
+
 def _reapply_notable(out_dir: Path) -> None:
     notable = out_dir / "notable.json"
     if not notable.exists():
@@ -209,7 +293,9 @@ def _boost_pools(
     trip: it rides in the normal rotation with its citation as the reason.
     """
     for path in sorted(out_dir.glob("*.json")):
-        if path.name in ("index.json", "notable.json"):
+        # Curated lists keep their own citations: a notable accolade must not
+        # overwrite the blurb a weekly pick was published with.
+        if path.name in ("index.json", "notable.json", WEEKLY_POOL_FILE):
             continue
         data = json.loads(path.read_text(encoding="utf-8"))
         touched = 0
@@ -295,6 +381,30 @@ def main(argv: list[str] | None = None) -> int:
         help="year that counts as recent (default: last year)",
     )
     notable_cmd.set_defaults(func=cmd_notable)
+
+    weekly_cmd = sub.add_parser(
+        "weekly", help="last week's best episodes in English and Chinese, with blurbs"
+    )
+    weekly_cmd.add_argument("--site", default="../../site", help="the site/ root to publish into")
+    weekly_cmd.add_argument("--week", help="ISO week such as 2026-W37 (default: last week)")
+    weekly_cmd.add_argument("--profile", default="you", help="whose listener brief and filters")
+    weekly_cmd.add_argument("--agents", default="claude,codex")
+    weekly_cmd.add_argument("--per-language", type=int, default=12)
+    weekly_cmd.add_argument("--min-entries", type=int, default=6)
+    weekly_cmd.add_argument("--countries", default="us,gb,tw,cn")
+    weekly_cmd.add_argument("--blurb-writer", default="claude", choices=agents.AGENTS)
+    weekly_cmd.add_argument("--claude-model", default="opus")
+    weekly_cmd.add_argument("--codex-model", default="gpt-6-astra")
+    weekly_cmd.add_argument("--codex-effort", default="high")
+    weekly_cmd.add_argument(
+        "--no-web", action="store_true", help="skip the web hunt; judge the charts only"
+    )
+    weekly_cmd.add_argument(
+        "--reuse-nominations",
+        action="store_true",
+        help="use the web hunt saved by an earlier run of the same week",
+    )
+    weekly_cmd.set_defaults(func=cmd_weekly)
 
     args = parser.parse_args(argv)
     logging.basicConfig(
