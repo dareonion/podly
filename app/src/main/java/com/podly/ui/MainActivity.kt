@@ -155,6 +155,8 @@ private fun PodlyApp() {
                 DiscoverScreen(
                     onOpenPodcast = { navController.navigate("podcast/$it") },
                     onOpenPlaylist = { navController.navigate("playlist/$it") },
+                    onOpenEpisode = { navController.navigate("episode/$it") },
+                    onOpenWeekly = { navController.navigate("weekly") },
                 )
             }
             composable("history") { HistoryScreen() }

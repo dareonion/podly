@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.podly.data.db.DigestRow
 import com.podly.data.db.EpisodeEntity
 import com.podly.data.db.PodcastEntity
 import com.podly.data.db.PodlyDatabase
@@ -134,6 +135,24 @@ class WeeklyDigestTest {
 
         val back = repo.entries("2026-W36").first()
         assertEquals(listOf("old-issue"), back.map { it.episodeId })
+    }
+
+    @Test
+    fun `the teaser alternates languages so both show`() {
+        fun row(id: String, language: String) = DigestRow(
+            episodeId = id, podcastId = "p", podcastTitle = "s", title = id, durationMs = null,
+            pubDateMs = 0, artworkUrl = null, completed = false, playbackPositionMs = 0,
+            language = language, priority = 0f, reason = null,
+        )
+        val rows = listOf(
+            row("en1", "en"), row("en2", "en"), row("en3", "en"),
+            row("zh1", "zh-Hans"), row("en4", "en"), row("zh2", "zh-Hant"),
+        )
+        assertEquals(
+            listOf("en1", "zh1", "en2", "zh2", "en3"),
+            WeeklyRepository.interleaveLanguages(rows, 5).map { it.episodeId },
+        )
+        assertEquals(listOf("en1", "en2"), WeeklyRepository.interleaveLanguages(rows.take(2), 5).map { it.episodeId })
     }
 
     @Test

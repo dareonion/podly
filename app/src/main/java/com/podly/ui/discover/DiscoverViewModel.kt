@@ -6,7 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.podly.ui.util.friendlyError
 import com.podly.AppGraph
 import com.podly.data.ArchiveRescuer
+import com.podly.data.db.DigestRow
 import com.podly.data.db.PodcastEntity
+import com.podly.data.weekly.WeeklyRepository
 import com.podly.data.db.stableId
 import com.podly.network.PodcastLink
 import com.podly.network.TrendingPeriod
@@ -22,6 +24,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -84,6 +89,13 @@ data class DiscoverUiState(
 class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
     private val _state = MutableStateFlow(DiscoverUiState())
     val state: StateFlow<DiscoverUiState> = _state
+
+    /** The newest weekly digest's top picks, alternating languages. */
+    val weeklyTeaser: StateFlow<List<DigestRow>> = graph.weekly.entries(null)
+        .map { WeeklyRepository.interleaveLanguages(it, WEEKLY_TEASER_SIZE) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun playEpisode(episodeId: String) = graph.player.playSingle(episodeId)
 
     private var acclaimedFetchedAtMs = 0L
     private var recentEpisodesObserveJob: Job? = null
@@ -480,5 +492,6 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
         const val TAG = "DiscoverViewModel"
         const val ACCLAIMED_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
         const val RECENT_EPISODES_MAX_AGE_MS = 24L * 60 * 60 * 1000
+        const val WEEKLY_TEASER_SIZE = 5
     }
 }

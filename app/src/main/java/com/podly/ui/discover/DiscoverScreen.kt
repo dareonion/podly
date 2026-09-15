@@ -29,9 +29,15 @@ import com.podly.data.db.PodcastEntity
 import com.podly.ui.appViewModel
 
 @Composable
-fun DiscoverScreen(onOpenPodcast: (String) -> Unit, onOpenPlaylist: (Long) -> Unit) {
+fun DiscoverScreen(
+    onOpenPodcast: (String) -> Unit,
+    onOpenPlaylist: (Long) -> Unit,
+    onOpenEpisode: (String) -> Unit = {},
+    onOpenWeekly: () -> Unit = {},
+) {
     val viewModel = appViewModel { DiscoverViewModel(it) }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val weeklyTeaser by viewModel.weeklyTeaser.collectAsStateWithLifecycle()
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -77,6 +83,7 @@ fun DiscoverScreen(onOpenPodcast: (String) -> Unit, onOpenPlaylist: (Long) -> Un
             if (results != null) {
                 searchResultsSection(results, viewModel, onOpenPodcast)
             } else {
+                weeklyTeaserSection(weeklyTeaser, onOpenWeekly, onOpenEpisode, viewModel::playEpisode)
                 trendingSection(state, viewModel, onOpenPodcast)
                 aiPicksSections(state, viewModel, onOpenPodcast, onOpenPlaylist)
             }
