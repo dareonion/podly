@@ -21,7 +21,9 @@ from .harvest import harvest, is_suitable, roster_for
 from .schema import PoolValidationError, validate
 
 LOG = logging.getLogger("podly_radio")
-USER_AGENT = "Podly-Radio/1.0 (+https://github.com/dareonion/podly)"
+# No contact URL: 小宇宙's feed host (feed.xyzfm.space) answers 403 to any agent
+# mentioning github.com, which silently dropped a large share of mainland shows.
+USER_AGENT = "Podly-Radio/1.0"
 
 
 def _client() -> httpx.Client:
