@@ -46,6 +46,7 @@ fun RadioCard(
     modifier: Modifier = Modifier,
     onOpenNotable: () -> Unit = {},
     onOpenPicks: () -> Unit = {},
+    onOpenWeekly: () -> Unit = {},
 ) {
     val viewModel = appViewModel { RadioViewModel(it) }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -123,6 +124,11 @@ fun RadioCard(
                     }
                     Row {
                         TextButton(onClick = { showPicker = true }) { Text("Choose shows") }
+                        if (state.weeklyCount > 0) {
+                            TextButton(onClick = onOpenWeekly) {
+                                Text("This week (${state.weeklyCount})")
+                            }
+                        }
                         if (state.notableCount > 0) {
                             TextButton(onClick = onOpenNotable) {
                                 Text("Notable (${state.notableCount})")

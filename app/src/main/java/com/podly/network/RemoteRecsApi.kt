@@ -4,6 +4,7 @@ import com.podly.data.radio.RadioIndexFile
 import com.podly.data.radio.RadioPoolFile
 import com.podly.data.CachedAcclaimed
 import com.podly.data.CachedRecentEpisodes
+import com.podly.data.weekly.WeeklyIndexFile
 import com.podly.network.ai.RecentEpisodeWindow
 
 /**
@@ -33,6 +34,16 @@ class RemoteRecsApi {
     suspend fun radioIndex(): RadioIndexFile =
         Http.json.decodeFromString(Http.get("${BASE_URL}radio/index.json"))
 
+    /** The weekly digest's list of published weeks. */
+    suspend fun weeklyIndex(): WeeklyIndexFile =
+        Http.json.decodeFromString(Http.get("${BASE_URL}weekly/index.json"))
+
+    /** One week of the digest, in the radio-pool format. [file] comes from the index. */
+    suspend fun weeklyIssue(file: String): RadioPoolFile {
+        require(WEEKLY_FILE.matches(file)) { "bad weekly file: $file" }
+        return Http.json.decodeFromString(Http.get("${BASE_URL}weekly/$file"))
+    }
+
     private fun fileFor(window: RecentEpisodeWindow) = when (window) {
         RecentEpisodeWindow.TWO_WEEKS -> "recent-2weeks.json"
         RecentEpisodeWindow.MONTH -> "recent-month.json"
@@ -43,5 +54,6 @@ class RemoteRecsApi {
         const val BASE_URL = "https://dareonion.github.io/podly/"
         private const val ACCLAIMED_FILE = "acclaimed.json"
         private val PROFILE_ID = Regex("[a-z0-9_-]{1,32}")
+        private val WEEKLY_FILE = Regex("\\d{4}-W\\d{2}\\.json")
     }
 }

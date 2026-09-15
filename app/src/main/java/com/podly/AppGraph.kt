@@ -18,6 +18,7 @@ import com.podly.data.TranscriptRepository
 import com.podly.data.PodcastRepository
 import com.podly.data.SettingsRepository
 import com.podly.data.db.PodlyDatabase
+import com.podly.data.weekly.WeeklyRepository
 import com.podly.downloads.Downloader
 import com.podly.network.AppleChartsApi
 import com.podly.network.PodcastIndexApi
@@ -78,6 +79,11 @@ class AppGraph(private val context: Context) {
             database.radioDao(), database.episodeDao(), database.podcastDao(),
             radioProfiles, remoteRecs,
         )
+
+    /** Last week's best episodes, by Claude and Codex; browsable back through past weeks. */
+    val weekly: WeeklyRepository = WeeklyRepository(
+        remoteRecs, radio, database.radioDao(), java.io.File(context.cacheDir, "weekly/index.json"),
+    )
 
     /** Lazy so the controller (and thus the service) only spins up when the UI needs it. */
     val player: PlayerConnection by lazy { PlayerConnection(context) }

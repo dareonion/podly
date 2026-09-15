@@ -10,11 +10,18 @@ import com.podly.data.db.PodlyDatabase
 import com.podly.data.db.RadioPoolEntity
 import com.podly.data.radio.RadioProfileStore
 import com.podly.data.radio.RadioRepository
+import com.podly.data.weekly.WeeklyIssue
+import com.podly.data.weekly.WeeklyRepository
 import com.podly.network.RemoteRecsApi
 import com.podly.radio.RadioProfiles
+import com.podly.ui.weekly.WeeklyUiState
+import com.podly.ui.weekly.pickedByText
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -65,7 +72,7 @@ class WeeklyDigestTest {
                 pool(RadioProfiles.WEEKLY_ID, "both", "A reporter retraces the flood.", 0.8f),
                 pool(RadioProfiles.WEEKLY_ID, "weekly-only", "An interview.", 0.95f, "en"),
                 pool(RadioProfiles.WEEKLY_ID, "zh1", "主持人談城市。", 0.7f, "zh-Hant"),
-                pool("weekly-2026-w36", "old-issue", "Last month.", 1.0f),
+                pool(WeeklyRepository.poolIdFor("2026-W36"), "old-issue", "Last month.", 1.0f),
                 pool(RadioProfiles.TODDLER_ZH.id, "zh1", "Toddler pick", 0.5f),
             ),
         )
@@ -116,4 +123,43 @@ class WeeklyDigestTest {
         assertTrue(toddler.none { it.reason in setOf("An interview.", "主持人談城市。") })
     }
 
+    @Test
+    fun `the screen lists a week best first with played rows and show artwork`() = runBlocking {
+        val repo = WeeklyRepository(RemoteRecsApi(), radio, db.radioDao(), java.io.File("unused"))
+        val rows = repo.entries(null).first()
+        assertEquals(listOf("weekly-only", "both", "zh1"), rows.map { it.episodeId })
+        // Completed episodes stay listed: a digest you are reading must not shrink.
+        assertTrue(rows.first().completed)
+        assertEquals("https://art/show.jpg", rows.first().artworkUrl)
+
+        val back = repo.entries("2026-W36").first()
+        assertEquals(listOf("old-issue"), back.map { it.episodeId })
+    }
+
+    @Test
+    fun `issue ids are validated and namespaced away from radio profiles`() {
+        assertTrue(WeeklyRepository.isValidIssueId("2026-W37"))
+        assertFalse(WeeklyRepository.isValidIssueId("you"))
+        assertFalse(WeeklyRepository.isValidIssueId("2026-W37/../radio"))
+        assertEquals("weekly-2026-w37", WeeklyRepository.poolIdFor("2026-W37"))
+        assertFalse(WeeklyRepository.poolIdFor("2026-W37") in RadioProfiles.POOL_IDS)
+    }
+
+    @Test
+    fun `week navigation runs newest to oldest`() {
+        val issues = listOf("2026-W37", "2026-W36", "2026-W35").map { WeeklyIssue(id = it) }
+        val middle = WeeklyUiState(issues = issues, selectedId = "2026-W36")
+        assertEquals("2026-W35", middle.older?.id)
+        assertEquals("2026-W37", middle.newer?.id)
+        val newest = middle.copy(selectedId = "2026-W37")
+        assertNull(newest.newer)
+        assertNull(WeeklyUiState(issues = issues, selectedId = null).older)
+    }
+
+    @Test
+    fun `the byline names only the models that judged`() {
+        assertEquals("picked by Claude and Codex", pickedByText(listOf("claude", "codex")))
+        assertEquals("picked by Claude", pickedByText(listOf("claude")))
+        assertNull(pickedByText(emptyList()))
+    }
 }

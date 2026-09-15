@@ -437,6 +437,23 @@ data class RadioCandidateRow(
     val skipCount: Int,
 )
 
+/** A curated pool entry for reading: artwork and played state, which radio scoring never needs. */
+data class DigestRow(
+    val episodeId: String,
+    val podcastId: String,
+    val podcastTitle: String,
+    val title: String,
+    val durationMs: Long?,
+    val pubDateMs: Long,
+    val artworkUrl: String?,
+    val completed: Boolean,
+    val playbackPositionMs: Long,
+    val language: String?,
+    val priority: Float,
+    /** For the weekly digest, the blurb. */
+    val reason: String?,
+)
+
 @Dao
 interface RadioDao {
 
@@ -619,6 +636,19 @@ interface RadioDao {
            ORDER BY r.priority DESC, e.pubDateMs DESC"""
     )
     fun poolEntries(profileId: String): Flow<List<RadioCandidateRow>>
+
+    /** [poolEntries] with artwork and played state, for the weekly digest. */
+    @Query(
+        """SELECT e.id AS episodeId, e.podcastId, e.podcastTitle, e.title, e.durationMs,
+                  e.pubDateMs, COALESCE(e.artworkUrl, p.artworkUrl) AS artworkUrl,
+                  e.completed, e.playbackPositionMs, r.language, r.priority, r.reason
+           FROM radio_pool r
+           JOIN episodes e ON e.id = r.episodeId
+           LEFT JOIN podcasts p ON p.id = e.podcastId
+           WHERE r.profileId = :profileId
+           ORDER BY r.priority DESC, e.pubDateMs DESC"""
+    )
+    fun digestEntries(profileId: String): Flow<List<DigestRow>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertPool(rows: List<RadioPoolEntity>)

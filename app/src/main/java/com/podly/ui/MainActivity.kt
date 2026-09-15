@@ -40,6 +40,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.podly.ui.notable.NotableScreen
+import com.podly.ui.weekly.WeeklyScreen
 import com.podly.ui.radio.RadioPicksScreen
 import com.podly.ui.transcript.TranscriptScreen
 import com.podly.ui.discover.DiscoverScreen
@@ -147,6 +148,7 @@ private fun PodlyApp() {
                     onOpenEpisode = { navController.navigate("episode/$it") },
                     onOpenNotable = { navController.navigate("notable") },
                     onOpenPicks = { navController.navigate("radio_picks") },
+                    onOpenWeekly = { navController.navigate("weekly") },
                 )
             }
             composable("discover") {
@@ -191,6 +193,12 @@ private fun PodlyApp() {
             }
             composable("radio_picks") {
                 RadioPicksScreen(
+                    onOpenEpisode = { navController.navigate("episode/$it") },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable("weekly") {
+                WeeklyScreen(
                     onOpenEpisode = { navController.navigate("episode/$it") },
                     onBack = { navController.popBackStack() },
                 )
