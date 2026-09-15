@@ -650,6 +650,14 @@ interface RadioDao {
     )
     fun digestEntries(profileId: String): Flow<List<DigestRow>>
 
+    /** One pool's episodes, best first, for the Android Auto browse tree. */
+    @Query(
+        """SELECT e.* FROM radio_pool r JOIN episodes e ON e.id = r.episodeId
+           WHERE r.profileId = :profileId
+           ORDER BY r.priority DESC, e.pubDateMs DESC LIMIT :limit"""
+    )
+    suspend fun poolEpisodesOnce(profileId: String, limit: Int): List<EpisodeEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertPool(rows: List<RadioPoolEntity>)
 

@@ -852,12 +852,20 @@ class PlaybackService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = scope.future(Dispatchers.IO) {
             val graph = appGraph
             val children: List<MediaItem> = when {
-                parentId == MediaIds.ROOT -> listOf(
+                parentId == MediaIds.ROOT -> listOfNotNull(
                     MediaItemFactory.folder(MediaIds.NODE_CONTINUE, "Continue"),
+                    // Only once a digest has synced: an empty folder in the car reads
+                    // as broken, and there is nothing to do about it from the driver's seat.
+                    MediaItemFactory.folder(MediaIds.NODE_WEEKLY, "This week").takeIf {
+                        graph.database.radioDao().poolEpisodesOnce(RadioProfiles.WEEKLY_ID, 1).isNotEmpty()
+                    },
                     MediaItemFactory.folder(MediaIds.NODE_PLAYLISTS, "Playlists", childrenAreEpisodes = false),
                     MediaItemFactory.folder(MediaIds.NODE_LIBRARY, "Library"),
                     MediaItemFactory.folder(MediaIds.NODE_DOWNLOADS, "Downloads"),
                 )
+                parentId == MediaIds.NODE_WEEKLY ->
+                    graph.database.radioDao().poolEpisodesOnce(RadioProfiles.WEEKLY_ID, MAX_BROWSE_CHILDREN)
+                        .map(MediaItemFactory::browsableEpisode)
                 parentId == MediaIds.NODE_CONTINUE ->
                     graph.database.episodeDao().continueListeningOnce(MAX_BROWSE_CHILDREN)
                         .map(MediaItemFactory::browsableEpisode)

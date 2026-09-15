@@ -14,6 +14,7 @@ object MediaIds {
     const val NODE_PLAYLISTS = "node/playlists"
     const val NODE_LIBRARY = "node/library"
     const val NODE_DOWNLOADS = "node/downloads"
+    const val NODE_WEEKLY = "node/weekly"
     const val PLAYLIST_PREFIX = "playlist/"
     const val EPISODE_PREFIX = "ep/"
 

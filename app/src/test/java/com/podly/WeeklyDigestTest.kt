@@ -138,6 +138,14 @@ class WeeklyDigestTest {
     }
 
     @Test
+    fun `android auto gets the newest week in rank order`() = runBlocking {
+        val episodes = db.radioDao().poolEpisodesOnce(RadioProfiles.WEEKLY_ID, 100)
+        assertEquals(listOf("weekly-only", "both", "zh1"), episodes.map { it.id })
+        assertEquals(1, db.radioDao().poolEpisodesOnce(RadioProfiles.WEEKLY_ID, 1).size)
+        assertTrue(db.radioDao().poolEpisodesOnce("weekly-2099-w01", 1).isEmpty())
+    }
+
+    @Test
     fun `the teaser alternates languages so both show`() {
         fun row(id: String, language: String) = DigestRow(
             episodeId = id, podcastId = "p", podcastTitle = "s", title = id, durationMs = null,
