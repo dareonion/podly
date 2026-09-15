@@ -26,6 +26,7 @@ from podly_radio.weekly import (
     previous_issue_ids,
     previous_week,
     updated_index,
+    zone_for,
     WeeklyResult,
 )
 
@@ -88,12 +89,22 @@ def test_labels_read_naturally_across_months() -> None:
     assert Week(datetime.date(2026, 8, 31)).label == "Aug 31 – Sep 6, 2026"
 
 
-def test_the_window_forgives_time_zones_by_half_a_day() -> None:
-    assert WEEK.contains(ms(2026, 9, 6, 13))  # Sunday evening US, a day early in UTC
-    assert WEEK.contains(ms(2026, 9, 14, 11))  # Sunday night in California
-    assert not WEEK.contains(ms(2026, 9, 14, 13))
-    assert not WEEK.contains(ms(2026, 9, 6, 11))
+def test_the_week_is_read_on_each_storefronts_own_calendar() -> None:
+    # 2026-09-14 09:45 UTC: The Daily's Monday episode, 5:45am in New York.
+    monday_morning_ny = ms(2026, 9, 14, 9) + 45 * 60_000
+    assert not WEEK.contains(monday_morning_ny, "America/New_York")
+    # 2026-09-14 03:35 UTC: Sunday 11:35pm in New York, still last week there.
+    assert WEEK.contains(ms(2026, 9, 14, 3), "America/New_York")
+    # 2026-09-06 23:00 UTC: Monday 7am in Beijing, the first day of the week there.
+    assert WEEK.contains(ms(2026, 9, 6, 23), "Asia/Shanghai")
+    assert not WEEK.contains(ms(2026, 9, 6, 23), "America/New_York")
     assert not WEEK.contains(None)
+
+
+def test_each_storefront_has_a_zone_and_unknowns_fall_back() -> None:
+    assert zone_for(Show(apple_id="1", title="t", country="tw")) == "Asia/Taipei"
+    assert zone_for(Show(apple_id="1", title="t", country="cn")) == "Asia/Shanghai"
+    assert zone_for(Show(apple_id="1", title="t")) == "America/New_York"
 
 
 # ------------------------------------------------------------------- catalogue

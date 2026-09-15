@@ -7,7 +7,7 @@ Four stages, and the models only do the parts that need judgement:
    Claude and Codex each search the web for what critics, editors and listeners
    singled out that week.
 2. Proof. A web nomination counts only once it is found in a real feed, with
-   audio, dated inside the week — the same inversion notable.py relies on. A
+   audio, dated inside the week on its own storefront's calendar — the same inversion notable.py relies on. A
    nomination that cannot be located is dropped, never published on trust.
 3. Judgement. Both models rank the same verified catalogue, referring to
    episodes by ref only, so neither can invent one. An episode both pick
@@ -29,6 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -47,10 +48,17 @@ LOG = logging.getLogger(__name__)
 
 FAMILIES = ("en", "zh")
 FAMILY_NAMES = {"en": "English", "zh": "Mandarin Chinese"}
-# Feeds stamp times in every zone there is. Twelve hours either side keeps a
-# Sunday-night US release and a Monday-morning Taipei one in the week they
-# belong to; the previous issue's episodes are excluded, so nothing repeats.
-GRACE_HOURS = 12
+# A release belongs to the week on the calendar where it was published: a
+# Monday-morning Beijing episode is Sunday night in UTC, and a Sunday-night
+# California one is already Monday. One grace period around the UTC week cannot
+# serve both, so each show's week is read in its storefront's time zone.
+ZONES = {
+    "us": "America/New_York",
+    "gb": "Europe/London",
+    "tw": "Asia/Taipei",
+    "cn": "Asia/Shanghai",
+}
+DEFAULT_ZONE = "America/New_York"
 MIN_MINUTES = 5
 MAX_MINUTES = 240
 PER_SHOW = 3
@@ -92,20 +100,12 @@ class Week:
             return f"{start:%b} {start.day} – {end:%b} {end.day}, {end.year}"
         return f"{start:%b} {start.day}, {start.year} – {end:%b} {end.day}, {end.year}"
 
-    def window_ms(self, grace_hours: int = GRACE_HOURS) -> tuple[int, int]:
-        utc = datetime.timezone.utc
-        grace = datetime.timedelta(hours=grace_hours)
-        lo = datetime.datetime.combine(self.start, datetime.time(), utc) - grace
-        hi = datetime.datetime.combine(
-            self.end + datetime.timedelta(days=1), datetime.time(), utc
-        ) + grace
-        return int(lo.timestamp() * 1000), int(hi.timestamp() * 1000)
-
-    def contains(self, pub_date_ms: int | None) -> bool:
+    def contains(self, pub_date_ms: int | None, zone: str = DEFAULT_ZONE) -> bool:
+        """Whether the release falls in this week on [zone]'s calendar."""
         if not pub_date_ms:
             return False
-        lo, hi = self.window_ms()
-        return lo <= pub_date_ms < hi
+        local = datetime.datetime.fromtimestamp(pub_date_ms / 1000, ZoneInfo(zone)).date()
+        return self.start <= local <= self.end
 
 
 def previous_week(today: datetime.date) -> Week:
@@ -180,6 +180,10 @@ def playable_length(episode: ParsedEpisode) -> bool:
     return MIN_MINUTES * 60_000 <= episode.duration_ms <= MAX_MINUTES * 60_000
 
 
+def zone_for(show: Show) -> str:
+    return ZONES.get((show.country or "").lower(), DEFAULT_ZONE)
+
+
 def language_of(show: Show, feed: ParsedFeed, episode: ParsedEpisode) -> str:
     text = f"{show.title} {feed.title or ''} {episode.title} {plain(episode.description)[:400]}"
     return detect(text, feed.language)
@@ -200,7 +204,7 @@ def build_catalogue(
         in_week = sorted(
             (
                 e for e in feed.episodes
-                if week.contains(e.pub_date_ms) and playable_length(e)
+                if week.contains(e.pub_date_ms, zone_for(show)) and playable_length(e)
             ),
             key=lambda e: e.pub_date_ms or 0,
             reverse=True,
@@ -239,7 +243,7 @@ def locate_nomination(
         feed = feed if feed is not None else fetch(show)
         if feed is None:
             return None
-        in_week = [e for e in feed.episodes if week.contains(e.pub_date_ms)]
+        in_week = [e for e in feed.episodes if week.contains(e.pub_date_ms, zone_for(show))]
         match = best_match(nomination.episode, [e.title for e in in_week])
         if match is None:
             return None
