@@ -24,10 +24,10 @@ data class RadioProfile(
      */
     val includeUnsubscribed: Boolean = true,
     /**
-     * Whether the notable pool — award winners and widely-heard episodes — is
-     * blended into this profile's picks. Off for the toddler: that pool is
-     * adult material by default, and nothing about a Pulitzer makes an episode
-     * suitable for a three-year-old.
+     * Whether the curated pools — Notable (award winners and widely-heard
+     * episodes) and This week (the weekly digest) — are blended into this
+     * profile's picks. Off for the toddler: both are adult material by default,
+     * and nothing about a Pulitzer makes an episode suitable for a three-year-old.
      */
     val includeNotable: Boolean = true,
     /**
@@ -160,8 +160,16 @@ object RadioProfiles {
      */
     const val NOTABLE_ID = "notable"
 
-    /** Every pool the app downloads, which is the profiles plus Notable. */
-    val POOL_IDS = ALL.map { it.id } + NOTABLE_ID
+    /**
+     * The newest weekly digest: last week's best episodes in English and Chinese,
+     * each with a blurb as its reason. Like Notable it is a pool rather than a
+     * profile. Older weeks are browsed from `weekly/` and stored under their own
+     * ids (see `WeeklyRepository.poolIdFor`), so only this one reaches radio.
+     */
+    const val WEEKLY_ID = "weekly"
+
+    /** Every pool the app downloads, which is the profiles plus Notable and This week. */
+    val POOL_IDS = ALL.map { it.id } + NOTABLE_ID + WEEKLY_ID
 
     val DEFAULT_ID = YOU.id
 

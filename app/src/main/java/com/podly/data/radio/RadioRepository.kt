@@ -95,32 +95,22 @@ class RadioRepository(
                 val args = BacklogArgs(profile, allowed, restrict, nowMs)
                 (recentBacklog(args) + randomBacklog(args)).distinctBy { it.episodeId }
             }
-        // Notable episodes live in their own pool and are blended in here rather
-        // than copied into every profile's pool, so there is one list of them.
-        val notable = if (profile.includeNotable) {
-            radioDao.discovery(
-                profileId = RadioProfiles.NOTABLE_ID,
-                nowMs = nowMs,
-                maxDurationMs = profile.maxDurationMs ?: 0L,
-                limit = PREFILTER_LIMIT,
-                excludedCategories = profile.excludedCategories.orNone(),
-                ambiguousCategories = profile.ambiguousCategories.orNone(),
-                exemptCategories = profile.exemptCategories.orNone(),
-            )
-        } else {
-            emptyList()
-        }
-        val discovery = (
-            radioDao.discovery(
-                profileId = profile.id,
-                nowMs = nowMs,
-                maxDurationMs = profile.maxDurationMs ?: 0L,
-                limit = PREFILTER_LIMIT,
-                excludedCategories = profile.excludedCategories.orNone(),
-                ambiguousCategories = profile.ambiguousCategories.orNone(),
-                exemptCategories = profile.exemptCategories.orNone(),
-            ) + notable
-            ).distinctBy { it.episodeId }
+        suspend fun pool(poolId: String) = radioDao.discovery(
+            profileId = poolId,
+            nowMs = nowMs,
+            maxDurationMs = profile.maxDurationMs ?: 0L,
+            limit = PREFILTER_LIMIT,
+            excludedCategories = profile.excludedCategories.orNone(),
+            ambiguousCategories = profile.ambiguousCategories.orNone(),
+            exemptCategories = profile.exemptCategories.orNone(),
+        )
+        // Notable and This week live in their own pools and are blended in here
+        // rather than copied into every profile's pool, so there is one list of each.
+        val weekly = if (profile.includeNotable) pool(RadioProfiles.WEEKLY_ID) else emptyList()
+        val notable = if (profile.includeNotable) pool(RadioProfiles.NOTABLE_ID) else emptyList()
+        // This week goes first so that when a digest pick is also in the chart
+        // pool, the copy that survives is the one carrying its blurb.
+        val discovery = (weekly + pool(profile.id) + notable).distinctBy { it.episodeId }
         // An unsubscribed pool episode satisfies the backlog query too (that query
         // stopped requiring a subscription when radio was widened to unsubscribed
         // shows), so the same row can arrive in both buckets. The pool copy wins:
