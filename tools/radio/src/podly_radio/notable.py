@@ -75,7 +75,7 @@ class VerifiedNotable:
 
 def ask_for_nominations(
     count: int,
-    model: str = "claude-opus-4-8",
+    model: str = "opus",
     timeout: int = 900,
     allow_search: bool = True,
     recent_year: int | None = None,

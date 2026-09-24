@@ -369,7 +369,7 @@ def main(argv: list[str] | None = None) -> int:
 
     curate_cmd = sub.add_parser("curate", help="refresh the roster with Claude Code")
     curate_cmd.add_argument("--profile", help="only this profile")
-    curate_cmd.add_argument("--model", default="claude-opus-4-8")
+    curate_cmd.add_argument("--model", default="opus")
     curate_cmd.add_argument(
         "--catalogue", type=int, default=120, help="shows offered to the model"
     )
@@ -380,7 +380,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     notable_cmd.add_argument("--out", default="../../site/radio")
     notable_cmd.add_argument("--count", type=int, default=30)
-    notable_cmd.add_argument("--model", default="claude-opus-4-8")
+    notable_cmd.add_argument("--model", default="opus")
     notable_cmd.add_argument(
         "--since", type=int, default=None,
         help="year that counts as recent (default: last year)",

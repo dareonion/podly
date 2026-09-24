@@ -108,7 +108,7 @@ def curate(
     profile: ProfileConfig,
     shows: list[Show],
     listener: str,
-    model: str = "claude-opus-4-8",
+    model: str = "opus",
     timeout: int = 600,
 ) -> list[RosterEntry]:
     """Returns a validated roster, or raises so the caller keeps the old one."""
