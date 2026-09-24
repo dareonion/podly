@@ -333,3 +333,26 @@ def test_commands_search_only_when_asked() -> None:
     assert "tools.web_search=true" in codex and codex[-1] == "-"
     offline = agents.codex_command("codex", "m", "high", work, work / "s", work / "l", web=False)
     assert "tools.web_search=true" not in offline
+
+
+def test_the_codex_model_is_the_top_of_codexs_own_list(tmp_path) -> None:
+    (tmp_path / "models_cache.json").write_text(json.dumps({"models": [
+        {"slug": "gpt-5.6-sol", "visibility": "list", "priority": 4},
+        {"slug": "gpt-reserve", "visibility": "hide", "priority": 0},
+        {"slug": "gpt-7", "visibility": "list", "priority": 1},
+        {"slug": "odd", "visibility": "list", "priority": True},
+        {"slug": "nan", "visibility": "list", "priority": float("nan")},
+        {"slug": "", "visibility": "list", "priority": 0},
+        "not a model",
+    ]}))
+    assert agents.latest_codex_model(tmp_path) == "gpt-7"
+
+
+def test_an_unreadable_codex_model_list_falls_back(tmp_path) -> None:
+    assert agents.latest_codex_model(tmp_path) == agents.CODEX_FALLBACK_MODEL
+    (tmp_path / "models_cache.json").write_text("{not json")
+    assert agents.latest_codex_model(tmp_path) == agents.CODEX_FALLBACK_MODEL
+    (tmp_path / "models_cache.json").write_text(json.dumps({"models": [
+        {"slug": "hidden", "visibility": "hide", "priority": 1},
+    ]}))
+    assert agents.latest_codex_model(tmp_path) == agents.CODEX_FALLBACK_MODEL

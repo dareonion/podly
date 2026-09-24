@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import os
 import shutil
 import subprocess
 import tempfile
@@ -23,6 +25,9 @@ from .curate import _child_env, _extract_json, resolve_claude
 LOG = logging.getLogger(__name__)
 
 AGENTS = ("claude", "codex")
+
+# Used only when Codex's own model list cannot be read.
+CODEX_FALLBACK_MODEL = "gpt-6-astra"
 
 CODEX_CANDIDATES = (
     Path.home() / ".local" / "bin" / "codex",
@@ -43,6 +48,42 @@ def resolve_codex() -> str | None:
         if candidate.exists():
             return str(candidate)
     return None
+
+
+def latest_codex_model(codex_home: Path | None = None) -> str:
+    """
+    Codex's own top-ranked model, so a new release is used without editing this.
+
+    `codex` has no model-list command, but it caches the list it fetches in
+    `models_cache.json`, ranked by `priority` (1 is the top of its picker).
+    Hidden models and malformed entries are skipped. The same rule as
+    aicombine's, which learned it after a pinned id outlived its model.
+    """
+    home = codex_home or Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    cache = home / "models_cache.json"
+    try:
+        models = json.loads(cache.read_text(encoding="utf-8"))["models"]
+        listed = [
+            m
+            for m in models
+            if isinstance(m, dict)
+            and isinstance(m.get("slug"), str)
+            and m["slug"]
+            and _usable_priority(m.get("priority"))
+            and m.get("visibility") == "list"
+        ]
+        return min(listed, key=lambda m: m["priority"])["slug"]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        LOG.warning(
+            "could not read codex's model list at %s (%r); using %s",
+            cache, error, CODEX_FALLBACK_MODEL,
+        )
+        return CODEX_FALLBACK_MODEL
+
+
+def _usable_priority(value: object) -> bool:
+    # bool is an int to isinstance, and json.loads accepts NaN and Infinity.
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def codex_uses_subscription(auth_file: Path | None = None) -> bool:
@@ -128,7 +169,7 @@ def ask(
     web: bool,
     timeout: int,
     claude_model: str = "opus",
-    codex_model: str = "gpt-6-astra",
+    codex_model: str | None = None,
     codex_effort: str = "high",
 ) -> dict:
     """One structured answer from [agent], or AgentError."""
@@ -138,7 +179,8 @@ def ask(
             return _ask_claude(prompt, system, schema, web, timeout, claude_model, workdir)
         if agent == "codex":
             return _ask_codex(
-                prompt, system, schema, web, timeout, codex_model, codex_effort, workdir
+                prompt, system, schema, web, timeout,
+                codex_model or latest_codex_model(), codex_effort, workdir,
             )
     raise AgentError(f"unknown agent {agent!r}")
 

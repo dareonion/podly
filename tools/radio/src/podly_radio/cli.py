@@ -208,13 +208,18 @@ def cmd_weekly(args: argparse.Namespace) -> int:
     if unknown or not agent_names:
         LOG.error("unknown agents %s; choose from %s", sorted(unknown), agents.AGENTS)
         return 2
+    # Resolved once, so every call in the run uses the same model and the log says which.
+    codex_model = args.codex_model or agents.latest_codex_model()
     ask = functools.partial(
         agents.ask,
         claude_model=args.claude_model,
-        codex_model=args.codex_model,
+        codex_model=codex_model,
         codex_effort=args.codex_effort,
     )
-    LOG.info("weekly digest for %s (%s) with %s", week.id, week.label, ", ".join(agent_names))
+    LOG.info(
+        "weekly digest for %s (%s) with %s; codex model %s",
+        week.id, week.label, ", ".join(agent_names), codex_model,
+    )
     with _client() as client:
         result = weekly.run(
             client,
@@ -394,7 +399,10 @@ def main(argv: list[str] | None = None) -> int:
     weekly_cmd.add_argument("--countries", default="us,gb,tw,cn")
     weekly_cmd.add_argument("--blurb-writer", default="claude", choices=agents.AGENTS)
     weekly_cmd.add_argument("--claude-model", default="opus")
-    weekly_cmd.add_argument("--codex-model", default="gpt-6-astra")
+    weekly_cmd.add_argument(
+        "--codex-model",
+        help="default: the top of codex's own model list (~/.codex/models_cache.json)",
+    )
     weekly_cmd.add_argument("--codex-effort", default="high")
     weekly_cmd.add_argument(
         "--no-web", action="store_true", help="skip the web hunt; judge the charts only"
