@@ -107,7 +107,7 @@ class WeeklyDigestTest {
     }
 
     @Test
-    fun `only the newest week reaches radio, and never the toddler's`() = runBlocking {
+    fun `only the newest week is blended in as a pool, and never for the toddler`() = runBlocking {
         val you = radio.recommendations(RadioProfiles.YOU, count = 20, nowMs = now, random = Random(1))
         assertTrue(you.none { it.reason == "Last month." })
 

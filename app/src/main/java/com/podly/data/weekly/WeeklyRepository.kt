@@ -43,8 +43,10 @@ data class WeeklyIssue(
  * [RadioRepository.replaceDiscovery] like every other pool: podcasts go in
  * unsubscribed, episodes through the upsert that never clobbers progress, and
  * the blurb rides as the pool row's reason. Weeks are stored under their own
- * pool ids, which keeps a browsed back-issue out of radio — only the newest week,
- * synced as [RadioProfiles.WEEKLY_ID] by the pool worker, is blended in.
+ * pool ids, so only the newest week, synced as [RadioProfiles.WEEKLY_ID] by the
+ * pool worker, is blended into radio as a pool. A browsed back-issue's episodes
+ * are still ordinary rows, so a profile with `includeUnsubscribed` can reach them
+ * through its backlog, like any episode opened from Discover.
  */
 class WeeklyRepository(
     private val remote: RemoteRecsApi,
