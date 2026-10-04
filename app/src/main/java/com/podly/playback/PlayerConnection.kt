@@ -178,6 +178,11 @@ class PlayerConnection(context: Context) {
         } else {
             // After a playback error the player sits in IDLE; prepare() retries the source.
             if (mediaController.playbackState == Player.STATE_IDLE) mediaController.prepare()
+            // A finished queue that has since had episodes added: the session's play
+            // handling would restart the finished one, so move on to what was queued.
+            if (mediaController.playbackState == Player.STATE_ENDED && mediaController.hasNextMediaItem()) {
+                mediaController.seekToNextMediaItem()
+            }
             mediaController.play()
         }
     }
