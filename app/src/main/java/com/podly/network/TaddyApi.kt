@@ -3,6 +3,7 @@ package com.podly.network
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
@@ -61,7 +62,7 @@ class TaddyApi {
         apiKey: String,
         feedUrl: String,
         limit: Int = 25,
-    ): TaddySeries? = lookup(userId, apiKey, "rssUrl", feedUrl, limit)
+    ): TaddySeries? = lookup(userId, apiKey, "rssUrl", "String", JsonPrimitive(feedUrl), limit)
 
     /** As [seriesByFeedUrl], but by show name (Taddy picks the most popular match). */
     suspend fun seriesByName(
@@ -69,23 +70,27 @@ class TaddyApi {
         apiKey: String,
         name: String,
         limit: Int = 25,
-    ): TaddySeries? = lookup(userId, apiKey, "name", name, limit)
+    ): TaddySeries? = lookup(userId, apiKey, "name", "String", JsonPrimitive(name), limit)
+
+    /** The feed Taddy has on file for an Apple Podcasts id, or null if it has none. */
+    suspend fun feedByItunesId(userId: String, apiKey: String, itunesId: Long): DirectoryFeed? =
+        // Taddy types iTunes ids as Float ("to support 64-bit integers"); declaring
+        // the variable Int is a GraphQL error, not a miss.
+        lookup(userId, apiKey, "itunesId", "Float", JsonPrimitive(itunesId), episodeLimit = 0)
+            ?.let { series ->
+                series.rssUrl?.ifBlank { null }?.let { DirectoryFeed(feedUrl = it, title = series.name) }
+            }
 
     private suspend fun lookup(
         userId: String,
         apiKey: String,
         argName: String,
-        argValue: String,
-        limit: Int,
+        argType: String,
+        argValue: JsonPrimitive,
+        episodeLimit: Int,
     ): TaddySeries? = withContext(Dispatchers.IO) {
-        // Pass the lookup value as a variable so it needn't be escaped into the query.
-        // Taddy requires every type's selection to include `uuid` ("The type
-        // PodcastSeries is required to return the property uuid").
-        val query = "query(\$v:String!){getPodcastSeries($argName:\$v){uuid name rssUrl " +
-            "episodes(sortOrder:LATEST,limitPerPage:$limit){" +
-            "uuid name description audioUrl datePublished duration guid imageUrl}}}"
         val payload = buildJsonObject {
-            put("query", query)
+            put("query", query(argName, argType, episodeLimit))
             putJsonObject("variables") { put("v", argValue) }
         }
         val request = Request.Builder()
@@ -103,6 +108,21 @@ class TaddyApi {
     }
 
     companion object {
+        /**
+         * Passes the lookup value as a variable so it needn't be escaped into the
+         * query. Taddy requires every type's selection to include `uuid` ("The type
+         * PodcastSeries is required to return the property uuid").
+         */
+        fun query(argName: String, argType: String, episodeLimit: Int): String {
+            val episodes = if (episodeLimit > 0) {
+                "episodes(sortOrder:LATEST,limitPerPage:$episodeLimit){" +
+                    "uuid name description audioUrl datePublished duration guid imageUrl}"
+            } else {
+                ""
+            }
+            return "query(\$v:$argType!){getPodcastSeries($argName:\$v){uuid name rssUrl $episodes}}"
+        }
+
         /**
          * Extracts the series from a Taddy GraphQL response body; null means Taddy
          * doesn't know the show. GraphQL errors arrive as HTTP 200 + an `errors`

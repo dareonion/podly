@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.podly.ui.util.friendlyError
 import com.podly.AppGraph
+import com.podly.data.AppleShow
+import com.podly.data.problem
 import com.podly.data.ArchiveRescuer
 import com.podly.data.db.DigestRow
 import com.podly.data.db.PodcastEntity
@@ -169,17 +171,13 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
             is PodcastLink.Apple -> {
                 viewModelScope.launch {
                     _state.update { it.copy(searching = true, error = null) }
-                    runCatching { graph.podcasts.podcastByAppleId(link.collectionId) }
-                        .onSuccess { podcast ->
+                    runCatching { graph.appleShows.resolve(link.collectionId) }
+                        .onSuccess { show ->
                             _state.update {
                                 it.copy(
                                     searching = false,
-                                    searchResults = listOfNotNull(podcast),
-                                    error = if (podcast == null) {
-                                        "Apple has no podcast with that link."
-                                    } else {
-                                        null
-                                    },
+                                    searchResults = listOfNotNull((show as? AppleShow.Found)?.podcast),
+                                    error = show.problem(),
                                 )
                             }
                         }
@@ -468,7 +466,15 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
                         artworkUrl = item.artworkUrl,
                         description = null,
                     )
-                    item.appleId != null -> graph.appleCharts.resolveFeed(item.appleId)
+                    item.appleId != null -> when (val show = graph.appleShows.resolve(item.appleId)) {
+                        is AppleShow.Found -> show.podcast
+                        else -> {
+                            // Set directly, not thrown: friendlyError cuts at 200
+                            // characters, which would drop the advice after a long title.
+                            _state.update { s -> s.copy(error = show.problem(), opening = false) }
+                            return@launch
+                        }
+                    }
                     else -> null
                 } ?: error("Could not resolve this podcast's feed")
                 graph.podcasts.openPodcast(podcast)

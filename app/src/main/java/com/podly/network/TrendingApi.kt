@@ -1,14 +1,24 @@
 package com.podly.network
 
-import com.podly.data.db.PodcastEntity
-import com.podly.data.db.stableId
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import java.net.URLEncoder
 import java.security.MessageDigest
 
 enum class TrendingPeriod { NOW, WEEK, MONTH }
 
-/** A chart entry; [feedUrl] may need resolving via iTunes lookup for Apple charts. */
+/** A feed another directory has on file for a show Apple knows by id. */
+data class DirectoryFeed(
+    val feedUrl: String,
+    val title: String? = null,
+    val author: String? = null,
+    val artworkUrl: String? = null,
+)
+
+/** A chart entry; Apple's carry only [appleId], resolved through AppleShowResolver on tap. */
 data class TrendingPodcast(
     val title: String,
     val author: String,
@@ -33,17 +43,6 @@ private data class AppleChartEntry(
     val artworkUrl100: String? = null,
 )
 
-@Serializable
-private data class ItunesLookupResponse(val results: List<ItunesLookupResult> = emptyList())
-
-@Serializable
-private data class ItunesLookupResult(
-    val feedUrl: String? = null,
-    val collectionName: String? = null,
-    val artistName: String? = null,
-    val artworkUrl600: String? = null,
-)
-
 class AppleChartsApi {
     suspend fun topPodcasts(limit: Int = 50): List<TrendingPodcast> {
         val body = Http.get("https://rss.applemarketingtools.com/api/v2/us/podcasts/top/$limit/podcasts.json")
@@ -56,21 +55,6 @@ class AppleChartsApi {
                 appleId = entry.id,
             )
         }
-    }
-
-    /** Apple charts don't carry feed URLs; resolve via the iTunes lookup API on tap. */
-    suspend fun resolveFeed(appleId: String): PodcastEntity? {
-        val body = Http.get("https://itunes.apple.com/lookup?id=$appleId&entity=podcast")
-        val result = Http.json.decodeFromString<ItunesLookupResponse>(body).results.firstOrNull()
-        val feedUrl = result?.feedUrl ?: return null
-        return PodcastEntity(
-            id = stableId(feedUrl),
-            title = result.collectionName ?: return null,
-            author = result.artistName ?: "",
-            feedUrl = feedUrl,
-            artworkUrl = result.artworkUrl600,
-            description = null,
-        )
     }
 }
 
@@ -155,7 +139,37 @@ class PodcastIndexApi {
         return Http.json.decodeFromString<PodcastIndexEpisodesResponse>(body).items
     }
 
+    /** The feed PodcastIndex has on file for an Apple Podcasts id, or null if it has none. */
+    suspend fun feedByItunesId(key: String, secret: String, itunesId: String): DirectoryFeed? {
+        val timestamp = System.currentTimeMillis() / 1000
+        val body = Http.get(
+            "https://api.podcastindex.org/api/1.0/podcasts/byitunesid?id=$itunesId",
+            headers = mapOf(
+                "X-Auth-Key" to key,
+                "X-Auth-Date" to timestamp.toString(),
+                "Authorization" to authHash(key, secret, timestamp),
+            ),
+        )
+        return parseFeedByItunesId(body)
+    }
+
     companion object {
+        /**
+         * The `feed` of a byitunesid response. Its spec does not say what "not found"
+         * looks like, and PodcastIndex answers misses on its other by-id lookups with
+         * `"feed": []`, so anything but an object carrying a url reads as a miss.
+         */
+        fun parseFeedByItunesId(body: String): DirectoryFeed? {
+            val feed = Http.json.parseToJsonElement(body).jsonObject["feed"] as? JsonObject ?: return null
+            fun field(name: String) = (feed[name] as? JsonPrimitive)?.contentOrNull?.ifBlank { null }
+            return DirectoryFeed(
+                feedUrl = field("url") ?: return null,
+                title = field("title"),
+                author = field("author"),
+                artworkUrl = field("artwork") ?: field("image"),
+            )
+        }
+
         /** PodcastIndex auth: sha1(key + secret + unixTime) as lowercase hex. */
         fun authHash(key: String, secret: String, unixTime: Long): String =
             MessageDigest.getInstance("SHA-1")

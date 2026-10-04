@@ -7,6 +7,10 @@ import com.podly.data.radio.RadioRepository
 import com.podly.data.radio.RadioSessionStore
 import com.podly.data.AiPicksCache
 import com.podly.data.ArchiveRescuer
+import com.podly.network.ItunesApi
+import com.podly.data.TaddyFeedDirectory
+import com.podly.data.PodcastIndexFeedDirectory
+import com.podly.data.AppleShowResolver
 import com.podly.data.CachedArchive
 import com.podly.data.PicksImporter
 import com.podly.data.PodcastIndexArchive
@@ -53,6 +57,12 @@ class AppGraph(private val context: Context) {
     val appleCharts: AppleChartsApi = AppleChartsApi()
     val podcastIndex: PodcastIndexApi = PodcastIndexApi()
     val taddy: TaddyApi = TaddyApi()
+    // Pasted Apple links and Apple chart entries: Apple's own lookup, then the
+    // configured directories by the same id when Apple withholds the feed.
+    val appleShows: AppleShowResolver = AppleShowResolver(
+        ItunesApi()::listingById,
+        listOf(PodcastIndexFeedDirectory(podcastIndex, settings), TaddyFeedDirectory(taddy, settings)),
+    )
     // Recovers picks that rolled off a short feed. Tries whichever archive is configured
     // (Taddy first, then PodcastIndex), falling through on missing creds / errors / limits.
     // Each provider's real answers are cached in memory so repeated rescues of the same

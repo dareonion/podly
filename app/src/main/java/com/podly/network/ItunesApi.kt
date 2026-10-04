@@ -19,6 +19,18 @@ private data class ItunesResult(
     val genres: List<String> = emptyList(),
 )
 
+/**
+ * What Apple's directory says about one show. [feedUrl] is null when Apple lists
+ * the show but does not publish its feed — School's In (Stanford) is one: its
+ * lookup has the title, artwork and episode count, and no feedUrl.
+ */
+data class AppleListing(
+    val title: String,
+    val author: String,
+    val artworkUrl: String?,
+    val feedUrl: String?,
+)
+
 class ItunesApi {
     /**
      * The directory's genres for a show already known by feed URL.
@@ -41,30 +53,9 @@ class ItunesApi {
             .filter { !it.equals("Podcasts", ignoreCase = true) }
     }
 
-    /**
-     * The show behind an Apple Podcasts link, or null if the directory has no
-     * such podcast.
-     *
-     * Null rather than a placeholder on purpose: without a feedUrl there is
-     * nothing to subscribe to, and inventing a row would produce a subscription
-     * that can never refresh.
-     */
-    suspend fun podcastById(collectionId: String): PodcastEntity? {
-        val body = Http.get("https://itunes.apple.com/lookup?id=$collectionId&entity=podcast")
-        return Http.json.decodeFromString<ItunesSearchResponse>(body).results
-            .firstOrNull { it.feedUrl != null }
-            ?.let { result ->
-                val feedUrl = result.feedUrl ?: return null
-                PodcastEntity(
-                    id = stableId(feedUrl),
-                    title = result.collectionName ?: feedUrl,
-                    author = result.artistName ?: "",
-                    feedUrl = feedUrl,
-                    artworkUrl = result.artworkUrl600 ?: result.artworkUrl100,
-                    description = null,
-                )
-            }
-    }
+    /** Apple's entry for one show, or null if the directory has no such podcast. */
+    suspend fun listingById(collectionId: String): AppleListing? =
+        parseListing(Http.get("https://itunes.apple.com/lookup?id=$collectionId&entity=podcast"))
 
     suspend fun searchPodcasts(term: String): List<PodcastEntity> {
         val encoded = URLEncoder.encode(term, "UTF-8")
@@ -82,6 +73,21 @@ class ItunesApi {
         // Apple sometimes returns the same feed more than once; collapse to one
         // entry per id so list keys stay unique (duplicate keys crash LazyColumn).
         }.distinctBy { it.id }
+    }
+
+    companion object {
+        /** The first show in a lookup body, whether or not Apple shares its feed. */
+        fun parseListing(body: String): AppleListing? =
+            Http.json.decodeFromString<ItunesSearchResponse>(body).results
+                .firstOrNull { it.collectionName != null || it.feedUrl != null }
+                ?.let { result ->
+                    AppleListing(
+                        title = result.collectionName ?: result.feedUrl.orEmpty(),
+                        author = result.artistName ?: "",
+                        artworkUrl = result.artworkUrl600 ?: result.artworkUrl100,
+                        feedUrl = result.feedUrl?.ifBlank { null },
+                    )
+                }
     }
 }
 
