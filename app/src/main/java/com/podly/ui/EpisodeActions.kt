@@ -2,6 +2,7 @@ package com.podly.ui
 
 import com.podly.AppGraph
 import com.podly.data.db.EpisodeEntity
+import com.podly.playback.QueueAddResult
 import com.podly.ui.util.friendlyError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -14,6 +15,9 @@ class EpisodeActions(private val graph: AppGraph, private val scope: CoroutineSc
     fun play(episodes: List<EpisodeEntity>, index: Int) {
         graph.player.play(episodes.map { it.id }, index)
     }
+
+    /** "Play next" when [playNext], else "Add to queue"; see [queueEpisode]. */
+    fun queue(episodeId: String, playNext: Boolean) = graph.queueEpisode(episodeId, playNext)
 
     fun toggleLibrary(episode: EpisodeEntity) = launchReporting("Library update") {
         graph.podcasts.setEpisodeInLibrary(episode.id, !episode.inLibrary)
@@ -50,4 +54,20 @@ class EpisodeActions(private val graph: AppGraph, private val scope: CoroutineSc
             graph.messages.post("$action failed: ${friendlyError(e)}")
         }
     }
+}
+
+/**
+ * Adds an episode to the play queue and says what happened: a menu item that
+ * silently changes a queue you can't see reads as a tap that did nothing.
+ */
+fun AppGraph.queueEpisode(episodeId: String, playNext: Boolean) {
+    messages.post(
+        when (player.addToQueue(episodeId, playNext)) {
+            QueueAddResult.QUEUED -> if (playNext) "Playing next" else "Added to the queue"
+            QueueAddResult.LOADED -> "Added to the queue; press play to start"
+            QueueAddResult.ALREADY_QUEUED -> "Already in the queue"
+            QueueAddResult.ALREADY_PLAYING -> "Already playing"
+            QueueAddResult.NOT_CONNECTED -> "Player isn't ready yet; try again"
+        }
+    )
 }

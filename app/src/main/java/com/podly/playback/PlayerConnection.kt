@@ -22,7 +22,22 @@ data class QueueItem(
     val title: String?,
     val podcastTitle: String?,
     val artworkUri: String?,
+    /**
+     * Unique within the queue even if an episode appears twice, and stable when
+     * items move — what the Up next list keys its rows on while dragging.
+     */
+    val key: String = episodeId,
 )
+
+/** What "Play next" / "Add to queue" did, so the UI can say so. */
+enum class QueueAddResult {
+    QUEUED,
+    /** Nothing was loaded, so it became the whole queue, paused. */
+    LOADED,
+    ALREADY_QUEUED,
+    ALREADY_PLAYING,
+    NOT_CONNECTED,
+}
 
 data class PlayerUiState(
     val episodeId: String? = null,
@@ -104,14 +119,18 @@ class PlayerConnection(context: Context) {
             timelineSize != lastTimelineSize
         ) {
             lastTimelineSize = timelineSize
+            val seen = HashMap<String, Int>()
             (0 until timelineSize).mapNotNull { index ->
                 val item = player.getMediaItemAt(index)
                 val episodeId = MediaIds.episodeIdOrNull(item.mediaId) ?: return@mapNotNull null
+                val repeat = seen.getOrDefault(episodeId, 0)
+                seen[episodeId] = repeat + 1
                 QueueItem(
                     episodeId = episodeId,
                     title = item.mediaMetadata.title?.toString(),
                     podcastTitle = item.mediaMetadata.artist?.toString(),
                     artworkUri = item.mediaMetadata.artworkUri?.toString(),
+                    key = if (repeat == 0) episodeId else "$episodeId#$repeat",
                 )
             }
         } else {
@@ -201,12 +220,64 @@ class PlayerConnection(context: Context) {
         controller?.sendCustomCommand(RadioCommands.STOP, Bundle.EMPTY)
     }
 
-    /** Appends to the queue without disturbing what is playing. */
-    fun enqueue(episodeIds: List<String>) {
+    /**
+     * Queues [episodeId] straight after the current episode ([playNext]) or at the
+     * end, without disturbing what is playing. An episode already in the queue is
+     * moved rather than added twice. With nothing loaded it becomes the queue, ready
+     * but paused — set rather than added, so the service restores its saved position.
+     */
+    fun addToQueue(episodeId: String, playNext: Boolean): QueueAddResult {
+        val mediaController = controller ?: return QueueAddResult.NOT_CONNECTED
+        val item = MediaItem.Builder().setMediaId(MediaIds.episode(episodeId)).build()
+        if (mediaController.mediaItemCount == 0) {
+            mediaController.setMediaItems(listOf(item), 0, androidx.media3.common.C.TIME_UNSET)
+            mediaController.prepare()
+            return QueueAddResult.LOADED
+        }
+        val queuedIds = (0 until mediaController.mediaItemCount).map { index ->
+            MediaIds.episodeIdOrNull(mediaController.getMediaItemAt(index).mediaId).orEmpty()
+        }
+        return when (
+            val placement = queuePlacement(
+                queuedIds, mediaController.currentMediaItemIndex, episodeId, playNext,
+            )
+        ) {
+            is QueuePlacement.Insert -> {
+                mediaController.addMediaItem(placement.index, item)
+                QueueAddResult.QUEUED
+            }
+            is QueuePlacement.Move -> {
+                mediaController.moveMediaItem(placement.from, placement.to)
+                QueueAddResult.QUEUED
+            }
+            QueuePlacement.AlreadyQueued -> QueueAddResult.ALREADY_QUEUED
+            QueuePlacement.AlreadyPlaying -> QueueAddResult.ALREADY_PLAYING
+        }
+    }
+
+    /** Reorders the queue; [to] is the item's index after the move. */
+    fun moveQueueItem(from: Int, to: Int) {
         val mediaController = controller ?: return
-        mediaController.addMediaItems(
-            episodeIds.map { MediaItem.Builder().setMediaId(MediaIds.episode(it)).build() },
-        )
+        val count = mediaController.mediaItemCount
+        if (from !in 0 until count || to !in 0 until count || from == to) return
+        mediaController.moveMediaItem(from, to)
+    }
+
+    /** Drops one item; the one playing stays, since removing it would skip it. */
+    fun removeQueueItem(index: Int) {
+        val mediaController = controller ?: return
+        if (index !in 0 until mediaController.mediaItemCount) return
+        if (index == mediaController.currentMediaItemIndex) return
+        mediaController.removeMediaItem(index)
+    }
+
+    /** Empties everything after the current episode. */
+    fun clearUpNext() {
+        val mediaController = controller ?: return
+        val first = mediaController.currentMediaItemIndex + 1
+        if (first < mediaController.mediaItemCount) {
+            mediaController.removeMediaItems(first, mediaController.mediaItemCount)
+        }
     }
 
     /** Jumps to the next episode in the queue (unlike car buttons, which nudge). */

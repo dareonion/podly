@@ -18,6 +18,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
@@ -352,6 +354,7 @@ private fun LazyListScope.section(
             row = row,
             onOpen = { onOpenEpisode(row.episodeId) },
             onPlay = { viewModel.playOne(row.episodeId) },
+            onQueue = { playNext -> viewModel.actions.queue(row.episodeId, playNext) },
             onAddToPlaylist = { onAddToPlaylist(row.episodeId) },
         )
     }
@@ -363,8 +366,10 @@ private fun DigestEntry(
     row: DigestRow,
     onOpen: () -> Unit,
     onPlay: () -> Unit,
+    onQueue: (playNext: Boolean) -> Unit,
     onAddToPlaylist: () -> Unit,
 ) {
+    var queueMenuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -416,6 +421,21 @@ private fun DigestEntry(
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             IconButton(onClick = onPlay) { Icon(Icons.Filled.PlayArrow, "Play") }
+            IconButton(onClick = { queueMenuOpen = true }) {
+                Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue")
+                DropdownMenu(expanded = queueMenuOpen, onDismissRequest = { queueMenuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Play next") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistPlay, null) },
+                        onClick = { queueMenuOpen = false; onQueue(true) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Add to queue") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.QueueMusic, null) },
+                        onClick = { queueMenuOpen = false; onQueue(false) },
+                    )
+                }
+            }
             IconButton(onClick = onAddToPlaylist) {
                 Icon(Icons.AutoMirrored.Filled.PlaylistAdd, "Add to playlist")
             }

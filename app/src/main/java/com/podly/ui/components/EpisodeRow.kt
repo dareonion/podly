@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
@@ -46,6 +48,7 @@ import coil.compose.AsyncImage
 import com.podly.data.db.DownloadStatus
 import com.podly.appGraph
 import com.podly.data.db.EpisodeEntity
+import com.podly.ui.queueEpisode
 import com.podly.ui.util.formatDate
 import com.podly.ui.util.formatDuration
 import com.podly.ui.util.plainDescription
@@ -162,7 +165,8 @@ fun EpisodeRow(
         // The row has to know what the player is doing, or the button you just
         // pressed keeps offering to start what is already playing. Read from the
         // graph the way MiniPlayer does, so every list that shows a row gets this.
-        val player = LocalContext.current.appGraph.player
+        val graph = LocalContext.current.appGraph
+        val player = graph.player
         val playback by player.state.collectAsState()
         val isCurrent = playback.episodeId == episode.id
         // Buffering counts as playing: the button must not flick back to "play"
@@ -181,6 +185,19 @@ fun EpisodeRow(
         IconButton(onClick = { menuOpen = true }) {
             Icon(Icons.Filled.MoreVert, "More")
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                // Straight to the player like the play button, so every list gets them.
+                if (!isCurrent) {
+                    DropdownMenuItem(
+                        text = { Text("Play next") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistPlay, null) },
+                        onClick = { menuOpen = false; graph.queueEpisode(episode.id, playNext = true) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Add to queue") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.QueueMusic, null) },
+                        onClick = { menuOpen = false; graph.queueEpisode(episode.id, playNext = false) },
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text(if (episode.inLibrary) "Remove from library" else "Save to library") },
                     leadingIcon = {

@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
@@ -37,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -273,6 +276,36 @@ fun EpisodeDetailScreen(
                         else -> "Play"
                     }
                 )
+            }
+        }
+
+        // Only while something else is loaded: with an empty player both would just
+        // load this episode paused, which the Play button above already does better.
+        if (playerState.episodeId != null && !isCurrent) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = { viewModel.actions.queue(ep.id, playNext = true) },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.PlaylistPlay, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Play next")
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.actions.queue(ep.id, playNext = false) },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.QueueMusic, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Add to queue")
+                    }
+                }
             }
         }
 
