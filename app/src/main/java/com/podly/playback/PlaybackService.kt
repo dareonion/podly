@@ -54,6 +54,7 @@ import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 
 /**
@@ -103,6 +104,13 @@ class PlaybackService : MediaLibraryService() {
      */
     private var probation: RadioProbation? = null
     private var radioRefillJob: Job? = null
+
+    /**
+     * Episodes the listener queued into a radio session themselves ("Play next",
+     * "Add to queue"). Radio did not pick them, so they never go on probation and
+     * "Not now" does not count against them. Written from onAddMediaItems on IO.
+     */
+    private val listenerQueued: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     override fun onCreate() {
         super.onCreate()
@@ -470,7 +478,7 @@ class PlaybackService : MediaLibraryService() {
                 // Cleared even outside radio, so a withheld pick can never outlive
                 // the episode it belongs to and stall progress for anything else.
                 val profileId = radio?.profileId
-                probation = if (profileId != null && newEpisodeId != null) {
+                probation = if (profileId != null && newEpisodeId != null && newEpisodeId !in listenerQueued) {
                     RadioProbation(newEpisodeId, profileId)
                 } else {
                     null
@@ -698,6 +706,7 @@ class PlaybackService : MediaLibraryService() {
         val first = built.first().second
         val items = built.map { it.first }
         val (window, index) = if (isCasting()) castQueueWindow(items, 0) else items to 0
+        listenerQueued.clear()
         radio = RadioSessionState(profileId)
         probation = RadioProbation(first.id, profileId)
         appGraph.radioSession.start(profileId)
@@ -715,7 +724,7 @@ class PlaybackService : MediaLibraryService() {
         val episodeId = player.currentEpisodeIdOrNull() ?: return
         val listened = probationListenedMs()
         probation = null
-        appGraph.radio.onSkipped(session.profileId, episodeId, listened)
+        if (episodeId !in listenerQueued) appGraph.radio.onSkipped(session.profileId, episodeId, listened)
         if (!player.hasNextMediaItem()) refillRadioQueue()
         if (player.hasNextMediaItem()) {
             player.seekToNextMediaItem()
@@ -729,6 +738,7 @@ class PlaybackService : MediaLibraryService() {
     /** Leaves radio; whatever is already queued keeps playing as an ordinary queue. */
     private suspend fun stopRadio() {
         radio = null
+        listenerQueued.clear()
         // probation is deliberately left standing. Stopping a pick you have heard
         // for fourteen seconds is not keeping it, and clearing the gate here let
         // the next progress save write it straight into Continue listening. It
@@ -912,6 +922,11 @@ class PlaybackService : MediaLibraryService() {
             controller: MediaSession.ControllerInfo,
             mediaItems: List<MediaItem>,
         ): ListenableFuture<List<MediaItem>> = scope.future(Dispatchers.IO) {
+            // Radio's own refills call the player directly and never come through
+            // here, so anything added while radio runs is the listener's choice.
+            if (radio != null) {
+                mediaItems.mapNotNullTo(listenerQueued) { MediaIds.episodeIdOrNull(it.mediaId) }
+            }
             mediaItems.mapNotNull { item -> resolve(item) }
         }
 
