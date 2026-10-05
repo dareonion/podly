@@ -55,9 +55,10 @@ interface FeedDirectory {
  *
  * Apple's lookup comes first, but some publishers hide their feed from Apple's
  * directory while still listing the show there, and the lookup then returns
- * everything except the feed. The configured directories are asked next, by the
- * same id. They are asked even when Apple returns nothing at all: its lookup is
- * scoped to the US storefront, and a directory may still know the id.
+ * everything except the feed. Only then are the configured directories asked, by
+ * the same id. Not for an id Apple doesn't list: asked for id 1, which is no
+ * Apple show, PodcastIndex and Taddy both answered with "Closing the Loop", a
+ * feed that claims that id for itself (checked 2026-10-04).
  */
 class AppleShowResolver(
     private val lookUpApple: suspend (String) -> AppleListing?,
@@ -65,31 +66,31 @@ class AppleShowResolver(
     private val log: (String) -> Unit = { Log.i(TAG, it) },
 ) {
     suspend fun resolve(appleId: String): AppleShow {
-        val listing = lookUpApple(appleId)
-        listing?.feedUrl?.let { feedUrl ->
-            return AppleShow.Found(podcast(feedUrl, listing, directoryFeed = null))
-        }
+        val listing = lookUpApple(appleId) ?: return AppleShow.NotFound
+        listing.feedUrl?.let { return AppleShow.Found(podcast(it, listing)) }
         val asked = mutableListOf<String>()
         for (directory in directories) {
             if (!directory.isConfigured()) continue
             asked += directory.name
             val found = directory.feedForAppleId(appleId) ?: continue
-            log("${directory.name} has the feed Apple withholds for $appleId: ${found.feedUrl}")
-            return AppleShow.Found(podcast(found.feedUrl, listing, found))
+            log(
+                "${directory.name} has the feed Apple withholds for $appleId " +
+                    "(\"${listing.title}\", it says \"${found.title}\"): ${found.feedUrl}",
+            )
+            return AppleShow.Found(podcast(found.feedUrl, listing))
         }
-        return if (listing != null) AppleShow.FeedHidden(listing.title, asked) else AppleShow.NotFound
+        return AppleShow.FeedHidden(listing.title, asked)
     }
 
-    /** Apple's title and artwork win when it has them; the feed is the directory's. */
-    private fun podcast(feedUrl: String, listing: AppleListing?, directoryFeed: DirectoryFeed?) =
-        PodcastEntity(
-            id = stableId(feedUrl),
-            title = listing?.title ?: directoryFeed?.title ?: feedUrl,
-            author = listing?.author ?: directoryFeed?.author.orEmpty(),
-            feedUrl = feedUrl,
-            artworkUrl = listing?.artworkUrl ?: directoryFeed?.artworkUrl,
-            description = null,
-        )
+    /** Apple's title and artwork; only the feed comes from elsewhere. */
+    private fun podcast(feedUrl: String, listing: AppleListing) = PodcastEntity(
+        id = stableId(feedUrl),
+        title = listing.title,
+        author = listing.author,
+        feedUrl = feedUrl,
+        artworkUrl = listing.artworkUrl,
+        description = null,
+    )
 }
 
 /** PodcastIndex, which has an endpoint for exactly this lookup; asked first. */

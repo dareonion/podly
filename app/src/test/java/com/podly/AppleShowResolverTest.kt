@@ -86,12 +86,12 @@ class AppleShowResolverTest {
     }
 
     @Test
-    fun `directories are still asked when apple has no listing`() = runBlocking {
-        val podcast = (resolver(null, FakeDirectory("Taddy", feed = captivate)).resolve("1") as AppleShow.Found)
-            .podcast
-        assertEquals("School's In", podcast.title)
-        assertEquals(AppleShow.NotFound, resolver(null, FakeDirectory("Taddy")).resolve("1"))
-        assertNull(AppleShow.Found(podcast).problem())
+    fun `an id apple doesn't list is not looked up elsewhere`() = runBlocking {
+        // Both directories answer id 1 with "Closing the Loop", whose feed claims it.
+        val directory = FakeDirectory("PodcastIndex", feed = DirectoryFeed("https://closing-the-loop.github.io/feed.xml"))
+        assertEquals(AppleShow.NotFound, resolver(null, directory).resolve("1"))
+        assertTrue(directory.asked.isEmpty())
+        assertEquals("Apple doesn't list this podcast.", AppleShow.NotFound.problem())
     }
 
     // The real lookup body for School's In (id 1239888602, 2026-10-04), trimmed to
@@ -124,22 +124,26 @@ class AppleShowResolverTest {
         assertNull(ItunesApi.parseListing("""{"resultCount":0,"results":[]}"""))
     }
 
+    // Live byitunesid answers (2026-10-04), trimmed to the fields that matter: a hit
+    // for Stanford Legal, and School's In, which PodcastIndex does not have.
     @Test
     fun `podcastindex byitunesid reads the feed object and treats anything else as a miss`() {
         val found = PodcastIndexApi.parseFeedByItunesId(
             """
-            {"status":"true","query":{"id":"1239888602"},"feed":{"id":75075,
-             "title":"School's In","url":"https://feeds.captivate.fm/schools-in/",
-             "author":"Stanford Graduate School of Education","image":"https://img/i.jpg",
-             "artwork":"https://img/a.jpg","itunesId":1239888602},"description":"Found matching feed"}
+            {"status":"true","feed":{"url":"https://feeds.simplecast.com/_45D2qy7",
+             "title":"Stanford Legal","author":"Stanford Law School","itunesId":1446979113},
+             "description":"Found matching items."}
             """.trimIndent(),
         )!!
-        assertEquals("https://feeds.captivate.fm/schools-in/", found.feedUrl)
-        assertEquals("School's In", found.title)
-        assertEquals("https://img/a.jpg", found.artworkUrl)
-        assertNull(PodcastIndexApi.parseFeedByItunesId("""{"status":"true","feed":[],"description":"No feeds match"}"""))
+        assertEquals("https://feeds.simplecast.com/_45D2qy7", found.feedUrl)
+        assertEquals("Stanford Legal", found.title)
+        assertNull(
+            PodcastIndexApi.parseFeedByItunesId(
+                """{"status":"true","feed":[],"description":"No feeds match this itunes id."}""",
+            ),
+        )
         assertNull(PodcastIndexApi.parseFeedByItunesId("""{"status":"true","description":"No feeds match"}"""))
-        assertNull(PodcastIndexApi.parseFeedByItunesId("""{"status":"true","feed":{"id":1,"url":""}}"""))
+        assertNull(PodcastIndexApi.parseFeedByItunesId("""{"status":"true","feed":{"url":""}}"""))
     }
 
     @Test

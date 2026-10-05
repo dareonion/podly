@@ -10,13 +10,8 @@ import java.security.MessageDigest
 
 enum class TrendingPeriod { NOW, WEEK, MONTH }
 
-/** A feed another directory has on file for a show Apple knows by id. */
-data class DirectoryFeed(
-    val feedUrl: String,
-    val title: String? = null,
-    val author: String? = null,
-    val artworkUrl: String? = null,
-)
+/** A feed another directory has on file for a show Apple knows by id; [title] is its name for it. */
+data class DirectoryFeed(val feedUrl: String, val title: String? = null)
 
 /** A chart entry; Apple's carry only [appleId], resolved through AppleShowResolver on tap. */
 data class TrendingPodcast(
@@ -155,19 +150,14 @@ class PodcastIndexApi {
 
     companion object {
         /**
-         * The `feed` of a byitunesid response. Its spec does not say what "not found"
-         * looks like, and PodcastIndex answers misses on its other by-id lookups with
-         * `"feed": []`, so anything but an object carrying a url reads as a miss.
+         * The `feed` of a byitunesid response. A miss is `"feed": []` (an empty list
+         * where a hit has an object; checked 2026-10-04, and not in the spec), so
+         * anything but an object carrying a url reads as a miss.
          */
         fun parseFeedByItunesId(body: String): DirectoryFeed? {
             val feed = Http.json.parseToJsonElement(body).jsonObject["feed"] as? JsonObject ?: return null
             fun field(name: String) = (feed[name] as? JsonPrimitive)?.contentOrNull?.ifBlank { null }
-            return DirectoryFeed(
-                feedUrl = field("url") ?: return null,
-                title = field("title"),
-                author = field("author"),
-                artworkUrl = field("artwork") ?: field("image"),
-            )
+            return DirectoryFeed(feedUrl = field("url") ?: return null, title = field("title"))
         }
 
         /** PodcastIndex auth: sha1(key + secret + unixTime) as lowercase hex. */
