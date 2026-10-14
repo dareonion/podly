@@ -43,10 +43,28 @@ internal fun LazyListScope.aiPicksSections(
     onOpenPodcast: (String) -> Unit,
     onOpenPlaylist: (Long) -> Unit,
 ) {
-    recentEpisodesSection(state, viewModel, onOpenPodcast, onOpenPlaylist)
-    acclaimedSection(state, viewModel, onOpenPodcast)
+    val now = System.currentTimeMillis()
+    // Both lists come from the dispatch-only recommendations workflow, whose cron is
+    // off: left showing, they read as current while months old. The recent list keeps
+    // its header, window chips and Refresh: windows can differ in age (the generator
+    // keeps a window's old file when its payload fails), so a fresh one must stay
+    // reachable from a stale one.
+    recentEpisodesSection(
+        state, viewModel, onOpenPodcast, onOpenPlaylist,
+        stale = isStaleList(state.recentGeneratedAtMs, now),
+    )
+    if (!isStaleList(state.acclaimedGeneratedAtMs, now)) {
+        acclaimedSection(state, viewModel, onOpenPodcast)
+    }
     recommendationsSection(state, viewModel, onOpenPodcast)
 }
+
+/** Pre-generated lists older than this are hidden rather than shown as news. */
+internal const val STALE_LIST_MS = 14L * 24 * 60 * 60 * 1000
+
+/** True once a list's generation time is known and older than [maxAgeMs]. */
+internal fun isStaleList(generatedAtMs: Long, nowMs: Long, maxAgeMs: Long = STALE_LIST_MS): Boolean =
+    generatedAtMs > 0 && nowMs - generatedAtMs > maxAgeMs
 
 /** The recent-episode picks: header with window chips, save-as-playlist, then the rows. */
 private fun LazyListScope.recentEpisodesSection(
@@ -54,6 +72,7 @@ private fun LazyListScope.recentEpisodesSection(
     viewModel: DiscoverViewModel,
     onOpenPodcast: (String) -> Unit,
     onOpenPlaylist: (Long) -> Unit,
+    stale: Boolean = false,
 ) {
     item {
         Column(
@@ -84,6 +103,17 @@ private fun LazyListScope.recentEpisodesSection(
                 )
             }
         }
+    }
+    if (stale && !state.recentEpisodesLoading) {
+        item {
+            Text(
+                "Hidden until a newer list is published.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        }
+        return
     }
     if (state.recentEpisodesLoading) loadingItem()
     state.recentEpisodes?.let { picks ->
