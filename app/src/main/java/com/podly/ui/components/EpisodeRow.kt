@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Downloading
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.MoreVert
@@ -144,12 +143,10 @@ fun EpisodeRow(
                 tint = MaterialTheme.colorScheme.primary,
             )
         }
+        // Only the exceptions get a badge. Started episodes download on their own, so
+        // "Downloaded" sat on nearly every Continue-listening row and said nothing; the
+        // episode page and this row's menu still show it.
         when (episode.downloadStatus) {
-            DownloadStatus.DONE -> Icon(
-                Icons.Filled.DownloadDone, "Downloaded",
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.primary,
-            )
             DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED -> Icon(
                 Icons.Filled.Downloading, "Downloading",
                 modifier = Modifier.size(18.dp),
