@@ -21,16 +21,19 @@ phone.
   show, auto-delete played downloads
 - Streaming with a 1 GB on-disk cache; every episode resumes where you left off
 - Playlists with manual (drag-to-reorder) or chronological ordering
-- Android Auto: Continue / Playlists / Library / Downloads browse tree, with
+- Android Auto: Continue / This week (once a digest has synced) / Playlists /
+  Library / Downloads browse tree, with
   steering-wheel next/previous remapped to in-episode skips
 - Listening history and stats
 - Discover: Apple charts, PodcastIndex trending, and AI-generated picks
-  (acclaimed shows and best-recent-episode lists, pre-generated weekly in CI
-  and served as static JSON from GitHub Pages — no AI key needed on-device)
-- Optional API keys, entered in Settings: PodcastIndex or Taddy unlock trending
-  time windows and an episode-archive fallback for shows whose feeds only
-  expose their newest episodes; an Anthropic or OpenAI key enables on-device
-  personalized recommendations
+  (acclaimed shows and best-recent-episode lists, pre-generated in CI when the
+  dispatch-only workflow is run and served as static JSON from GitHub Pages — no
+  AI key needed on-device; a list over 14 days old is hidden, except while it refreshes)
+- Optional API keys, entered in Settings → Services & keys: PodcastIndex unlocks
+  the Week/Month trending windows; PodcastIndex or Taddy add an episode-archive
+  fallback for shows whose feeds only expose their newest episodes, and a feed
+  lookup for Apple links whose feed Apple withholds; an Anthropic or OpenAI key
+  enables on-device personalized recommendations
 
 ## Build
 

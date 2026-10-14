@@ -3,9 +3,9 @@
 The CI generator needs paid API credits; this is the free alternative using a chat
 subscription's built-in web search. Run the prompt below in the ChatGPT or Claude
 app (make sure web search is available), copy the JSON it returns, then in Podly:
-**Settings → Paste picks JSON → Import**. Picks are matched against each show's
-feed, and picks that have rolled off a short feed are recovered through the
-Taddy/PodcastIndex keys configured in Settings.
+**Library → Playlists → Import picks → Paste JSON → Import**. Picks are matched
+against each show's feed, and picks that have rolled off a short feed are recovered
+through the Taddy/PodcastIndex keys in Settings → Services & keys.
 
 Tips:
 
