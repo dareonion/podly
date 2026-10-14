@@ -1,5 +1,9 @@
 package com.podly.ui.history
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,9 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.EditNote
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ElevatedCard
@@ -63,7 +64,7 @@ class HistoryViewModel(private val graph: AppGraph) : ViewModel() {
 }
 
 @Composable
-fun HistoryScreen() {
+fun HistoryScreen(onOpenEpisode: (String) -> Unit = {}) {
     val viewModel = appViewModel { HistoryViewModel(it) }
     val history by viewModel.history.collectAsStateWithLifecycle()
     val segments by viewModel.segments.collectAsStateWithLifecycle()
@@ -122,6 +123,7 @@ fun HistoryScreen() {
                             filter is ProfileFilter.All ||
                                 seg.profileId == (filter as ProfileFilter.Only).profileId
                         },
+                    onOpen = { onOpenEpisode(episode.id) },
                     onEdit = { editingEpisode = episode },
                 )
                 Spacer(Modifier.height(12.dp))
@@ -212,11 +214,15 @@ private fun HistoryCard(
     /** Time heard under the active filter; the DAO's own total spans every profile. */
     heardMs: Long,
     segments: List<ListeningSegmentEntity>,
+    onOpen: () -> Unit,
     onEdit: () -> Unit,
 ) {
     // From the segments this filter shows: the summary row counts every profile.
     val heard = heardSummary(episode, segments)
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+    // The timestamps are the raw record; a card used to show up to ten of them, so a
+    // few episodes filled the screen. One line until asked for.
+    var showRanges by remember(episode.id) { mutableStateOf(false) }
+    ElevatedCard(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp)) {
             Text(
                 episode.title,
@@ -231,48 +237,33 @@ private fun HistoryCard(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AssistChip(
-                    onClick = {},
-                    label = { Text("Heard ${formatPosition(heardMs)}") },
-                )
-                Spacer(Modifier.width(8.dp))
-                AssistChip(
-                    onClick = {},
-                    label = { Text("${heard.ranges} range${if (heard.ranges == 1) "" else "s"}") },
-                )
-                episode.userRating?.let { rating ->
-                    Spacer(Modifier.width(8.dp))
-                    AssistChip(
-                        onClick = {},
-                        label = { Text("$rating/5") },
-                        leadingIcon = { Icon(Icons.Filled.Star, null) },
-                    )
-                }
-            }
-            formatDateTime(heard.lastListenedAt)?.let {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Last listened $it",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                listOfNotNull(
+                    "Heard ${formatPosition(heardMs)}",
+                    episode.userRating?.let { "★ $it/5" },
+                    formatDateTime(heard.lastListenedAt)?.let { "last $it" },
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+            )
             if (!episode.userNote.isNullOrBlank()) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(6.dp))
                 Text(episode.userNote, style = MaterialTheme.typography.bodyMedium)
             }
-            Spacer(Modifier.height(10.dp))
-            Button(onClick = onEdit) {
-                Icon(Icons.Filled.EditNote, null)
-                Spacer(Modifier.width(6.dp))
-                Text(if (episode.userNote.isNullOrBlank() && episode.userRating == null) "Add note" else "Edit note")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { showRanges = !showRanges }, enabled = segments.isNotEmpty()) {
+                    Text(
+                        (if (heard.ranges == 1) "1 range" else "${heard.ranges} ranges") +
+                            if (showRanges) " ▴" else " ▾",
+                    )
+                }
+                TextButton(onClick = onEdit) {
+                    Icon(Icons.Filled.EditNote, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (episode.userNote.isNullOrBlank() && episode.userRating == null) "Add note" else "Edit note")
+                }
             }
-            if (segments.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(8.dp))
+            if (showRanges) {
                 segments.take(10).forEach { segment ->
                     Text(
                         "${formatPosition(segment.startPositionMs)} - ${formatPosition(segment.endPositionMs)}" +
@@ -304,7 +295,10 @@ private fun ProfileFilterRow(
     onSelect: (ProfileFilter) -> Unit,
 ) {
     if (stats.msByProfile.keys.none { it != null }) return
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         FilterChip(
             selected = selected is ProfileFilter.All,
             onClick = { onSelect(ProfileFilter.All) },
@@ -317,7 +311,11 @@ private fun ProfileFilterRow(
                     selected = selected is ProfileFilter.Only && selected.profileId == profileId,
                     onClick = { onSelect(ProfileFilter.Only(profileId)) },
                     label = {
-                        Text("${RadioProfiles.labelFor(profileId)} · ${formatDuration(ms) ?: "0m"}")
+                        Text(
+                            "${RadioProfiles.labelFor(profileId)} · ${formatDuration(ms) ?: "0m"}",
+                            maxLines = 1,
+                            softWrap = false,
+                        )
                     },
                 )
             }

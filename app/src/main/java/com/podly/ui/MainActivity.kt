@@ -168,7 +168,9 @@ private fun PodlyApp() {
                     onOpenWeekly = { navController.navigate("weekly") },
                 )
             }
-            composable("history") { HistoryScreen() }
+            composable("history") {
+                HistoryScreen(onOpenEpisode = { navController.navigate("episode/$it") })
+            }
             composable("playlists") {
                 PlaylistsScreen(
                     onOpenPlaylist = { navController.navigate("playlist/$it") },
