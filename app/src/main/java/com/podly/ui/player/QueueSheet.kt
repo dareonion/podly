@@ -40,14 +40,19 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 
 /**
  * The play queue, editable: drag a row by its handle to reorder, remove anything
- * but the episode playing, or clear everything after it. Tapping a row plays it.
+ * but the episode playing, or clear everything after it. Tapping a row plays it;
+ * tapping its artwork opens the episode page instead.
  *
  * Every edit goes straight to the player, so it reaches Android Auto, the cast
  * receiver and the saved queue the same way a skip does.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun QueueSheet(player: PlayerConnection, onDismiss: () -> Unit) {
+internal fun QueueSheet(
+    player: PlayerConnection,
+    onDismiss: () -> Unit,
+    onOpenEpisode: (String) -> Unit,
+) {
     val state by player.state.collectAsState()
     // Mutates live during a drag and resyncs whenever the player's queue changes.
     var rows by remember(state.queue) { mutableStateOf(state.queue) }
@@ -109,12 +114,14 @@ internal fun QueueSheet(player: PlayerConnection, onDismiss: () -> Unit) {
                             ) {
                                 Icon(Icons.Filled.DragHandle, "Reorder")
                             }
+                            // Its own touch target, so the row's tap still plays.
                             AsyncImage(
                                 model = item.artworkUri,
-                                contentDescription = null,
+                                contentDescription = "Episode details",
                                 modifier = Modifier
                                     .size(40.dp)
-                                    .clip(RoundedCornerShape(6.dp)),
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable { onOpenEpisode(item.episodeId) },
                             )
                             Column(
                                 modifier = Modifier

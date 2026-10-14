@@ -188,7 +188,9 @@ private fun PodlyApp() {
                     onOpenTranscript = { navController.navigate("transcript/$it") },
                 )
             }
-            composable("player") { PlayerScreen() }
+            composable("player") {
+                PlayerScreen(onOpenEpisode = { navController.navigate("episode/$it") })
+            }
             composable("transcript/{episodeId}") { entry ->
                 val episodeId = entry.arguments?.getString("episodeId") ?: return@composable
                 TranscriptScreen(episodeId, onBack = { navController.popBackStack() })

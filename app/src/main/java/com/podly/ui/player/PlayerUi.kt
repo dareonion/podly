@@ -148,7 +148,7 @@ fun MiniPlayer(onOpenPlayer: () -> Unit) {
 }
 
 @Composable
-fun PlayerScreen() {
+fun PlayerScreen(onOpenEpisode: (String) -> Unit = {}) {
     val player = LocalContext.current.appGraph.player
     val notesViewModel = appViewModel { PlayerNotesViewModel(it) }
     val state by player.state.collectAsState()
@@ -177,13 +177,19 @@ fun PlayerScreen() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        // Artwork, title and show open the episode page: a radio pick otherwise had
+        // no way from here to its notes, transcript, save or download.
+        val openEpisode = Modifier.clickable(enabled = state.episodeId != null) {
+            state.episodeId?.let(onOpenEpisode)
+        }
         AsyncImage(
             model = state.artworkUri,
-            contentDescription = null,
+            contentDescription = "Episode details",
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .clip(RoundedCornerShape(20.dp)),
+                .clip(RoundedCornerShape(20.dp))
+                .then(openEpisode),
         )
         Spacer(Modifier.height(24.dp))
         Text(
@@ -191,9 +197,11 @@ fun PlayerScreen() {
             style = MaterialTheme.typography.titleLarge,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
+            modifier = openEpisode,
         )
         Text(
             state.podcastTitle ?: "",
+            modifier = openEpisode,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -300,7 +308,14 @@ fun PlayerScreen() {
     }
 
     if (queueSheetOpen) {
-        QueueSheet(player, onDismiss = { queueSheetOpen = false })
+        QueueSheet(
+            player,
+            onDismiss = { queueSheetOpen = false },
+            onOpenEpisode = { episodeId ->
+                queueSheetOpen = false
+                onOpenEpisode(episodeId)
+            },
+        )
     }
 
     if (noteDialogOpen) {
