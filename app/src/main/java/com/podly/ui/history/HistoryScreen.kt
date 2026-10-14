@@ -214,6 +214,8 @@ private fun HistoryCard(
     segments: List<ListeningSegmentEntity>,
     onEdit: () -> Unit,
 ) {
+    // From the segments this filter shows: the summary row counts every profile.
+    val heard = heardSummary(episode, segments)
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp)) {
             Text(
@@ -238,7 +240,7 @@ private fun HistoryCard(
                 Spacer(Modifier.width(8.dp))
                 AssistChip(
                     onClick = {},
-                    label = { Text("${episode.segmentCount} range${if (episode.segmentCount == 1) "" else "s"}") },
+                    label = { Text("${heard.ranges} range${if (heard.ranges == 1) "" else "s"}") },
                 )
                 episode.userRating?.let { rating ->
                     Spacer(Modifier.width(8.dp))
@@ -249,7 +251,7 @@ private fun HistoryCard(
                     )
                 }
             }
-            formatDateTime(episode.lastListenedAt)?.let {
+            formatDateTime(heard.lastListenedAt)?.let {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "Last listened $it",

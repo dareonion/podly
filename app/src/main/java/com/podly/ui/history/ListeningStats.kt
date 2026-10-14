@@ -106,3 +106,19 @@ object ListeningStatsCalculator {
 
     private const val MILLIS_PER_DAY = 86_400_000L
 }
+
+/** What a History card says about one episode's listening. */
+data class HeardSummary(val ranges: Int, val lastListenedAt: Long)
+
+/**
+ * Range count and last-listened time from [segments], the episode's segments under
+ * the active filter. The episode summary's own figures span every profile, so under
+ * a profile filter they disagreed with the heard time and ranges shown beside them.
+ * Falls back to the summary only when no segments were passed.
+ */
+fun heardSummary(episode: EpisodeHistorySummary, segments: List<ListeningSegmentEntity>): HeardSummary =
+    if (segments.isEmpty()) {
+        HeardSummary(episode.segmentCount, episode.lastListenedAt)
+    } else {
+        HeardSummary(segments.size, segments.maxOf { it.endedAt })
+    }
