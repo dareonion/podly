@@ -98,6 +98,27 @@ fun RadioCard(
                     // Leaving radio keeps the queue playing; "Stop" read as stopping the audio.
                     TextButton(onClick = viewModel::stop) { Text("Leave radio") }
                 }
+            } else if (state.otherProfilePlaying != null) {
+                val playing = state.otherProfilePlaying!!
+                Text(
+                    "${playing.displayName} radio is playing" +
+                        (state.nowPlayingTitle?.let { ": $it" } ?: ""),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Button(onClick = viewModel::switchToSelected, enabled = state.emptyReason == null) {
+                    Icon(Icons.Filled.PlayArrow, null)
+                    Text("  Switch to ${state.profile.displayName}")
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // The selected profile's picks; browsing them leaves playback alone.
+                    TextButton(onClick = onOpenPicks) { Text("Browse picks") }
+                    TextButton(onClick = viewModel::stop) { Text("Leave radio") }
+                }
+                state.emptyReason?.let { reason ->
+                    Text(reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
             } else {
                 Text(
                     state.profile.tagline,

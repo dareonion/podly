@@ -18,7 +18,8 @@ import kotlinx.coroutines.launch
 data class RadioCardState(
     val profile: RadioProfile = RadioProfiles.YOU,
     val profiles: List<RadioProfile> = RadioProfiles.ALL,
-    val isPlaying: Boolean = false,
+    /** The profile whose radio session is playing, which need not be the one selected. */
+    val playingProfileId: String? = null,
     val nowPlayingTitle: String? = null,
     val nowPlayingShow: String? = null,
     val backlogCount: Int = 0,
@@ -28,7 +29,15 @@ data class RadioCardState(
     val weeklyCount: Int = 0,
 ) {
     /** True when the session belongs to the profile the card is showing. */
-    val isActive: Boolean get() = isPlaying
+    val isActive: Boolean get() = playingProfileId == profile.id
+
+    /**
+     * Radio is playing for a profile other than the selected one. The chip only picks
+     * which profile the card is about; it never changes what is playing, so without
+     * this the card showed the other profile's session as if it were this one's.
+     */
+    val otherProfilePlaying: RadioProfile?
+        get() = playingProfileId?.takeIf { it != profile.id }?.let(RadioProfiles::byId)
 
     /** Non-null when radio cannot start, and why. */
     val emptyReason: String?
@@ -72,7 +81,8 @@ class RadioViewModel(private val graph: AppGraph) : ViewModel() {
                 val weekly = values[6] as Int
                 RadioCardState(
                     profile = profile,
-                    isPlaying = session != null && player.radioProfileId != null,
+                    // The service's own extras say which profile it is running.
+                    playingProfileId = player.radioProfileId.takeIf { session != null },
                     nowPlayingTitle = player.title,
                     nowPlayingShow = player.podcastTitle,
                     backlogCount = backlog,
@@ -96,6 +106,9 @@ class RadioViewModel(private val graph: AppGraph) : ViewModel() {
     }
 
     fun next() = graph.player.skipRadio()
+
+    /** Ends the other profile's session and starts the selected one in its place. */
+    fun switchToSelected() = start()
 
     fun stop() = graph.player.stopRadio()
 
