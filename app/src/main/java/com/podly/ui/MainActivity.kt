@@ -45,6 +45,8 @@ import com.podly.ui.transcript.TranscriptScreen
 import com.podly.ui.discover.DiscoverScreen
 import com.podly.ui.episode.EpisodeDetailScreen
 import com.podly.ui.history.HistoryScreen
+import com.podly.ui.library.EpisodeListScreen
+import com.podly.ui.library.LibraryList
 import com.podly.ui.library.LibraryScreen
 import com.podly.ui.player.MiniPlayer
 import com.podly.ui.player.PlayerScreen
@@ -148,6 +150,14 @@ private fun PodlyApp() {
                     onOpenPicks = { navController.navigate("radio_picks") },
                     onOpenWeekly = { navController.navigate("weekly") },
                     onOpenPlaylists = { navController.navigate("playlists") },
+                    onOpenList = { navController.navigate("episodes/${it.route}") },
+                )
+            }
+            composable("episodes/{list}") { entry ->
+                EpisodeListScreen(
+                    list = LibraryList.fromRoute(entry.arguments?.getString("list")),
+                    onOpenEpisode = { navController.navigate("episode/$it") },
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable("discover") {

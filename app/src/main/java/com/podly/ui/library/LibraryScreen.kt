@@ -2,6 +2,8 @@ package com.podly.ui.library
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,12 +19,14 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -49,8 +53,6 @@ import kotlinx.coroutines.launch
 class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
     val actions = EpisodeActions(graph, viewModelScope)
     val podcasts = graph.podcasts.subscribedPodcasts()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val episodes = graph.podcasts.libraryEpisodes()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val continueListening = graph.podcasts.continueListening()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -92,10 +94,10 @@ fun LibraryScreen(
     onOpenPicks: () -> Unit = {},
     onOpenWeekly: () -> Unit = {},
     onOpenPlaylists: () -> Unit = {},
+    onOpenList: (LibraryList) -> Unit = {},
 ) {
     val viewModel = appViewModel { LibraryViewModel(it) }
     val podcasts by viewModel.podcasts.collectAsStateWithLifecycle()
-    val episodes by viewModel.episodes.collectAsStateWithLifecycle()
     val continueListening by viewModel.continueListening.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val weeklyCount by viewModel.weeklyCount.collectAsStateWithLifecycle()
@@ -123,13 +125,15 @@ fun LibraryScreen(
             }
             if (continueListening.isNotEmpty()) {
                 item {
-                    Text(
+                    SectionHeader(
                         "Continue listening",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(16.dp),
+                        action = "See all".takeIf { continueListening.size > HOME_CONTINUE_ROWS },
+                        onAction = { onOpenList(LibraryList.CONTINUE) },
                     )
                 }
-                items(continueListening, key = { "continue_${it.id}" }) { episode ->
+                // A handful here; the rest is one tap away, so the home tab is not a
+                // twenty-row scroll before anything else.
+                items(continueListening.take(HOME_CONTINUE_ROWS), key = { "continue_${it.id}" }) { episode ->
                     EpisodeRow(
                         episode = episode,
                         onPlay = {
@@ -146,11 +150,7 @@ fun LibraryScreen(
                 }
             }
             item {
-                Text(
-                    "Podcasts",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(16.dp),
-                )
+                SectionHeader("Podcasts", action = "All episodes", onAction = { onOpenList(LibraryList.ALL) })
             }
             item {
                 if (podcasts.isEmpty()) {
@@ -167,26 +167,6 @@ fun LibraryScreen(
                         }
                     }
                 }
-            }
-            item {
-                Text(
-                    "Episodes",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(16.dp),
-                )
-            }
-            items(episodes, key = { it.id }) { episode ->
-                EpisodeRow(
-                    episode = episode,
-                    onPlay = { viewModel.actions.play(episodes, episodes.indexOf(episode)) },
-                    onToggleLibrary = { viewModel.actions.toggleLibrary(episode) },
-                    onDownload = { viewModel.actions.download(episode) },
-                    onRemoveDownload = { viewModel.actions.removeDownload(episode) },
-                    onAddToPlaylist = { episodeForPlaylist = episode },
-                    onTogglePlayed = { viewModel.actions.togglePlayed(episode) },
-                    onShowDescription = { episodeForDescription = episode },
-                    onOpenDetail = { onOpenEpisode(episode.id) },
-                )
             }
         }
     }
@@ -234,5 +214,19 @@ private fun LibraryShortcuts(shortcuts: List<Shortcut>) {
                 leadingIcon = { Icon(shortcut.icon, null, modifier = Modifier.size(18.dp)) },
             )
         }
+    }
+}
+
+private const val HOME_CONTINUE_ROWS = 5
+
+/** A section title with an optional trailing text action ("See all"). */
+@Composable
+private fun SectionHeader(title: String, action: String? = null, onAction: () -> Unit = {}) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(vertical = 8.dp))
+        if (action != null) TextButton(onClick = onAction) { Text(action) }
     }
 }
