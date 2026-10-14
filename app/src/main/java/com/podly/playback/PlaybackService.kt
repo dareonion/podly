@@ -685,6 +685,8 @@ class PlaybackService : MediaLibraryService() {
      * convention that normally restores a saved position does not apply here.
      */
     private suspend fun startRadio(profileId: String, firstEpisodeId: String? = null) {
+        // A refill still fetching for the previous session must not land in this one.
+        radioRefillJob?.cancel()
         // Starting on a chosen episode still starts a *session*: the rest of the
         // queue is the usual picks, so Next keeps working from there.
         val chosen = firstEpisodeId?.let { appGraph.podcasts.episodeById(it) }
@@ -706,6 +708,7 @@ class PlaybackService : MediaLibraryService() {
         val first = built.first().second
         val items = built.map { it.first }
         val (window, index) = if (isCasting()) castQueueWindow(items, 0) else items to 0
+        closeOutListening(player)
         listenerQueued.clear()
         radio = RadioSessionState(profileId)
         probation = RadioProbation(first.id, profileId)
@@ -737,6 +740,7 @@ class PlaybackService : MediaLibraryService() {
 
     /** Leaves radio; whatever is already queued keeps playing as an ordinary queue. */
     private suspend fun stopRadio() {
+        closeOutListening(activePlayer())
         radio = null
         listenerQueued.clear()
         // probation is deliberately left standing. Stopping a pick you have heard
@@ -776,8 +780,22 @@ class PlaybackService : MediaLibraryService() {
             .mapNotNull { MediaIds.episodeIdOrNull(player.getMediaItemAt(it).mediaId) }
             .toSet()
         val built = radioItems(session.profileId, plan.fetchCount, exclude = queued)
-        if (built.isEmpty()) return
+        // radioItems suspends; a switch to another profile in the meantime replaced
+        // the queue, and these picks belong to the session that asked for them.
+        if (built.isEmpty() || radio !== session) return
         player.addMediaItems(built.map { it.first })
+    }
+
+    /**
+     * Saves the listening in flight before the radio session changes hands. A segment
+     * is labelled with the session current when it is flushed, and the transition that
+     * starting a new session causes flushed it only after the switch: the old episode's
+     * last stretch was filed under the new profile, and a pick still on probation
+     * escaped it, because probation had already moved to the new first pick.
+     */
+    private suspend fun closeOutListening(player: Player) {
+        recordListeningProgress(player)
+        flushListeningSegment()
     }
 
     private inner class LibraryCallback : MediaLibrarySession.Callback {
