@@ -21,7 +21,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -160,12 +159,15 @@ fun SettingsScreen() {
     val viewModel = appViewModel { SettingsViewModel(it) }
     val settings by viewModel.settings.collectAsStateWithLifecycle()
 
-    var anthropicKey by remember { mutableStateOf("") }
-    var openAiKey by remember { mutableStateOf("") }
-    var piKey by remember { mutableStateOf("") }
-    var piSecret by remember { mutableStateOf("") }
-    var taddyUserId by remember { mutableStateOf("") }
-    var taddyApiKey by remember { mutableStateOf("") }
+    // Each draft reloads only when its own stored value changes. Keyed on the whole
+    // Settings object, as these once were, any toggle or chip tap reset every field and
+    // threw away a key typed but not yet saved.
+    var anthropicKey by remember(settings.anthropicApiKey) { mutableStateOf(settings.anthropicApiKey) }
+    var openAiKey by remember(settings.openAiApiKey) { mutableStateOf(settings.openAiApiKey) }
+    var piKey by remember(settings.podcastIndexKey) { mutableStateOf(settings.podcastIndexKey) }
+    var piSecret by remember(settings.podcastIndexSecret) { mutableStateOf(settings.podcastIndexSecret) }
+    var taddyUserId by remember(settings.taddyUserId) { mutableStateOf(settings.taddyUserId) }
+    var taddyApiKey by remember(settings.taddyApiKey) { mutableStateOf(settings.taddyApiKey) }
     var aiKeysStatus by remember { mutableStateOf<String?>(null) }
     var piStatus by remember { mutableStateOf<String?>(null) }
     var taddyStatus by remember { mutableStateOf<String?>(null) }
@@ -258,14 +260,6 @@ fun SettingsScreen() {
     var showPastePicksDialog by remember { mutableStateOf(false) }
     var pastedPicks by remember { mutableStateOf("") }
     var pasteHistory by remember { mutableStateOf<List<SettingsViewModel.PasteEntry>>(emptyList()) }
-    LaunchedEffect(settings) {
-        anthropicKey = settings.anthropicApiKey
-        openAiKey = settings.openAiApiKey
-        piKey = settings.podcastIndexKey
-        piSecret = settings.podcastIndexSecret
-        taddyUserId = settings.taddyUserId
-        taddyApiKey = settings.taddyApiKey
-    }
 
     Column(
         modifier = Modifier
