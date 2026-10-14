@@ -95,7 +95,8 @@ fun RadioCard(
                         Text("  Next")
                     }
                     TextButton(onClick = onOpenPicks) { Text("Browse") }
-                    TextButton(onClick = viewModel::stop) { Text("Stop") }
+                    // Leaving radio keeps the queue playing; "Stop" read as stopping the audio.
+                    TextButton(onClick = viewModel::stop) { Text("Leave radio") }
                 }
             } else {
                 Text(
