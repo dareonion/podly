@@ -184,13 +184,16 @@ fun RadioPicksScreen(onOpenEpisode: (String) -> Unit, onBack: () -> Unit = {}) {
                         overflow = TextOverflow.Ellipsis,
                     )
                     // Choosing between sixty episodes on title alone is guesswork;
-                    // the show notes are what the titles leave out.
+                    // the show notes are what the titles leave out. Briefly, though:
+                    // notes often open with a sponsor read, which at four lines filled
+                    // the list. Kept even beside a reason, since a chart pick's reason
+                    // is only its rank ("Apple US #10").
                     plainDescription(episode.description)?.let { blurb ->
                         Text(
                             blurb,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 4,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 4.dp),
                         )
