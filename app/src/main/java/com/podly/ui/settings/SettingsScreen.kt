@@ -2,6 +2,19 @@ package com.podly.ui.settings
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,7 +28,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -177,6 +189,10 @@ fun SettingsScreen() {
     var keyCheck by remember { mutableStateOf<KeyCheckResult?>(null) }
     var keyChecking by remember { mutableStateOf(false) }
 
+    // Credentials matter only to the features that use them, and every visit used to
+    // open on four sections of them; they stay folded away until asked for.
+    var servicesOpen by rememberSaveable { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -186,185 +202,31 @@ fun SettingsScreen() {
     ) {
         Text("Settings", style = MaterialTheme.typography.titleLarge)
 
-        Text("AI recommendations", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = settings.aiProvider == AiProvider.CLAUDE,
-                onClick = { viewModel.setProvider(AiProvider.CLAUDE) },
-                label = { Text("Claude") },
-            )
-            FilterChip(
-                selected = settings.aiProvider == AiProvider.OPENAI,
-                onClick = { viewModel.setProvider(AiProvider.OPENAI) },
-                label = { Text("OpenAI") },
-            )
-        }
-        OutlinedTextField(
-            value = anthropicKey,
-            onValueChange = { anthropicKey = it },
-            label = { Text("Anthropic API key") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = openAiKey,
-            onValueChange = { openAiKey = it },
-            label = { Text("OpenAI API key") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                viewModel.setAnthropicKey(anthropicKey)
-                viewModel.setOpenAiKey(openAiKey)
-                aiKeysStatus = "Saved."
-            }) { Text("Save AI keys") }
-            // A bad or unfunded key otherwise only shows up when a feature
-            // fails, which can be weeks later.
-            OutlinedButton(
-                enabled = !keyChecking,
-                onClick = {
-                    val provider = settings.aiProvider
-                    val key = if (provider == AiProvider.CLAUDE) anthropicKey else openAiKey
-                    keyChecking = true
-                    keyCheck = null
-                    scope.launch {
-                        keyCheck = ApiKeyCheck.validate(provider, key)
-                        keyChecking = false
-                    }
-                },
-            ) { Text(if (keyChecking) "Checking…" else "Check key") }
-        }
-        aiKeysStatus?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        keyCheck?.let { result ->
-            Text(
-                result.message,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (result.ok) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.error,
-            )
-            // Only inference touches the balance, so the credit state costs a
-            // (tiny) call — kept behind its own tap rather than run for you.
-            if (result.ok && settings.aiProvider == AiProvider.CLAUDE) {
-                TextButton(
-                    enabled = !keyChecking,
-                    onClick = {
-                        keyChecking = true
-                        scope.launch {
-                            keyCheck = ApiKeyCheck.checkCredits(anthropicKey)
-                            keyChecking = false
-                        }
-                    },
-                ) { Text("Also check credits (sends 1 token)") }
-            }
-        }
-
-        HorizontalDivider()
-
-        Text("PodcastIndex (Week/Month trending)", style = MaterialTheme.typography.titleMedium)
+        Text("Seek buttons", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Sign up free at api.podcastindex.org to get a key and secret.",
+            "Car and headset previous/next buttons jump by these amounts.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedTextField(
-            value = piKey,
-            onValueChange = { piKey = it },
-            label = { Text("API key") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = piSecret,
-            onValueChange = { piSecret = it },
-            label = { Text("API secret") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Button(onClick = {
-            scope.launch {
-                piStatus = "Checking keys with PodcastIndex…"
-                piStatus = viewModel.saveAndVerifyPodcastIndex(piKey, piSecret)
-            }
-        }) {
-            Text("Save PodcastIndex keys")
-        }
-        piStatus?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        HorizontalDivider()
-
-        Text("Taddy (recover rolled-off episodes)", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Sign up free at taddy.org for a user ID and API key. The user ID is the number " +
-                "on your Taddy dashboard, not your email. Used to find recommended episodes " +
-                "that a show has dropped from its RSS feed.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        OutlinedTextField(
-            value = taddyUserId,
-            onValueChange = { taddyUserId = it },
-            label = { Text("User ID (numeric)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = taddyApiKey,
-            onValueChange = { taddyApiKey = it },
-            label = { Text("API key") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Button(onClick = {
-            scope.launch {
-                taddyStatus = "Checking key with Taddy…"
-                taddyStatus = viewModel.saveAndVerifyTaddy(taddyUserId, taddyApiKey)
-            }
-        }) {
-            Text("Save Taddy keys")
-        }
-        taddyStatus?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        HorizontalDivider()
-
-        Text("Subscriptions", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Import or export subscribed podcast feeds as OPML.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text("Back: ${settings.seekBackSeconds}s", style = MaterialTheme.typography.bodyMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { importOpmlLauncher.launch(arrayOf("text/*", "application/xml", "*/*")) }) {
-                Text("Import OPML")
-            }
-            Button(onClick = {
-                scope.launch {
-                    opmlStatus = "Preparing OPML..."
-                    runCatching { withContext(Dispatchers.IO) { viewModel.exportOpml() } }
-                        .onSuccess { opml ->
-                            pendingOpmlExport = opml
-                            exportOpmlLauncher.launch("podly-subscriptions.opml")
-                        }
-                        .onFailure {
-                            opmlStatus = "Export failed: ${it.message ?: "unknown error"}"
-                        }
-                }
-            }) {
-                Text("Export OPML")
+            listOf(5, 10, 15, 30).forEach { seconds ->
+                FilterChip(
+                    selected = settings.seekBackSeconds == seconds,
+                    onClick = { viewModel.setSeekIncrements(seconds, settings.seekForwardSeconds) },
+                    label = { Text("${seconds}s") },
+                )
             }
         }
-        opmlStatus?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Text("Forward: ${settings.seekForwardSeconds}s", style = MaterialTheme.typography.bodyMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(10, 15, 30, 45, 60).forEach { seconds ->
+                FilterChip(
+                    selected = settings.seekForwardSeconds == seconds,
+                    onClick = { viewModel.setSeekIncrements(settings.seekBackSeconds, seconds) },
+                    label = { Text("${seconds}s") },
+                )
+            }
         }
 
         HorizontalDivider()
@@ -437,31 +299,195 @@ fun SettingsScreen() {
 
         HorizontalDivider()
 
-        Text("Seek buttons", style = MaterialTheme.typography.titleMedium)
+        Text("Subscriptions", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Car and headset previous/next buttons jump by these amounts.",
+            "Import or export subscribed podcast feeds as OPML.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text("Back: ${settings.seekBackSeconds}s", style = MaterialTheme.typography.bodyMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(5, 10, 15, 30).forEach { seconds ->
-                FilterChip(
-                    selected = settings.seekBackSeconds == seconds,
-                    onClick = { viewModel.setSeekIncrements(seconds, settings.seekForwardSeconds) },
-                    label = { Text("${seconds}s") },
-                )
+            Button(onClick = { importOpmlLauncher.launch(arrayOf("text/*", "application/xml", "*/*")) }) {
+                Text("Import OPML")
+            }
+            Button(onClick = {
+                scope.launch {
+                    opmlStatus = "Preparing OPML..."
+                    runCatching { withContext(Dispatchers.IO) { viewModel.exportOpml() } }
+                        .onSuccess { opml ->
+                            pendingOpmlExport = opml
+                            exportOpmlLauncher.launch("podly-subscriptions.opml")
+                        }
+                        .onFailure {
+                            opmlStatus = "Export failed: ${it.message ?: "unknown error"}"
+                        }
+                }
+            }) {
+                Text("Export OPML")
             }
         }
-        Text("Forward: ${settings.seekForwardSeconds}s", style = MaterialTheme.typography.bodyMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(10, 15, 30, 45, 60).forEach { seconds ->
-                FilterChip(
-                    selected = settings.seekForwardSeconds == seconds,
-                    onClick = { viewModel.setSeekIncrements(settings.seekBackSeconds, seconds) },
-                    label = { Text("${seconds}s") },
+        opmlStatus?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        HorizontalDivider()
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { servicesOpen = !servicesOpen },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Services & keys", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "AI recommendations, PodcastIndex and Taddy. Only the features that use them need them.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            Icon(
+                if (servicesOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                if (servicesOpen) "Collapse" else "Expand",
+            )
+        }
+        if (servicesOpen) {
+            Text("AI recommendations", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Used by AI picks on Discover and by Where to start on a podcast's page.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = settings.aiProvider == AiProvider.CLAUDE,
+                    onClick = { viewModel.setProvider(AiProvider.CLAUDE) },
+                    label = { Text("Claude") },
+                )
+                FilterChip(
+                    selected = settings.aiProvider == AiProvider.OPENAI,
+                    onClick = { viewModel.setProvider(AiProvider.OPENAI) },
+                    label = { Text("OpenAI") },
+                )
+            }
+            KeyField(anthropicKey, { anthropicKey = it }, "Anthropic API key")
+            KeyField(openAiKey, { openAiKey = it }, "OpenAI API key")
+            // Save and verify in one press, like the directory keys below: a bad or
+            // unfunded key otherwise only shows up when a feature fails, weeks later.
+            Button(
+                enabled = !keyChecking,
+                onClick = {
+                    viewModel.setAnthropicKey(anthropicKey)
+                    viewModel.setOpenAiKey(openAiKey)
+                    val provider = settings.aiProvider
+                    val key = if (provider == AiProvider.CLAUDE) anthropicKey else openAiKey
+                    keyCheck = null
+                    if (key.isBlank()) {
+                        aiKeysStatus = "Saved."
+                    } else {
+                        aiKeysStatus = null
+                        keyChecking = true
+                        scope.launch {
+                            keyCheck = ApiKeyCheck.validate(provider, key)
+                            keyChecking = false
+                        }
+                    }
+                },
+            ) { Text(if (keyChecking) "Checking…" else "Save AI keys") }
+            aiKeysStatus?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            keyCheck?.let { result ->
+                Text(
+                    result.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (result.ok) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.error,
+                )
+                // Only inference touches the balance, so the credit state costs a
+                // (tiny) call — kept behind its own tap rather than run for you.
+                if (result.ok && settings.aiProvider == AiProvider.CLAUDE) {
+                    TextButton(
+                        enabled = !keyChecking,
+                        onClick = {
+                            keyChecking = true
+                            scope.launch {
+                                keyCheck = ApiKeyCheck.checkCredits(anthropicKey)
+                                keyChecking = false
+                            }
+                        },
+                    ) { Text("Also check credits (sends 1 token)") }
+                }
+            }
+
+            Text("Podcast directories", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Free with an account. PodcastIndex adds Week and Month to Popular podcasts. Both " +
+                    "recover episodes a show has dropped from its feed, and look up feeds Apple " +
+                    "doesn't share. PodcastIndex: a key and secret from api.podcastindex.org. Taddy: " +
+                    "the user ID is the number on your taddy.org dashboard, not your email.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            KeyField(piKey, { piKey = it }, "PodcastIndex API key")
+            KeyField(piSecret, { piSecret = it }, "PodcastIndex API secret")
+            Button(onClick = {
+                scope.launch {
+                    piStatus = "Checking keys with PodcastIndex…"
+                    piStatus = viewModel.saveAndVerifyPodcastIndex(piKey, piSecret)
+                }
+            }) {
+                Text("Save PodcastIndex keys")
+            }
+            piStatus?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            KeyField(taddyUserId, { taddyUserId = it }, "Taddy user ID (numeric)", secret = false)
+            KeyField(taddyApiKey, { taddyApiKey = it }, "Taddy API key")
+            Button(onClick = {
+                scope.launch {
+                    taddyStatus = "Checking key with Taddy…"
+                    taddyStatus = viewModel.saveAndVerifyTaddy(taddyUserId, taddyApiKey)
+                }
+            }) {
+                Text("Save Taddy keys")
+            }
+            taddyStatus?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
+}
+
+/**
+ * A credential field, masked until the eye is tapped. The screen used to show every
+ * key in clear, so a glance, a screenshot or a screen-text dump carried them all.
+ */
+@Composable
+private fun KeyField(value: String, onValueChange: (String) -> Unit, label: String, secret: Boolean = true) {
+    var shown by remember { mutableStateOf(false) }
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+        visualTransformation = if (secret && !shown) PasswordVisualTransformation() else VisualTransformation.None,
+        keyboardOptions = KeyboardOptions(keyboardType = if (secret) KeyboardType.Password else KeyboardType.Number),
+        trailingIcon = if (secret) {
+            {
+                IconButton(onClick = { shown = !shown }) {
+                    Icon(
+                        if (shown) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                        if (shown) "Hide key" else "Show key",
+                    )
+                }
+            }
+        } else {
+            null
+        },
+    )
 }
