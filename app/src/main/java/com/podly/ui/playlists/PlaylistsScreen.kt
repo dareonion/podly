@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -53,72 +54,95 @@ class PlaylistsViewModel(private val graph: AppGraph) : ViewModel() {
 }
 
 @Composable
-fun PlaylistsScreen(onOpenPlaylist: (Long) -> Unit) {
+fun PlaylistsScreen(onOpenPlaylist: (Long) -> Unit, onBack: () -> Unit = {}) {
     val viewModel = appViewModel { PlaylistsViewModel(it) }
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     var creating by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<PlaylistEntity?>(null) }
     var deleting by remember { mutableStateOf<PlaylistEntity?>(null) }
+    var importStatus by remember { mutableStateOf<String?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            // Clears the FAB, which otherwise covers the last row's rename and
-            // delete buttons with no way to scroll them out from under it.
-            contentPadding = PaddingValues(bottom = 88.dp),
-        ) {
-            item {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Outside the list on purpose: the import runs in this header's scope, and a
+            // lazy item scrolled away is disposed, which would cancel an import mid-way.
+            // Reached from the Library now, not a tab, so it needs its own way back.
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(end = 8.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 Text(
                     "Playlists",
                     style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.weight(1f),
                 )
+                PicksImportButton(onStatus = { importStatus = it })
             }
-            if (playlists.isEmpty()) {
-                item {
-                    Text(
-                        "No playlists yet — tap + to create one.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    )
-                }
-            }
-            items(playlists, key = { it.playlist.id }) { summary ->
-                val playlist = summary.playlist
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpenPlaylist(playlist.id) }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.QueueMusic, null)
-                    // Imported picks playlists are named by generation date, so
-                    // two imports on the same day are otherwise identical rows.
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 16.dp),
-                    ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                // Clears the FAB, which otherwise covers the last row's rename and
+                // delete buttons with no way to scroll them out from under it.
+                contentPadding = PaddingValues(bottom = 88.dp),
+            ) {
+                // In the list rather than the header: a long "Skipped: ..." result
+                // must scroll away instead of crowding out the playlists.
+                importStatus?.let { status ->
+                    item {
                         Text(
-                            playlist.name,
-                            style = MaterialTheme.typography.bodyLarge,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            if (summary.episodeCount == 1) "1 episode"
-                            else "${summary.episodeCount} episodes",
+                            status,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         )
                     }
-                    IconButton(onClick = { renaming = playlist }) {
-                        Icon(Icons.Filled.Edit, "Rename")
+                }
+                if (playlists.isEmpty()) {
+                    item {
+                        Text(
+                            "No playlists yet — tap + to create one.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
                     }
-                    IconButton(onClick = { deleting = playlist }) {
-                        Icon(Icons.Filled.Delete, "Delete")
+                }
+                items(playlists, key = { it.playlist.id }) { summary ->
+                    val playlist = summary.playlist
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenPlaylist(playlist.id) }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.QueueMusic, null)
+                        // Imported picks playlists are named by generation date, so
+                        // two imports on the same day are otherwise identical rows.
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(start = 16.dp),
+                        ) {
+                            Text(
+                                playlist.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                if (summary.episodeCount == 1) "1 episode"
+                                else "${summary.episodeCount} episodes",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        IconButton(onClick = { renaming = playlist }) {
+                            Icon(Icons.Filled.Edit, "Rename")
+                        }
+                        IconButton(onClick = { deleting = playlist }) {
+                            Icon(Icons.Filled.Delete, "Delete")
+                        }
                     }
                 }
             }

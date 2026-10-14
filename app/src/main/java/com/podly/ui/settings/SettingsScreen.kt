@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -38,14 +37,9 @@ import com.podly.data.AiProvider
 import com.podly.network.ai.ApiKeyCheck
 import com.podly.network.ai.KeyCheckResult
 import com.podly.data.OpmlImportResult
-import com.podly.data.PicksImportFile
-import com.podly.data.PicksImportResult
 import com.podly.data.Settings
-import com.podly.network.Http
 import com.podly.network.TrendingPeriod
 import com.podly.ui.appViewModel
-import com.podly.ui.util.formatDate
-import java.io.File
 import java.io.StringReader
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.Dispatchers
@@ -107,46 +101,7 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
     suspend fun exportOpml(): String =
         graph.podcasts.exportOpml()
 
-    suspend fun importPicks(text: String): PicksImportResult =
-        graph.picksImporter.import(
-            json = text,
-            fallbackName = "Imported picks · ${formatDate(System.currentTimeMillis())}",
-        )
-
-    /** One previously pasted picks JSON, reloadable into the paste box. */
-    data class PasteEntry(val fileName: String, val label: String)
-
-    private val pasteDir get() = File(graph.appContext.filesDir, "picks_pastes")
-
-    suspend fun pasteHistory(): List<PasteEntry> = withContext(Dispatchers.IO) {
-        pasteDir.listFiles().orEmpty()
-            .sortedByDescending { it.name }
-            .map { file ->
-                val date = file.name.removeSuffix(".json").toLongOrNull()?.let { formatDate(it) }
-                val name = runCatching {
-                    Http.json.decodeFromString<PicksImportFile>(file.readText()).name
-                }.getOrNull()?.takeIf { it.isNotBlank() }
-                PasteEntry(file.name, listOfNotNull(name ?: "Pasted picks", date).joinToString(" · "))
-            }
-    }
-
-    suspend fun readPaste(fileName: String): String = withContext(Dispatchers.IO) {
-        File(pasteDir, fileName).readText()
-    }
-
-    /** Records a paste before import (kept even if the import fails), pruned to the newest [MAX_PASTES]. */
-    suspend fun savePaste(text: String): Unit = withContext(Dispatchers.IO) {
-        pasteDir.mkdirs()
-        File(pasteDir, "${System.currentTimeMillis()}.json").writeText(text)
-        pasteDir.listFiles().orEmpty()
-            .sortedByDescending { it.name }
-            .drop(MAX_PASTES)
-            .forEach { it.delete() }
-    }
-
     companion object {
-        private const val MAX_PASTES = 20
-
         // Any feed Taddy knows works here: bad creds error before the lookup happens.
         const val TADDY_TEST_FEED = "https://feeds.simplecast.com/54nAGcIl" // The Daily
     }
@@ -219,47 +174,8 @@ fun SettingsScreen() {
             }
         }
     }
-    var picksStatus by remember { mutableStateOf<String?>(null) }
-    // Shared by the file-import and paste paths; readText runs on IO.
-    fun runPicksImport(readText: suspend () -> String) {
-        scope.launch {
-            picksStatus = "Importing picks..."
-            runCatching {
-                val text = withContext(Dispatchers.IO) { readText() }
-                withContext(Dispatchers.IO) { viewModel.importPicks(text) }
-            }.onSuccess { result ->
-                picksStatus = buildString {
-                    append("Created \"${result.name}\": ${result.saved} of ${result.total} picks matched")
-                    if (result.missed.isNotEmpty()) {
-                        val shown = result.missed.take(10)
-                        append("\nSkipped: ${shown.joinToString("; ")}")
-                        if (result.missed.size > shown.size) {
-                            append(" (+${result.missed.size - shown.size} more)")
-                        }
-                    }
-                }
-            }.onFailure {
-                picksStatus = "Import failed: ${it.message ?: "unknown error"}"
-            }
-        }
-    }
-    val importPicksLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri == null) {
-            picksStatus = "Import canceled"
-            return@rememberLauncherForActivityResult
-        }
-        runPicksImport {
-            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                ?: error("Could not open picks file")
-        }
-    }
     var keyCheck by remember { mutableStateOf<KeyCheckResult?>(null) }
     var keyChecking by remember { mutableStateOf(false) }
-    var showPastePicksDialog by remember { mutableStateOf(false) }
-    var pastedPicks by remember { mutableStateOf("") }
-    var pasteHistory by remember { mutableStateOf<List<SettingsViewModel.PasteEntry>>(emptyList()) }
 
     Column(
         modifier = Modifier
@@ -444,85 +360,6 @@ fun SettingsScreen() {
             }
         }
         opmlStatus?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        HorizontalDivider()
-
-        Text("Playlists", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Import episode picks as a playlist, from a JSON file or pasted straight from a " +
-                "chatbot (see docs/manual-recs-prompt.md in the repo for a prompt that emits " +
-                "the right JSON). Each pick is matched against its show's feed; unmatched " +
-                "picks are skipped.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { importPicksLauncher.launch(arrayOf("application/json", "text/*", "*/*")) }) {
-                Text("Import picks JSON")
-            }
-            Button(onClick = {
-                pastedPicks = "" // fresh box each open; earlier pastes live in the history below
-                showPastePicksDialog = true
-                scope.launch { pasteHistory = viewModel.pasteHistory() }
-            }) {
-                Text("Paste picks JSON")
-            }
-        }
-        if (showPastePicksDialog) {
-            AlertDialog(
-                onDismissRequest = { showPastePicksDialog = false },
-                title = { Text("Paste picks JSON") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        OutlinedTextField(
-                            value = pastedPicks,
-                            onValueChange = { pastedPicks = it },
-                            label = { Text("Picks JSON") },
-                            minLines = 6,
-                            maxLines = 10,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        if (pasteHistory.isNotEmpty()) {
-                            Text(
-                                "Previous pastes",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            pasteHistory.take(5).forEach { entry ->
-                                TextButton(onClick = {
-                                    scope.launch { pastedPicks = viewModel.readPaste(entry.fileName) }
-                                }) {
-                                    Text(entry.label, maxLines = 1)
-                                }
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        enabled = pastedPicks.isNotBlank(),
-                        onClick = {
-                            showPastePicksDialog = false
-                            val text = pastedPicks
-                            runPicksImport {
-                                viewModel.savePaste(text)
-                                text
-                            }
-                        },
-                    ) { Text("Import") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showPastePicksDialog = false }) { Text("Cancel") }
-                },
-            )
-        }
-        picksStatus?.let {
             Text(
                 it,
                 style = MaterialTheme.typography.bodySmall,

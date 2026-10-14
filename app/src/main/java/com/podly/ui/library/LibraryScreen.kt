@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material3.AssistChip
@@ -90,6 +91,7 @@ fun LibraryScreen(
     onOpenNotable: () -> Unit = {},
     onOpenPicks: () -> Unit = {},
     onOpenWeekly: () -> Unit = {},
+    onOpenPlaylists: () -> Unit = {},
 ) {
     val viewModel = appViewModel { LibraryViewModel(it) }
     val podcasts by viewModel.podcasts.collectAsStateWithLifecycle()
@@ -114,6 +116,8 @@ fun LibraryScreen(
                     buildList {
                         if (weeklyCount > 0) add(Shortcut("This week · $weeklyCount", Icons.Filled.DateRange, onOpenWeekly))
                         if (notableCount > 0) add(Shortcut("Notable · $notableCount", Icons.Filled.EmojiEvents, onOpenNotable))
+                        // Playlists left the bottom bar; they are one tap from here.
+                        add(Shortcut("Playlists · ${playlists.size}", Icons.AutoMirrored.Filled.QueueMusic, onOpenPlaylists))
                     },
                 )
             }
@@ -215,7 +219,7 @@ fun LibraryScreen(
 
 private data class Shortcut(val label: String, val icon: ImageVector, val onClick: () -> Unit)
 
-/** The lists that live beside radio, one tap from the Library: the digest, Notable. */
+/** The lists that live beside radio, one tap from the Library: the digest, Notable, playlists. */
 @Composable
 private fun LibraryShortcuts(shortcuts: List<Shortcut>) {
     if (shortcuts.isEmpty()) return
