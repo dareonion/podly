@@ -14,6 +14,17 @@ val podlyReleaseStoreFile = localProperty("PODLY_RELEASE_STORE_FILE")
 val podlyReleaseKeyAlias = localProperty("PODLY_RELEASE_KEY_ALIAS")
 val podlyReleaseStorePassword = localProperty("PODLY_RELEASE_STORE_PASSWORD")
 val podlyReleaseKeyPassword = localProperty("PODLY_RELEASE_KEY_PASSWORD")
+// Which commit the APK was built from, shown under Settings → About. The phone ran a
+// build three weeks old without anything saying so. "-dirty" marks an uncommitted
+// tree, which is what a local adb install usually is.
+fun gitOutput(vararg args: String): String =
+    providers.exec {
+        commandLine("git", *args)
+        isIgnoreExitValue = true
+    }.standardOutput.asText.get().trim().ifEmpty { "unknown" }
+val gitDescribe = gitOutput("describe", "--always", "--dirty", "--abbrev=7")
+val gitCommitDate = gitOutput("log", "-1", "--format=%cs")
+
 val hasPodlyReleaseSigning = listOf(
     podlyReleaseStoreFile,
     podlyReleaseKeyAlias,
@@ -41,6 +52,8 @@ android {
         versionCode = 2
         versionName = "1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "GIT_DESCRIBE", "\"$gitDescribe\"")
+        buildConfigField("String", "GIT_COMMIT_DATE", "\"$gitCommitDate\"")
     }
 
     signingConfigs {
@@ -69,6 +82,7 @@ android {
     // With AGP built-in Kotlin, Kotlin's jvmTarget is synced from compileOptions above.
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     lint {
         // CI runs lintDebug; known issues live in the baseline so only new ones fail.

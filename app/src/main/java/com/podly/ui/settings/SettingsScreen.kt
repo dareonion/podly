@@ -45,6 +45,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.podly.AppGraph
+import com.podly.BuildConfig
 import com.podly.data.AiProvider
 import com.podly.network.ai.ApiKeyCheck
 import com.podly.network.ai.KeyCheckResult
@@ -204,7 +205,7 @@ fun SettingsScreen() {
 
         Text("Seek buttons", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Car and headset previous/next buttons jump by these amounts.",
+            "How far the player's skip buttons jump, and car and headset previous/next buttons too.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -459,6 +460,15 @@ fun SettingsScreen() {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+
+        HorizontalDivider()
+
+        Text("About", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Podly ${BuildConfig.VERSION_NAME} · build ${BuildConfig.GIT_DESCRIBE} · ${BuildConfig.GIT_COMMIT_DATE}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
