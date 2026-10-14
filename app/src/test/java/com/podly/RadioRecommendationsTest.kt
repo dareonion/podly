@@ -122,6 +122,15 @@ class RadioRecommendationsTest {
     }
 
     @Test
+    fun `a batch the caller may discard is marked served only when it says so`() = runBlocking {
+        val batch = repo.nextBatch(profile, count = 2, nowMs = now, random = Random(1), recordServes = false)
+        assertTrue(batch.isNotEmpty())
+        assertTrue(batch.all { db.radioDao().feedback(profile.id, it.id) == null })
+        repo.recordServed(profile.id, batch.map { it.id }, nowMs = now)
+        assertTrue(batch.all { db.radioDao().feedback(profile.id, it.id)?.serveCount == 1 })
+    }
+
+    @Test
     fun `a cooled-down episode stays out of the list`() = runBlocking {
         val first = repo.recommendations(profile, count = 10, nowMs = now, random = Random(1))
         val victim = first.first().episode.id

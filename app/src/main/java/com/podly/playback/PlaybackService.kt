@@ -47,6 +47,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -54,6 +55,7 @@ import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 
@@ -673,9 +675,10 @@ class PlaybackService : MediaLibraryService() {
         profileId: String,
         count: Int,
         exclude: Set<String> = emptySet(),
+        recordServes: Boolean = true,
     ): List<Pair<MediaItem, EpisodeEntity>> {
         val profile = RadioProfiles.byId(profileId)
-        return appGraph.radio.nextBatch(profile, count, exclude)
+        return appGraph.radio.nextBatch(profile, count, exclude, recordServes = recordServes)
             .map { MediaItemFactory.playable(it, forCast = isCasting()) to it }
     }
 
@@ -685,8 +688,6 @@ class PlaybackService : MediaLibraryService() {
      * convention that normally restores a saved position does not apply here.
      */
     private suspend fun startRadio(profileId: String, firstEpisodeId: String? = null) {
-        // A refill still fetching for the previous session must not land in this one.
-        radioRefillJob?.cancel()
         // Starting on a chosen episode still starts a *session*: the rest of the
         // queue is the usual picks, so Next keeps working from there.
         val chosen = firstEpisodeId?.let { appGraph.podcasts.episodeById(it) }
@@ -708,6 +709,9 @@ class PlaybackService : MediaLibraryService() {
         val first = built.first().second
         val items = built.map { it.first }
         val (window, index) = if (isCasting()) castQueueWindow(items, 0) else items to 0
+        // Only now that the new session can start: a switch to a profile with nothing
+        // to play leaves the old session running, and it still needs its refill.
+        radioRefillJob?.cancel()
         closeOutListening(player)
         listenerQueued.clear()
         radio = RadioSessionState(profileId)
@@ -729,6 +733,9 @@ class PlaybackService : MediaLibraryService() {
         probation = null
         if (episodeId !in listenerQueued) appGraph.radio.onSkipped(session.profileId, episodeId, listened)
         if (!player.hasNextMediaItem()) refillRadioQueue()
+        // The refill suspends. A switch or leaving radio meanwhile replaced the queue
+        // this command was about, and advancing now would skip the new first pick.
+        if (radio !== session) return
         if (player.hasNextMediaItem()) {
             player.seekToNextMediaItem()
             player.play()
@@ -779,11 +786,18 @@ class PlaybackService : MediaLibraryService() {
         val queued = (0 until player.mediaItemCount)
             .mapNotNull { MediaIds.episodeIdOrNull(player.getMediaItemAt(it).mediaId) }
             .toSet()
-        val built = radioItems(session.profileId, plan.fetchCount, exclude = queued)
+        val built = radioItems(session.profileId, plan.fetchCount, exclude = queued, recordServes = false)
         // radioItems suspends; a switch to another profile in the meantime replaced
         // the queue, and these picks belong to the session that asked for them.
         if (built.isEmpty() || radio !== session) return
         player.addMediaItems(built.map { it.first })
+        // Served only once really queued: a discarded refill used to mark its picks
+        // served all the same, which lowers their scores for no reason. Once appended
+        // they are playable even if radio is left right now, so the record must finish
+        // regardless of this refill being cancelled.
+        withContext(NonCancellable) {
+            appGraph.radio.recordServed(session.profileId, built.map { it.second.id })
+        }
     }
 
     /**

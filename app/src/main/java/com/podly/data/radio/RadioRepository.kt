@@ -70,10 +70,17 @@ class RadioRepository(
         exclude: Set<String> = emptySet(),
         nowMs: Long = System.currentTimeMillis(),
         random: Random = Random.Default,
+        /** False when the caller may still discard the batch; it then calls [recordServed]. */
+        recordServes: Boolean = true,
     ): List<EpisodeEntity> {
         val picked = pickCandidates(profile, count, exclude, nowMs, random)
         return picked.mapNotNull { episodeDao.byId(it.episodeId) }
-            .also { episodes -> episodes.forEach { onServed(profile.id, it.id, nowMs) } }
+            .also { episodes -> if (recordServes) recordServed(profile.id, episodes.map { it.id }, nowMs) }
+    }
+
+    /** Marks a batch served, once it has really been queued. */
+    suspend fun recordServed(profileId: String, episodeIds: List<String>, nowMs: Long = System.currentTimeMillis()) {
+        episodeIds.forEach { onServed(profileId, it, nowMs) }
     }
 
     /** The shared ranking behind both [nextBatch] and [recommendations]. */
