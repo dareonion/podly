@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.SkipNext
@@ -20,6 +21,9 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -38,19 +42,19 @@ import com.podly.ui.appViewModel
 
 /**
  * "Turn it on and it plays something" — the entry point for radio, at the top of the
- * Library so it sits where the app already opens.
+ * Library so it sits where the app already opens. Only radio's own controls live
+ * here; the digest and Notable lists are shortcuts on the Library beside it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RadioCard(
     modifier: Modifier = Modifier,
-    onOpenNotable: () -> Unit = {},
     onOpenPicks: () -> Unit = {},
-    onOpenWeekly: () -> Unit = {},
 ) {
     val viewModel = appViewModel { RadioViewModel(it) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showPicker by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
 
     ElevatedCard(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Column(
@@ -64,6 +68,20 @@ fun RadioCard(
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
+                // Setup, not something to reach for every time radio goes on.
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Filled.MoreVert, "Radio options")
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Choose shows for ${state.profile.displayName}") },
+                            onClick = { menuOpen = false; showPicker = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Clear cooldowns") },
+                            onClick = { menuOpen = false; viewModel.clearCooldowns() },
+                        )
+                    }
+                }
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -144,27 +162,6 @@ fun RadioCard(
                         }
                         TextButton(onClick = onOpenPicks) { Text("Browse picks") }
                     }
-                    Row {
-                        TextButton(onClick = { showPicker = true }) { Text("Choose shows") }
-                        if (state.weeklyCount > 0) {
-                            TextButton(onClick = onOpenWeekly) {
-                                Text("This week (${state.weeklyCount})")
-                            }
-                        }
-                        if (state.notableCount > 0) {
-                            TextButton(onClick = onOpenNotable) {
-                                Text("Notable (${state.notableCount})")
-                            }
-                        }
-                    }
-                    Text(
-                        buildString {
-                            append("${state.backlogCount} from your backlog")
-                            if (state.poolCount > 0) append(" · ${state.poolCount} picks")
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }
