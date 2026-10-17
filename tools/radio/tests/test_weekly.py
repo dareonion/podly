@@ -21,6 +21,7 @@ from podly_radio.weekly import (
     locate_nomination,
     merge_nominations,
     parse_blurbs,
+    parse_nominations,
     parse_picks,
     parse_week,
     previous_issue_ids,
@@ -328,11 +329,57 @@ def test_commands_search_only_when_asked() -> None:
     assert "WebSearch,WebFetch" in with_web and "--bare" not in with_web
     without = agents.claude_command("claude", "opus", "sys", schema, web=False)
     assert without[without.index("--tools") + 1] == ""
+    for command in (with_web, without):
+        # Not the user's `auto` mode, which approves tools nobody named here.
+        assert command[command.index("--permission-mode") + 1] == "dontAsk"
+        assert "--strict-mcp-config" in command
     work = Path("/w")
     codex = agents.codex_command("codex", "m", "high", work, work / "s", work / "l", web=True)
-    assert "tools.web_search=true" in codex and codex[-1] == "-"
+    assert 'web_search="cached"' in codex and codex[-1] == "-"
     offline = agents.codex_command("codex", "m", "high", work, work / "s", work / "l", web=False)
-    assert "tools.web_search=true" not in offline
+    assert 'web_search="disabled"' in offline
+    for command in (codex, offline):
+        assert "--ignore-rules" in command and "--ignore-user-config" in command
+        assert "agents.enabled=false" in command
+        disabled = {command[i + 1] for i, arg in enumerate(command) if arg == "--disable"}
+        assert {"shell_tool", "unified_exec", "multi_agent_v2"} <= disabled
+        # Web search runs inside code mode on Codex's current models.
+        assert ("code_mode_host" in disabled) == (command is offline)
+
+
+def test_published_model_text_is_prose_and_sources_are_https_links() -> None:
+    payload = {"episodes": [
+        {"show": "A", "episode": "1", "why": "A scoop on the flood.",
+         "source": "https://example.com/best-of-the-week"},
+        {"show": "B", "episode": "2", "why": "See https://evil.example/x for more.",
+         "source": "javascript:alert(1)"},
+        {"show": "C", "episode": "3", "why": "Key c2stbGl2ZS1hYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5eg==",
+         "source": "https://user:pw@example.com/"},
+        {"show": "D", "episode": "4", "why": "主持人和作家聊城市變遷，談到老街的記憶。",
+         "source": "http://example.com/"},
+        {"show": "E", "episode": "5", "why": "See HTTPS://evil.example/x.",
+         "source": "https://example.com:garbage/a"},
+        {"show": "F", "episode": "6", "why": "A state-of-the-art, evidence-based talk.",
+         "source": "https://./a"},
+        {"show": "G", "episode": "7", "why": "", "source": "https://example.com/a\x00b"},
+    ]}
+    got = {n.show: (n.why, n.source) for n in parse_nominations(payload, "codex", "en")}
+    assert got == {
+        "A": ("A scoop on the flood.", "https://example.com/best-of-the-week"),
+        "B": ("", ""),
+        "C": ("", ""),
+        "D": ("主持人和作家聊城市變遷，談到老街的記憶。", ""),
+        "E": ("", ""),
+        "F": ("A state-of-the-art, evidence-based talk.", ""),
+        "G": ("", ""),
+    }
+    en = candidate("english")
+    assign_refs([en])
+    assert parse_blurbs(
+        {"blurbs": [{"ref": en.ref, "blurb": "Listen at https://evil.example/now."}]},
+        [Pick(en, 1, [], {})],
+        "en",
+    ) == {}
 
 
 def test_the_codex_model_is_the_top_of_codexs_own_list(tmp_path) -> None:

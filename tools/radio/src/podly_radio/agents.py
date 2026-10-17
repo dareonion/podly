@@ -20,11 +20,36 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .curate import _child_env, _extract_json, resolve_claude
+from .curate import LOCKED_DOWN, _child_env, _extract_json, resolve_claude
 
 LOG = logging.getLogger(__name__)
 
 AGENTS = ("claude", "codex")
+
+# Every call answers from the prompt alone, so Codex gets no shell: one would let a planted
+# instruction read anything on disk (its read-only sandbox reads everywhere) into an answer
+# that is published. Nor any of ~/.codex's plugins, apps, hooks or memories.
+CODEX_DISABLED = (
+    "shell_tool",
+    "unified_exec",
+    "apps",
+    "plugins",
+    "hooks",
+    "memories",
+    "multi_agent",
+    "multi_agent_v2",
+    "browser_use",
+    "browser_use_external",
+    "computer_use",
+    "image_generation",
+    "view_image",
+    "skill_search",
+    "goals",
+)
+# Codex's current models call every tool, web search included, from code mode
+# (`tool_mode = "code_mode_only"` in its model list), so only a call without the web
+# can lose it.
+CODEX_DISABLED_OFFLINE = ("code_mode", "code_mode_host")
 
 # Used only when Codex's own model list cannot be read.
 CODEX_FALLBACK_MODEL = "gpt-6-astra"
@@ -128,7 +153,7 @@ def claude_command(
         # Structured output is delivered through a tool call of its own, so even
         # a no-tools answer needs a second turn.
         command += ["--tools", "", "--max-turns", "3"]
-    return command
+    return command + list(LOCKED_DOWN)
 
 
 def codex_command(
@@ -145,17 +170,25 @@ def codex_command(
         "exec",
         "--ephemeral",
         "--skip-git-repo-check",
+        # An allow rule in ~/.codex/rules runs its command outside the sandbox unprompted.
+        "--ignore-rules",
+        "--ignore-user-config",
         "-C", str(workdir),
         "-s", "read-only",
         "-m", model,
-        # Pinned: otherwise it comes from ~/.codex/config.toml.
+        # Pinned: otherwise it is Codex's default.
         "-c", f"model_reasoning_effort={effort}",
+        # `--search` (which `codex exec` rejects) sets this key to "live". The
+        # `tools.web_search=true` used before is ignored as of 0.163.0, which left
+        # every call, web or not, on the default: cached.
+        "-c", f'web_search="{"cached" if web else "disabled"}"',
+        # The model's own list can turn sub-agents on whatever the features say.
+        "-c", "agents.enabled=false",
         "--output-schema", str(schema_path),
         "-o", str(last_path),
     ]
-    if web:
-        # `codex exec` rejects --search; the config key behind it works.
-        command += ["-c", "tools.web_search=true"]
+    for feature in CODEX_DISABLED + (() if web else CODEX_DISABLED_OFFLINE):
+        command += ["--disable", feature]
     command.append("-")
     return command
 

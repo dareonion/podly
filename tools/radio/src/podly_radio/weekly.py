@@ -36,6 +36,7 @@ import httpx
 from . import agents
 from .build import fetch_feed, useful_genres
 from .config import ProfileConfig
+from .curate import publishable
 from .feeds import ParsedEpisode, ParsedFeed
 from .harvest import harvest, is_suitable
 from .ids import episode_id, podcast_id
@@ -503,6 +504,33 @@ def blurb_prompt(family: str, picks: list[Pick]) -> str:
 # ---------------------------------------------------------- validating replies
 
 
+def citation(text: str) -> str:
+    """A nomination's source if it is a plain https link to a named host, else "".
+
+    It is published as given. Any host passes: the page that singled an episode out can be
+    anywhere, so this checks the link's shape, not where it goes.
+    """
+    url = text.strip()
+    try:
+        parts = urlparse(url)
+        labels = (parts.hostname or "").split(".")
+        plain = (
+            len(url) <= 500
+            and parts.scheme == "https"
+            and len(labels) > 1
+            and all(labels)
+            # .port raises ValueError for a port that is not a number in range.
+            and (parts.port or 443) > 0
+            and parts.username is None
+            and parts.password is None
+            and url.isprintable()
+            and not any(c.isspace() for c in url)
+        )
+    except ValueError:
+        return ""
+    return url if plain else ""
+
+
 def parse_nominations(payload: dict, agent: str, family: str) -> list[Nomination]:
     nominations = []
     for item in payload.get("episodes", []) or []:
@@ -512,14 +540,15 @@ def parse_nominations(payload: dict, agent: str, family: str) -> list[Nomination
         episode = " ".join(str(item.get("episode", "")).split())
         if not show or not episode:
             continue
+        why = " ".join(str(item.get("why", "")).split())[:240]
         nominations.append(
             Nomination(
                 agent=agent,
                 family=family,
                 show=show,
                 episode=episode,
-                why=" ".join(str(item.get("why", "")).split())[:240],
-                source=str(item.get("source", "")).strip()[:500],
+                why=why if publishable(why) else "",
+                source=citation(str(item.get("source", ""))),
             )
         )
     return nominations
@@ -604,7 +633,7 @@ def parse_blurbs(payload: dict, picks: list[Pick], family: str) -> dict[str, str
             continue
         ref = str(item.get("ref", "")).strip()
         text = " ".join(str(item.get("blurb", "")).split())
-        if ref not in wanted or not text or len(text) > limit:
+        if ref not in wanted or not text or len(text) > limit or not publishable(text):
             continue
         chinese = _cjk_ratio(text) >= 0.5
         if chinese != (family == "zh"):

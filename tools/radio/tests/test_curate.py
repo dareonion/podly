@@ -133,3 +133,8 @@ def test_the_prompt_bounds_searching_and_forbids_ending_on_a_tool_call() -> None
     assert "do not end your turn" in captured["prompt"]
     # Too small a turn budget is what left it mid-search with nothing to show.
     assert "30" in captured["command"]
+    # Web search and nothing else: without --tools, Bash came along in `auto` mode.
+    command = captured["command"]
+    assert command[command.index("--tools") + 1] == "WebSearch"
+    assert command[command.index("--permission-mode") + 1] == "dontAsk"
+    assert "--strict-mcp-config" in command

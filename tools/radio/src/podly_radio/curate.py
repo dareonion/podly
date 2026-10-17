@@ -60,6 +60,22 @@ def resolve_claude() -> str | None:
     return None
 
 
+# Third-party text (feeds, show notes, web results) reaches every claude call here. dontAsk
+# denies any tool that --allowed-tools does not name, where the user's `auto` mode would
+# approve it (a 2026-09-27 Notable hunt made 17 Bash calls), and no MCP connector is loaded.
+LOCKED_DOWN = ("--permission-mode", "dontAsk", "--strict-mcp-config")
+
+# Model text is published on the site as written, so a page the model read could otherwise
+# have it post a link, or a run of encoded data, under the site's name. A heuristic: it
+# keeps out the obvious, not a determined encoding.
+_NOT_PROSE = re.compile(r"https?://|[A-Za-z0-9+/=_]{40,}", re.IGNORECASE)
+
+
+def publishable(text: str) -> bool:
+    """False if model text holds a link or a run of encoded-looking characters."""
+    return not _NOT_PROSE.search(text)
+
+
 def _child_env() -> dict[str, str]:
     """Everything that could route this to a metered API is removed."""
     env = dict(os.environ)
@@ -128,6 +144,7 @@ def curate(
         # would only add latency and burn more of the subscription's quota.
         "--tools", "",
         "--max-turns", "1",
+        *LOCKED_DOWN,
     ]
     LOG.info("curating %s over %d shows via %s", profile.id, len(shows), claude)
     result = subprocess.run(
@@ -164,6 +181,8 @@ def _validate(
             continue
         seen.add(show.apple_id)
         why = re.sub(r"\s+", " ", str(item.get("why", ""))).strip()[:200]
+        if not publishable(why):
+            why = ""
         weight = max(0.0, min(1.0, float(item.get("weight", 0.5) or 0.5)))
         roster.append(RosterEntry(apple_id=show.apple_id, weight=weight, why=why))
     minimum = max(5, profile.roster_size // 3)

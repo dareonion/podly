@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from .curate import _child_env, _extract_json, resolve_claude
+from .curate import LOCKED_DOWN, _child_env, _extract_json, publishable, resolve_claude
 from .feeds import ParsedEpisode, parse_feed
 from .match import best_match
 from .sources import search
@@ -145,14 +145,18 @@ def _ask_one_kind(
         "--model", model,
         "--system-prompt", SYSTEM_PROMPT,
         "--output-format", "json",
+        *LOCKED_DOWN,
     ]
     if allow_search:
         # Awards move faster than a training cutoff, so this one hunt gets the
         # web. Everything it returns is verified against a feed afterwards.
         # Generous turn budget: the prompt is what limits searching. Too few
         # turns and the model is still mid-search when the budget expires,
-        # which ends the run with no answer at all.
-        command += ["--allowed-tools", "WebSearch", "--max-turns", "30"]
+        # which ends the run with no answer at all. Without --tools every other
+        # tool was there too, Bash included.
+        command += [
+            "--tools", "WebSearch", "--allowed-tools", "WebSearch", "--max-turns", "30",
+        ]
     else:
         command += ["--tools", "", "--max-turns", "1"]
 
@@ -181,7 +185,7 @@ def _ask_one_kind(
         item_kind = str(item.get("kind", kind)).strip().lower()
         if item_kind not in ("acclaimed", "popular"):
             item_kind = kind
-        if show and episode and accolade:
+        if show and episode and accolade and publishable(accolade):
             nominations.append(
                 Nomination(
                     show, episode, accolade, str(item.get("language", "en")), item_kind
