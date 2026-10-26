@@ -20,7 +20,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
-import androidx.media3.cast.CastPlayer
+import androidx.media3.cast.RemoteCastPlayer
 import androidx.media3.cast.SessionAvailabilityListener
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -31,9 +31,6 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionError
-import com.google.android.gms.cast.framework.CastContext
-import com.google.android.gms.common.ConnectionResult
-import com.google.android.gms.common.GoogleApiAvailability
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -48,7 +45,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.future
@@ -81,7 +77,7 @@ class PlaybackService : MediaLibraryService() {
     /** Always the local ExoPlayer; [castPlayer] takes over the session while casting. */
     private lateinit var localPlayer: NudgingPlayer
     private var castPlayer: NudgingPlayer? = null
-    private var rawCastPlayer: CastPlayer? = null
+    private var rawCastPlayer: RemoteCastPlayer? = null
 
     private var seekBackMs = 10_000L
     private var seekForwardMs = 30_000L
@@ -179,49 +175,34 @@ class PlaybackService : MediaLibraryService() {
      * Wires up Chromecast when Play Services can provide it. A connected cast
      * session takes over the MediaSession via [transferPlaybackTo], so the
      * in-app UI and Android Auto keep talking to the same session either way.
-     *
-     * Media3 1.11 deprecates `CastPlayer(CastContext)` and the session
-     * availability listener. Their replacement, `RemoteCastPlayer.Builder`,
-     * requires `Cast.initialize()`, a different initialisation path that has not
-     * been tried on a device yet, so the deprecations are suppressed until it is.
      */
-    @Suppress("DEPRECATION")
     private fun setUpCast() {
-        // getSharedInstance must be called from the main thread — off it the Cast
-        // SDK throws and casting silently never initialises. The Executor
-        // argument is what keeps the heavy work (a Play Services Dynamite module
-        // load, ~700ms observed) off the main thread, so onCreate still returns
-        // promptly for Android Auto's first browse request. Failures are logged
-        // rather than swallowed: a silent one looks exactly like "cast connects
-        // but audio stays on the phone".
-        val available = runCatching {
-            GoogleApiAvailability.getInstance()
-                .isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS
-        }.getOrDefault(false)
-        if (!available) return
-        val task = runCatching {
-            CastContext.getSharedInstance(applicationContext, Dispatchers.IO.asExecutor())
-        }.onFailure { Log.w(TAG, "Cast unavailable; playback stays local", it) }.getOrNull()
-        task?.addOnFailureListener { Log.w(TAG, "Cast init failed; playback stays local", it) }
-        task?.addOnSuccessListener { castContext ->
-            if (session == null) return@addOnSuccessListener
-            val cast = CastPlayer(castContext)
-            rawCastPlayer = cast
-            castPlayer = NudgingPlayer(cast).apply {
-                seekBackMs = this@PlaybackService.seekBackMs
-                seekForwardMs = this@PlaybackService.seekForwardMs
-            }
-            cast.setSessionAvailabilityListener(object : SessionAvailabilityListener {
-                override fun onCastSessionAvailable() {
-                    castPlayer?.let(::transferPlaybackTo)
-                }
-
-                override fun onCastSessionUnavailable() {
-                    transferPlaybackTo(localPlayer)
-                }
-            })
-            if (cast.isCastSessionAvailable) castPlayer?.let(::transferPlaybackTo)
+        // The load runs in the background, so onCreate still returns promptly
+        // for Android Auto's first browse request.
+        initCast(this) ?: return
+        val cast = runCatching {
+            // Safe to build before the CastContext has loaded: Cast replays a
+            // session that is already connected once the load completes.
+            RemoteCastPlayer.Builder(applicationContext).build()
+        }.onFailure { Log.w(TAG, "Cast player unavailable; playback stays local", it) }
+            .getOrNull() ?: return
+        rawCastPlayer = cast
+        castPlayer = NudgingPlayer(cast).apply {
+            seekBackMs = this@PlaybackService.seekBackMs
+            seekForwardMs = this@PlaybackService.seekForwardMs
         }
+        cast.setSessionAvailabilityListener(object : SessionAvailabilityListener {
+            override fun onCastSessionAvailable() {
+                castPlayer?.let(::transferPlaybackTo)
+            }
+
+            override fun onCastSessionUnavailable() {
+                transferPlaybackTo(localPlayer)
+            }
+        })
+        // The listener misses a session the player found while being built
+        // (the CastContext was already loaded earlier in this process).
+        if (cast.isCastSessionAvailable) castPlayer?.let(::transferPlaybackTo)
     }
 
     /**
@@ -360,8 +341,6 @@ class PlaybackService : MediaLibraryService() {
             }
         }
         scope.cancel()
-        // Deprecated in Media3 1.11; see setUpCast.
-        @Suppress("DEPRECATION")
         rawCastPlayer?.setSessionAvailabilityListener(null)
         session?.release()
         // Release both players explicitly: while casting, session.player is the
