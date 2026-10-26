@@ -243,9 +243,12 @@ class PlaybackService : MediaLibraryService() {
             // Same 512 KB Cast message ceiling as onSetMediaItems.
             val (items, startIndex) =
                 if (toCast) castQueueWindow(resolved, safeIndex) else resolved to safeIndex
+            // Before the items, not after: RemoteCastPlayer sends the load with
+            // autoplay = its playWhenReady, which a fresh Cast session reports as
+            // true, so casting a paused episode started it playing on the receiver.
+            target.playWhenReady = wasPlaying
             target.setMediaItems(items, startIndex, position)
             target.prepare()
-            target.playWhenReady = wasPlaying
             if (toCast && episodes.any { MediaItemFactory.localUriOrNull(it) != null }) {
                 // Worth saying out loud: the user deliberately downloaded these.
                 appGraph.messages.post(
