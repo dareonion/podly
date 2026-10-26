@@ -265,7 +265,7 @@ def _run(command, prompt, timeout, env, cwd: Path, name: str) -> subprocess.Comp
     try:
         result = subprocess.run(
             command, input=prompt, capture_output=True, text=True,
-            timeout=timeout, env=env, cwd=cwd,
+            timeout=timeout, env=env, cwd=cwd, check=False,
         )
     except subprocess.TimeoutExpired as error:
         raise AgentError(f"{name} timed out after {timeout}s") from error

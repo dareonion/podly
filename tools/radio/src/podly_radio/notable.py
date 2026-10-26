@@ -163,7 +163,7 @@ def _ask_one_kind(
     LOG.info("asking for %d %s episodes (search=%s)", count, kind, allow_search)
     result = subprocess.run(
         command, input=prompt, capture_output=True, text=True,
-        timeout=timeout, env=_child_env(),
+        timeout=timeout, env=_child_env(), check=False,
     )
     if result.returncode != 0:
         # The CLI sometimes exits non-zero with an empty stderr and the detail in

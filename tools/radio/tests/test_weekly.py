@@ -11,6 +11,7 @@ from podly_radio.weekly import (
     Nomination,
     Pick,
     Week,
+    WeeklyResult,
     assign_refs,
     blurb_prompt,
     build_catalogue,
@@ -28,14 +29,13 @@ from podly_radio.weekly import (
     previous_week,
     updated_index,
     zone_for,
-    WeeklyResult,
 )
 
 WEEK = Week(datetime.date(2026, 9, 7))
 
 
 def ms(year, month, day, hour=12):
-    moment = datetime.datetime(year, month, day, hour, tzinfo=datetime.timezone.utc)
+    moment = datetime.datetime(year, month, day, hour, tzinfo=datetime.UTC)
     return int(moment.timestamp() * 1000)
 
 

@@ -4,19 +4,19 @@ from podly_radio.sources import Show
 
 
 def profile(**kwargs) -> ProfileConfig:
-    base = dict(
-        id="you",
-        label="You",
-        languages=("en",),
-        countries=("us",),
-        target_entries=10,
-        min_entries=1,
-        min_shows=1,
-        max_per_show=3,
-        sweet_spot_ms=(0, 0),
-        hard_ms=(0, 0),
-        roster_size=10,
-    )
+    base = {
+        "id": "you",
+        "label": "You",
+        "languages": ("en",),
+        "countries": ("us",),
+        "target_entries": 10,
+        "min_entries": 1,
+        "min_shows": 1,
+        "max_per_show": 3,
+        "sweet_spot_ms": (0, 0),
+        "hard_ms": (0, 0),
+        "roster_size": 10,
+    }
     base.update(kwargs)
     return ProfileConfig(**base)
 

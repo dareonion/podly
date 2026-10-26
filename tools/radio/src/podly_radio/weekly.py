@@ -435,7 +435,7 @@ def catalogue_digest(candidates: list[Candidate]) -> str:
     lines = []
     for c in candidates:
         date = datetime.datetime.fromtimestamp(
-            (c.episode.pub_date_ms or 0) / 1000, datetime.timezone.utc
+            (c.episode.pub_date_ms or 0) / 1000, datetime.UTC
         ).date()
         minutes = f"{round(c.episode.duration_ms / 60_000)} min" if c.episode.duration_ms else "? min"
         parts = [c.ref, c.show_title, c.episode.title, date.isoformat(), minutes]
@@ -676,7 +676,7 @@ def run(
     excluded_ids = excluded_ids or set()
     now_ms = now_ms or int(datetime.datetime.now().timestamp() * 1000)
     harvest_profile = replace(profile, countries=countries, genres=(), search_terms=())
-    suitable = lambda show: is_suitable(show, profile)  # noqa: E731
+    suitable = lambda show: is_suitable(show, profile)
 
     def save(name: str, payload: object) -> None:
         if work_dir is None:

@@ -1,0 +1,37 @@
+name: Radio tools
+
+# Lints and tests tools/radio, the Python builder behind the radio pools, the
+# Notable list and the weekly digest. It runs on the Linux box's systemd timers,
+# not here; this only checks the code. ruff is pinned in uv.lock, because each
+# ruff release changes the default rule set.
+on:
+  push:
+    branches: [main]
+    paths: ["tools/radio/**", ".github/workflows/radio.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["tools/radio/**", ".github/workflows/radio.yml"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/radio
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.0
+
+      - name: Lint
+        run: uv run --locked ruff check .
+
+      - name: Test
+        run: uv run --locked pytest -q

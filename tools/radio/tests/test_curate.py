@@ -1,3 +1,5 @@
+import pytest
+
 from podly_radio.config import ProfileConfig
 from podly_radio.curate import _child_env, _extract_json, _validate, build_digest
 from podly_radio.sources import Show
@@ -58,9 +60,10 @@ def test_json_is_extracted_from_fenced_prose() -> None:
     assert _extract_json('Sure!\n```json\n{"roster": []}\n```')["roster"] == []
 
 
-def test_the_notable_prompt_demands_recent_acclaim() -> None:
+def test_the_notable_prompt_demands_recent_acclaim(monkeypatch) -> None:
     """The first hunt returned 2014-2015 classics because nothing asked for recency."""
     import datetime
+
     from podly_radio import notable
 
     captured = {}
@@ -69,14 +72,10 @@ def test_the_notable_prompt_demands_recent_acclaim() -> None:
         captured["prompt"] = kwargs["input"]
         raise RuntimeError("stop here")
 
-    original = notable.subprocess.run
-    notable.subprocess.run = fake_run
-    try:
-        notable.ask_for_nominations(30)
-    except Exception:
-        pass
-    finally:
-        notable.subprocess.run = original
+    # A stand-in path, so the test also runs where claude is not installed (CI).
+    monkeypatch.setattr(notable, "resolve_claude", lambda: "claude")
+    monkeypatch.setattr(notable.subprocess, "run", fake_run)
+    notable.ask_for_nominations(30)  # logs each kind's failure and carries on
 
     prompt = captured.get("prompt", "")
     assert str(datetime.date.today().year - 1) in prompt
@@ -110,7 +109,7 @@ def test_the_hunt_is_split_per_kind_so_one_failure_is_survivable() -> None:
     assert [n.kind for n in result] == ["acclaimed"]
 
 
-def test_the_prompt_bounds_searching_and_forbids_ending_on_a_tool_call() -> None:
+def test_the_prompt_bounds_searching_and_forbids_ending_on_a_tool_call(monkeypatch) -> None:
     from podly_radio import notable
 
     captured = {}
@@ -120,14 +119,10 @@ def test_the_prompt_bounds_searching_and_forbids_ending_on_a_tool_call() -> None
         captured["command"] = command
         raise RuntimeError("stop here")
 
-    original = notable.subprocess.run
-    notable.subprocess.run = fake_run
-    try:
+    monkeypatch.setattr(notable, "resolve_claude", lambda: "claude")
+    monkeypatch.setattr(notable.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="stop here"):
         notable._ask_one_kind("popular", 8, "m", 60, True, 2025, 0.7)
-    except Exception:
-        pass
-    finally:
-        notable.subprocess.run = original
 
     assert "at most 5 web searches" in captured["prompt"]
     assert "do not end your turn" in captured["prompt"]

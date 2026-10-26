@@ -106,7 +106,7 @@ def parse_pub_date(text: str | None) -> int | None:
         except ValueError:
             continue
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+            parsed = parsed.replace(tzinfo=datetime.UTC)
         return int(parsed.timestamp() * 1000)
     return None
 

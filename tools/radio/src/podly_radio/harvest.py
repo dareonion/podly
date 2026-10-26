@@ -98,14 +98,12 @@ def is_suitable(show: Show, profile: ProfileConfig) -> bool:
     """Profile-level gates that do not need the feed."""
     if profile.require_clean and (show.advisory or "").lower() == "explicit":
         return False
-    if profile.genres and show.genre_ids:
-        if not set(profile.genres) & set(show.genre_ids):
-            return False
+    if profile.genres and show.genre_ids and not set(profile.genres) & set(show.genre_ids):
+        return False
     # An excluded genre wins over an included one: a show filed under both
     # "Society & Culture" and "True Crime" is still true crime. An exempt genre
     # then wins over the exclusion — Apple files parenting shows for adults under
     # Kids & Family, and those are wanted.
-    if profile.exclude_genres and set(profile.exclude_genres) & set(show.genre_ids):
-        if not (set(profile.exempt_genres) & set(show.genre_ids)):
-            return False
-    return True
+    excluded = set(profile.exclude_genres) & set(show.genre_ids)
+    exempt = set(profile.exempt_genres) & set(show.genre_ids)
+    return not excluded or bool(exempt)

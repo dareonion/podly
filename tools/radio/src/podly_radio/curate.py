@@ -80,7 +80,7 @@ def _child_env() -> dict[str, str]:
     """Everything that could route this to a metered API is removed."""
     env = dict(os.environ)
     for key in list(env):
-        if key.startswith("ANTHROPIC_") or key.startswith("CLAUDE_CODE_"):
+        if key.startswith(("ANTHROPIC_", "CLAUDE_CODE_")):
             env.pop(key, None)
     env.setdefault("PATH", f"{Path.home()}/.local/bin:/usr/local/bin:/usr/bin:/bin")
     return env
@@ -99,8 +99,10 @@ def build_digest(profile: ProfileConfig, shows: list[Show], listener: str) -> st
     lines = [
         f'<profile id="{profile.id}" label="{profile.label}">',
         listener.strip(),
-        f"Target roster: {profile.roster_size} shows. "
-        f"Languages: {', '.join(profile.languages)}.",
+        (
+            f"Target roster: {profile.roster_size} shows. "
+            f"Languages: {', '.join(profile.languages)}."
+        ),
         "</profile>",
         "<catalogue>",
     ]
@@ -154,6 +156,7 @@ def curate(
         text=True,
         timeout=timeout,
         env=_child_env(),
+        check=False,
     )
     if result.returncode != 0:
         raise RuntimeError(
