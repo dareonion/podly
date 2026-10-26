@@ -85,8 +85,13 @@ android {
         buildConfig = true
     }
     lint {
-        // CI runs lintDebug; known issues live in the baseline so only new ones fail.
+        // CI runs lintDebug; known issues live in the baseline, and any new warning
+        // or error fails the build.
         baseline = file("lint-baseline.xml")
+        warningsAsErrors = true
+        // "A newer version is available" checks change with each upstream release,
+        // not with the code, so they would fail CI on days nothing here changed.
+        disable += setOf("GradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion")
     }
     testOptions {
         unitTests {

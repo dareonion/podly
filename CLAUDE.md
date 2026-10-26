@@ -23,7 +23,7 @@ Gradle needs JDK 21. Machine-specific JDK paths live in `~/.gradle/gradle.proper
 adb install -r app/build/outputs/apk/debug/app-debug.apk        # install to device
 ```
 
-CI: `.github/workflows/android.yml` runs the build, Android Lint (`lintDebug` — pre-existing issues are grandfathered in `app/lint-baseline.xml`, new ones fail), plus all unit tests on every push/PR to main; pushes to main also publish the debug APK to the rolling `latest` GitHub release (stable URL: `releases/latest/download/podly-debug.apk`). `pages.yml` deploys the committed `site/` tree on every push to main that touches it. `recommendations.yml` (the `generator` job, which spends API credits) is dispatch-only: its weekly cron is off by choice, and its output is lost at the next `site/` push unless committed back (see the workflow's header).
+CI: `.github/workflows/android.yml` runs the build, Android Lint (`lintDebug` — pre-existing issues are grandfathered in `app/lint-baseline.xml`, and any new warning or error fails; the "newer version available" checks are disabled because they change with upstream releases rather than the code), plus all unit tests on every push/PR to main; pushes to main also publish the debug APK to the rolling `latest` GitHub release (stable URL: `releases/latest/download/podly-debug.apk`). `pages.yml` deploys the committed `site/` tree on every push to main that touches it. `recommendations.yml` (the `generator` job, which spends API credits) is dispatch-only: its weekly cron is off by choice, and its output is lost at the next `site/` push unless committed back (see the workflow's header).
 
 ## Architecture
 
