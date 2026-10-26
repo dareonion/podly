@@ -32,7 +32,7 @@ class EpisodeDownloadWorker(
                     .build()
                 Http.client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-                    val body = response.body ?: throw IOException("Empty body")
+                    val body = response.body
                     target.parentFile?.mkdirs()
                     val tmp = File(target.path + ".part")
                     tmp.outputStream().use { out -> body.byteStream().copyTo(out) }

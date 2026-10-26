@@ -13,9 +13,11 @@ application {
 
 // Target 17 bytecode (matching the app) while compiling on whatever JDK runs Gradle,
 // so this builds both in CI (temurin 17) and locally without a strict 17 toolchain.
+// CI also fails on any compiler warning, as the app does.
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
+        allWarningsAsErrors.set(providers.environmentVariable("CI").map { it == "true" }.orElse(false))
     }
 }
 

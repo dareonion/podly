@@ -230,7 +230,7 @@ class AiRecommender(
                 .post(body.toString().toRequestBody("application/json".toMediaType()))
                 .build()
             openAiClient.newCall(request).execute().use { response ->
-                val text = response.body?.string() ?: throw IOException("Empty response")
+                val text = response.body.string()
                 if (!response.isSuccessful) throw IOException("OpenAI HTTP ${response.code}: ${text.take(200)}")
                 Http.json.parseToJsonElement(text)
                     .jsonObject["choices"]!!.jsonArray[0]

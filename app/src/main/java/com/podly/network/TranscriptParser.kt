@@ -159,7 +159,7 @@ object TranscriptParser {
             if (body.isEmpty()) return@forEach
             val last = merged.lastOrNull()
             val sameSpeaker = last != null && last.speaker == segment.speaker
-            if (sameSpeaker && (last!!.text.length + body.length) < MERGE_LIMIT) {
+            if (sameSpeaker && (last.text.length + body.length) < MERGE_LIMIT) {
                 merged[merged.size - 1] = last.copy(
                     endMs = segment.endTime?.let { (it * 1000).toLong() } ?: last.endMs,
                     text = "${last.text} $body",

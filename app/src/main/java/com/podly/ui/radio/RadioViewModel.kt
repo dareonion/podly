@@ -67,9 +67,9 @@ class RadioViewModel(private val graph: AppGraph) : ViewModel() {
                 graph.radioSession.active,
                 graph.player.state,
             ) { values ->
-                @Suppress("UNCHECKED_CAST")
                 val backlog = values[0] as Int
                 val pool = values[1] as Int
+                @Suppress("UNCHECKED_CAST")
                 val shows = values[2] as Set<String>
                 val session = values[3] as com.podly.data.radio.RadioSession?
                 val player = values[4] as com.podly.playback.PlayerUiState

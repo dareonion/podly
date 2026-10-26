@@ -48,7 +48,7 @@ object ApiKeyCheck {
                         Http.client.newCall(request).execute().use { response ->
                             if (!response.isSuccessful) {
                                 throw IOException(
-                                    "${response.code}: ${response.body?.string().orEmpty()}"
+                                    "${response.code}: ${response.body.string()}"
                                 )
                             }
                         }

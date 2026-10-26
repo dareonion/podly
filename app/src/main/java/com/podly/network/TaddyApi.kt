@@ -101,7 +101,7 @@ class TaddyApi {
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
         Http.client.newCall(request).execute().use { response ->
-            val text = response.body?.string() ?: throw IOException("Empty Taddy response")
+            val text = response.body.string()
             if (!response.isSuccessful) throw IOException("Taddy HTTP ${response.code}: ${text.take(200)}")
             parse(text)
         }

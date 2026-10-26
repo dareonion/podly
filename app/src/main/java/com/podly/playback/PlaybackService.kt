@@ -179,7 +179,13 @@ class PlaybackService : MediaLibraryService() {
      * Wires up Chromecast when Play Services can provide it. A connected cast
      * session takes over the MediaSession via [transferPlaybackTo], so the
      * in-app UI and Android Auto keep talking to the same session either way.
+     *
+     * Media3 1.11 deprecates `CastPlayer(CastContext)` and the session
+     * availability listener. Their replacement, `RemoteCastPlayer.Builder`,
+     * requires `Cast.initialize()`, a different initialisation path that has not
+     * been tried on a device yet, so the deprecations are suppressed until it is.
      */
+    @Suppress("DEPRECATION")
     private fun setUpCast() {
         // getSharedInstance must be called from the main thread — off it the Cast
         // SDK throws and casting silently never initialises. The Executor
@@ -354,6 +360,8 @@ class PlaybackService : MediaLibraryService() {
             }
         }
         scope.cancel()
+        // Deprecated in Media3 1.11; see setUpCast.
+        @Suppress("DEPRECATION")
         rawCastPlayer?.setSessionAvailabilityListener(null)
         session?.release()
         // Release both players explicitly: while casting, session.player is the
@@ -816,8 +824,8 @@ class PlaybackService : MediaLibraryService() {
 
         /**
          * Runs synchronously on the application thread, so it must not touch the
-         * database or DataStore — it only adds the radio commands to whatever the
-         * default result already grants, preserving media3's trusted/untrusted split.
+         * database or DataStore. Every controller, trusted or not, gets the library
+         * defaults plus the radio commands.
          */
         override fun onConnect(
             session: MediaSession,
@@ -827,8 +835,12 @@ class PlaybackService : MediaLibraryService() {
             // command set (session=0, player=0), so granting only what it contains
             // leaves every controller with an empty timeline — which silently blanks
             // the mini player and the radio card while audio plays fine.
-            // Grant the library defaults plus the radio commands instead.
-            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+            // Grant the library defaults plus the radio commands instead. The player
+            // commands are set explicitly because the one-argument builder that used
+            // to supply them is deprecated, and its replacement withholds them from
+            // untrusted controllers.
+            return MediaSession.ConnectionResult.AcceptedResultBuilder()
+                .setAvailablePlayerCommands(MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS)
                 .setAvailableSessionCommands(
                     MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
                         .buildUpon()
@@ -1003,10 +1015,12 @@ class PlaybackService : MediaLibraryService() {
         /**
          * Android Auto / system "resume" entry point after process death: restore the
          * last queue and position, falling back to the most recent in-progress episode.
+         * The same items come back whether or not [isForPlayback] is set.
          */
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
+            isForPlayback: Boolean,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future(Dispatchers.IO) {
             val graph = appGraph
             val saved = graph.playbackState.load()

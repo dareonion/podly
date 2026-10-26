@@ -50,7 +50,7 @@ object Http {
             }.build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw IOException("HTTP ${response.code} for $url")
-                response.body?.string() ?: throw IOException("Empty body for $url")
+                response.body.string()
             }
         }
 
@@ -93,8 +93,8 @@ object Http {
                 response.code == 304 -> ConditionalResult(true, null, etag, lastModified)
                 !response.isSuccessful -> throw IOException("HTTP ${response.code} for $url")
                 else -> {
-                    val body = response.body?.string()
-                        ?.takeIf { it.isNotBlank() } ?: throw IOException("Empty body for $url")
+                    val body = response.body.string()
+                        .takeIf { it.isNotBlank() } ?: throw IOException("Empty body for $url")
                     ConditionalResult(
                         notModified = false,
                         body = body,

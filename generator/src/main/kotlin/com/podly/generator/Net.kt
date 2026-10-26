@@ -19,9 +19,9 @@ object Net {
             .header("User-Agent", "Podly-Generator/1.0")
             .build()
         client.newCall(request).execute().use { response ->
-            val body = response.body?.string()
+            val body = response.body.string()
             if (!response.isSuccessful) throw IOException("HTTP ${response.code} for $url")
-            return body?.takeIf { it.isNotBlank() } ?: throw IOException("Empty body for $url")
+            return body.takeIf { it.isNotBlank() } ?: throw IOException("Empty body for $url")
         }
     }
 }

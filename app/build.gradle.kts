@@ -112,6 +112,14 @@ android {
     }
 }
 
+// CI fails on any Kotlin compiler warning; local builds only report them, so a
+// half-finished change still runs.
+kotlin {
+    compilerOptions {
+        allWarningsAsErrors.set(providers.environmentVariable("CI").map { it == "true" }.orElse(false))
+    }
+}
+
 // Room writes a JSON snapshot per schema version (checked in) so migrations
 // stay reviewable and testable.
 ksp {
