@@ -187,7 +187,7 @@ class PlaybackService : MediaLibraryService() {
         }.onFailure { Log.w(TAG, "Cast player unavailable; playback stays local", it) }
             .getOrNull() ?: return
         rawCastPlayer = cast
-        castPlayer = NudgingPlayer(cast).apply {
+        castPlayer = NudgingPlayer(CastQueueMirror(cast)).apply {
             seekBackMs = this@PlaybackService.seekBackMs
             seekForwardMs = this@PlaybackService.seekForwardMs
         }
@@ -216,10 +216,10 @@ class PlaybackService : MediaLibraryService() {
         val source = session.player
         if (source === target) return
 
-        val episodeIds = (0 until source.mediaItemCount).mapNotNull { index ->
+        val episodeIds = (0 until source.mediaItemCount).map { index ->
             MediaIds.episodeIdOrNull(source.getMediaItemAt(index).mediaId)
         }
-        val index = source.currentMediaItemIndex.coerceAtLeast(0)
+        val index = source.currentMediaItemIndex
         val position = source.currentPosition
         val wasPlaying = source.playWhenReady
 
@@ -233,13 +233,14 @@ class PlaybackService : MediaLibraryService() {
         activePlayerOrNull = target
         casting = toCast
 
-        if (episodeIds.isEmpty()) return
+        if (episodeIds.all { it == null }) return
         scope.launch {
             val dao = appGraph.database.episodeDao()
-            val episodes = episodeIds.mapNotNull { dao.byId(it) }
+            // Recounted around anything that can't be carried across, so the episode
+            // that was current stays current.
+            val (episodes, safeIndex) = compactAt(episodeIds.map { id -> id?.let { dao.byId(it) } }, index)
             if (episodes.isEmpty()) return@launch
             val resolved = episodes.map { MediaItemFactory.playable(it, forCast = toCast) }
-            val safeIndex = index.coerceIn(0, resolved.size - 1)
             // Same 512 KB Cast message ceiling as onSetMediaItems.
             val (items, startIndex) =
                 if (toCast) castQueueWindow(resolved, safeIndex) else resolved to safeIndex
@@ -624,11 +625,12 @@ class PlaybackService : MediaLibraryService() {
 
     /** Remembers the queue so onPlaybackResumption can restore it after process death. */
     private suspend fun snapshotQueue(player: Player) {
-        val ids = (0 until player.mediaItemCount).mapNotNull { index ->
-            MediaIds.episodeIdOrNull(player.getMediaItemAt(index).mediaId)
-        }
+        val (ids, index) = compactAt(
+            (0 until player.mediaItemCount).map { MediaIds.episodeIdOrNull(player.getMediaItemAt(it).mediaId) },
+            player.currentMediaItemIndex,
+        )
         if (ids.isNotEmpty()) {
-            appGraph.playbackState.save(ids, player.currentMediaItemIndex)
+            appGraph.playbackState.save(ids, index)
         }
     }
 
