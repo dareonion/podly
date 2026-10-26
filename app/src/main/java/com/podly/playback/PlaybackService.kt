@@ -20,6 +20,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.cast.DefaultMediaItemConverter
 import androidx.media3.cast.RemoteCastPlayer
 import androidx.media3.cast.SessionAvailabilityListener
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -31,6 +32,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionError
+import com.google.android.gms.cast.framework.CastContext
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -85,6 +87,7 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var localPlayer: NudgingPlayer
     private var castPlayer: NudgingPlayer? = null
     private var rawCastPlayer: RemoteCastPlayer? = null
+    private var castQueue: CastQueueMirror? = null
 
     private var seekBackMs = 10_000L
     private var seekForwardMs = 30_000L
@@ -194,23 +197,37 @@ class PlaybackService : MediaLibraryService() {
         }.onFailure { Log.w(TAG, "Cast player unavailable; playback stays local", it) }
             .getOrNull() ?: return
         rawCastPlayer = cast
-        castPlayer = NudgingPlayer(CastQueueMirror(cast)).apply {
+        val queue = CastQueueMirror(cast)
+        castQueue = queue
+        castPlayer = NudgingPlayer(queue).apply {
             seekBackMs = this@PlaybackService.seekBackMs
             seekForwardMs = this@PlaybackService.seekForwardMs
         }
         cast.setSessionAvailabilityListener(object : SessionAvailabilityListener {
             override fun onCastSessionAvailable() {
+                queue.attach(connectedReceiverQueue())
                 castPlayer?.let(::transferPlaybackTo)
             }
 
             override fun onCastSessionUnavailable() {
+                // Reads the whole queue first, while the mirror still knows it.
                 transferPlaybackTo(localPlayer)
+                queue.detach()
             }
         })
         // The listener misses a session the player found while being built
         // (the CastContext was already loaded earlier in this process).
-        if (cast.isCastSessionAvailable) castPlayer?.let(::transferPlaybackTo)
+        if (cast.isCastSessionAvailable) {
+            queue.attach(connectedReceiverQueue())
+            castPlayer?.let(::transferPlaybackTo)
+        }
     }
+
+    /** The connected Cast session's queue, which CastQueueMirror reads hidden items from. */
+    private fun connectedReceiverQueue(): ReceiverQueue? = runCatching {
+        CastContext.getSharedInstance()?.sessionManager?.currentCastSession?.remoteMediaClient?.mediaQueue
+    }.onFailure { Log.w(TAG, "Cast queue unavailable", it) }
+        .getOrNull()?.let { MediaQueueSource(it, DefaultMediaItemConverter()) }
 
     /**
      * Moves the queue, index, position and play/pause state onto [target] and
@@ -223,9 +240,10 @@ class PlaybackService : MediaLibraryService() {
         val source = session.player
         if (source === target) return
 
-        val episodeIds = (0 until source.mediaItemCount).map { index ->
-            MediaIds.episodeIdOrNull(source.getMediaItemAt(index).mediaId)
-        }
+        // From the Cast player, items the receiver hasn't sent yet must not read as removed.
+        val handedBack = if (source === castPlayer) castQueue?.itemsForHandover() else null
+        val episodeIds = (handedBack ?: (0 until source.mediaItemCount).map(source::getMediaItemAt))
+            .map { MediaIds.episodeIdOrNull(it.mediaId) }
         val index = source.currentMediaItemIndex
         val position = source.currentPosition
         val wasPlaying = source.playWhenReady
@@ -358,8 +376,10 @@ class PlaybackService : MediaLibraryService() {
         // Cast player and the local ExoPlayer would otherwise leak.
         castPlayer?.release()
         if (::localPlayer.isInitialized) localPlayer.release()
+        castQueue?.detach()
         castPlayer = null
         rawCastPlayer = null
+        castQueue = null
         session = null
         super.onDestroy()
     }
@@ -428,6 +448,7 @@ class PlaybackService : MediaLibraryService() {
             while (isActive) {
                 delay(5_000)
                 val active = activePlayer()
+                castQueue?.retryUnanswered()
                 recordListeningProgress(active)
                 // A pick committed here may already have ended, and its withheld
                 // completion has no other chance to be written.
@@ -649,6 +670,8 @@ class PlaybackService : MediaLibraryService() {
 
     /** Remembers the queue so onPlaybackResumption can restore it after process death. */
     private suspend fun snapshotQueue(player: Player) {
+        // Until the receiver has sent every item, the Cast queue would save short.
+        if (player === castPlayer && castQueue?.isComplete() == false) return
         val (ids, index) = compactAt(
             (0 until player.mediaItemCount).map { MediaIds.episodeIdOrNull(player.getMediaItemAt(it).mediaId) },
             player.currentMediaItemIndex,

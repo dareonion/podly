@@ -84,267 +84,313 @@ class CastQueueMirrorTest {
     private fun Timeline.mediaIds() =
         (0 until windowCount).map { getWindow(it, Timeline.Window()).mediaItem.mediaId }
 
-    /** Sent while the receiver showed nothing yet. */
-    private fun sentQueue(sent: List<MediaItem>) = SentQueue().apply { set(Timeline.EMPTY, sent) }
+    // ---- filling from the receiver ----------------------------------------------
 
-    // ---- filling ----------------------------------------------------------------
+    /**
+     * Stands in for the session's MediaQueue: items arrive when [deliver] is called,
+     * and like MediaQueue it keeps only the latest 20 pending requests.
+     */
+    private class FakeReceiverQueue(var items: Map<Int, Pair<Int, MediaItem>>) : ReceiverQueue {
+        val requested = mutableSetOf<Int>()
+        private val pending = ArrayDeque<Int>()
+        private val delivered = mutableSetOf<Int>()
+        private var onChanged: ((Boolean) -> Unit)? = null
+
+        override fun itemAt(index: Int, fetch: Boolean): Pair<Int, MediaItem>? {
+            if (index in delivered) return items[index]
+            if (fetch && index !in pending) {
+                requested += index
+                if (pending.size >= 20) pending.removeFirst()
+                pending.addLast(index)
+            }
+            return null
+        }
+
+        override fun setOnChanged(onChanged: ((Boolean) -> Unit)?) {
+            this.onChanged = onChanged
+        }
+
+        /** Answers every pending request, as one reply. */
+        fun deliver() {
+            delivered += pending
+            pending.clear()
+            onChanged?.invoke(false)
+        }
+
+        val listening get() = onChanged != null
+
+        /** The fetch for everything pending failed: MediaQueue drops it without a callback. */
+        fun failPending() {
+            pending.clear()
+        }
+
+        /** The receiver reloaded its whole queue: everything is fetched again. */
+        fun reload(newItems: Map<Int, Pair<Int, MediaItem>>) {
+            items = newItems
+            delivered.clear()
+            onChanged?.invoke(true)
+        }
+    }
+
+    /** A Cast player reduced to a timeline and its listeners. */
+    private class FakeCastPlayer(var timeline: Timeline) {
+        val listeners = mutableListOf<Player.Listener>()
+        val player = Proxy.newProxyInstance(Player::class.java.classLoader, arrayOf(Player::class.java)) { _, method, args ->
+            when (method.name) {
+                "getCurrentTimeline" -> timeline
+                "addListener" -> listeners += args[0] as Player.Listener
+                "removeListener" -> listeners -= args[0] as Player.Listener
+                else -> when (method.returnType) {
+                    Boolean::class.javaPrimitiveType -> false
+                    Int::class.javaPrimitiveType -> 0
+                    Long::class.javaPrimitiveType -> 0L
+                    Float::class.javaPrimitiveType -> 0f
+                    else -> null
+                }
+            }
+        } as Player
+
+        fun changeTimeline(new: Timeline) {
+            timeline = new
+            listeners.toList().forEach { it.onTimelineChanged(new, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) }
+        }
+    }
+
+    /** What the receiver would send for each position of [items]: its id (100 + index) and item. */
+    private fun receiverItems(items: List<MediaItem>) = items.indices.associateWith { (100 + it) to items[it] }
 
     @Test
-    fun fillsTheItemsTheReceiverHasNotDescribed() {
-        val sent = items("a", "b", "c", "d", "e")
-        val queue = sentQueue(sent)
-        val raw = receiver(sent, known = setOf(1, 2, 3))
+    fun hiddenItemsAreFilledOnceTheReceiverSendsThem() {
+        val queue = items("a", "b", "c", "d", "e")
+        val cast = FakeCastPlayer(receiver(queue, known = setOf(0)))
+        val mirror = CastQueueMirror(cast.player)
+        val recorder = Recorder()
+        mirror.addListener(recorder)
+        val receiverQueue = FakeReceiverQueue(receiverItems(queue))
 
-        val filled = queue.fill(raw)
+        mirror.attach(receiverQueue)
+        assertEquals(setOf(1, 2, 3, 4), receiverQueue.requested) // only the hidden ones
+        assertEquals(listOf(MediaIds.episode("a"), "", "", "", ""), mirror.currentTimeline.mediaIds())
 
-        assertEquals(episodes("a", "b", "c", "d", "e"), filled.mediaIds())
-        // Structure is the receiver's: the uids still address its queue items.
-        assertEquals(100, filled.getWindow(0, Timeline.Window()).uid)
-        assertEquals(raw.periodCount, filled.periodCount)
+        receiverQueue.deliver()
+
+        assertEquals(episodes("a", "b", "c", "d", "e"), mirror.currentTimeline.mediaIds())
+        assertEquals(MediaIds.episode("c"), mirror.getMediaItemAt(2).mediaId)
+        // Listeners hear about it: the session's controllers take the timeline from this event.
+        assertEquals(episodes("a", "b", "c", "d", "e"), recorder.timeline!!.mediaIds())
     }
 
     @Test
-    fun aDifferentLengthLeavesNewIdsUnfilled() {
-        val queue = sentQueue(items("a", "b", "c"))
-        val raw = receiver(items("a", "b", "c", "d"), known = setOf(0))
-        assertSame(raw, queue.fill(raw))
+    fun aLongQueueIsFetchedInBatchesTheReceiverKeeps() {
+        // 48 items, only the first described: more than MediaQueue's 20 pending requests.
+        val queue = (1..48).map { item("ep$it") }
+        val cast = FakeCastPlayer(receiver(queue, known = setOf(0)))
+        val mirror = CastQueueMirror(cast.player)
+        val receiverQueue = FakeReceiverQueue(receiverItems(queue))
+
+        mirror.attach(receiverQueue)
+        repeat(3) { receiverQueue.deliver() }
+
+        assertEquals(queue.map { it.mediaId }, mirror.currentTimeline.mediaIds())
     }
 
     @Test
-    fun aDescribedItemThatDisagreesLeavesNewIdsUnfilled() {
-        val queue = sentQueue(items("a", "b", "c"))
-        // Another sender's queue of the same length.
-        val raw = receiver(items("b", "a", "c"), known = setOf(0))
-        assertSame(raw, queue.fill(raw))
+    fun timelineChangesBeforeTheFirstAnswerDontUseUpTries() {
+        // MediaQueue waits before fetching, and the timeline can change meanwhile.
+        val queue = (1..48).map { item("ep$it") }
+        val cast = FakeCastPlayer(receiver(queue, known = setOf(0)))
+        val mirror = CastQueueMirror(cast.player)
+        val receiverQueue = FakeReceiverQueue(receiverItems(queue))
+        mirror.attach(receiverQueue)
+        repeat(4) { cast.changeTimeline(receiver(queue, known = setOf(0))) }
+
+        repeat(3) { receiverQueue.deliver() }
+
+        assertEquals(queue.map { it.mediaId }, mirror.currentTimeline.mediaIds())
     }
 
     @Test
-    fun aFullyDescribedTimelineIsLeftAlone() {
-        val sent = items("a", "b")
-        val raw = receiver(sent, known = setOf(0, 1))
-        assertSame(raw, sentQueue(sent).fill(raw))
+    fun aFailedFetchIsAskedForAgainOnTheTick() {
+        val queue = items("a", "b", "c")
+        val cast = FakeCastPlayer(receiver(queue, known = setOf(0)))
+        val mirror = CastQueueMirror(cast.player)
+        val receiverQueue = FakeReceiverQueue(receiverItems(queue))
+        mirror.attach(receiverQueue)
+        receiverQueue.failPending()
+
+        mirror.retryUnanswered() // one tick: may still be on its way
+        receiverQueue.deliver()
+        assertEquals(false, mirror.isComplete())
+
+        mirror.retryUnanswered() // two: asked again
+        receiverQueue.deliver()
+        assertEquals(episodes("a", "b", "c"), mirror.currentTimeline.mediaIds())
     }
 
     @Test
-    fun nothingSentLeavesTheTimelineAlone() {
-        val raw = receiver(items("a", "b"), known = setOf(0))
-        assertSame(raw, SentQueue().fill(raw))
-    }
+    fun anEmptySetLeavesTheFilledQueueAlone() {
+        // RemoteCastPlayer ignores it, so the receiver's queue is unchanged.
+        val queue = items("a", "b", "c")
+        val cast = FakeCastPlayer(receiver(queue, known = setOf(0)))
+        val mirror = CastQueueMirror(cast.player)
+        val receiverQueue = FakeReceiverQueue(receiverItems(queue))
+        mirror.attach(receiverQueue)
+        receiverQueue.deliver()
 
-    // ---- changes the receiver has not confirmed ----------------------------------
+        mirror.setMediaItems(emptyList(), 0, 0)
 
-    @Test
-    fun aRejectedMoveOfHiddenItemsRelabelsNothing() {
-        val sent = items("a", "b", "c", "d", "e", "f")
-        val queue = sentQueue(sent)
-        val raw = receiver(sent, known = setOf(0, 1))
-        queue.fill(raw)
-
-        // Move "d" after "e"; the receiver keeps its order (rejected, or not yet applied).
-        queue.move(raw, 3, 4, 4)
-
-        assertEquals(episodes("a", "b", "c", "d", "e", "f"), queue.fill(raw).mediaIds())
+        assertEquals(true, mirror.isComplete())
+        assertEquals(episodes("a", "b", "c"), mirror.currentTimeline.mediaIds())
     }
 
     @Test
-    fun aConfirmedMoveIsFollowedByItemId() {
-        val sent = items("a", "b", "c", "d", "e")
-        val queue = sentQueue(sent)
-        val raw = receiver(sent, known = setOf(0))
-        queue.fill(raw)
-        queue.move(raw, 3, 4, 4)
+    fun anItemSentUnderAnotherIdIsNotUsed() {
+        val queue = items("a", "b", "c")
+        val cast = FakeCastPlayer(receiver(queue, known = setOf(0)))
+        val mirror = CastQueueMirror(cast.player)
+        // The receiver's queue moved on between the timeline and the fetch.
+        val receiverQueue = FakeReceiverQueue(mapOf(1 to (101 to queue[1]), 2 to (999 to item("z"))))
 
-        // The receiver now holds d (id 103) after e (id 104).
-        val moved = ReceiverTimeline(
-            listOf(Slot(100, sent[0]), Slot(101, null), Slot(102, null), Slot(104, null), Slot(103, null)),
-        )
-        assertEquals(episodes("a", "b", "c", "e", "d"), queue.fill(moved).mediaIds())
+        mirror.attach(receiverQueue)
+        receiverQueue.deliver()
+
+        assertEquals(listOf(MediaIds.episode("a"), MediaIds.episode("b"), ""), mirror.currentTimeline.mediaIds())
     }
 
     @Test
-    fun anAddedItemIsMatchedWhenItsIdAppears() {
-        val sent = items("a", "b", "c")
-        val queue = sentQueue(sent)
-        val raw = receiver(sent, known = setOf(0))
-        queue.fill(raw)
+    fun aNewSessionNeverSeesTheLastOnesItems() {
+        // Receiver ids restart in a new session; what id 101 was last time means nothing now.
+        val first = items("a", "b", "c")
+        val cast = FakeCastPlayer(receiver(first, known = setOf(0)))
+        val mirror = CastQueueMirror(cast.player)
+        val firstQueue = FakeReceiverQueue(receiverItems(first))
+        mirror.attach(firstQueue)
+        firstQueue.deliver()
+        mirror.detach()
+        assertEquals(false, firstQueue.listening)
 
-        queue.add(raw, 1, items("x"))
-        // Not confirmed yet: nothing new to match.
-        assertEquals(episodes("a", "b", "c"), queue.fill(raw).mediaIds())
-
-        val confirmed = ReceiverTimeline(
-            listOf(Slot(100, sent[0]), Slot(103, null), Slot(101, null), Slot(102, null)),
-        )
-        assertEquals(episodes("a", "x", "b", "c"), queue.fill(confirmed).mediaIds())
+        val second = items("x", "y", "z")
+        cast.timeline = receiver(second, known = setOf(0))
+        assertEquals(listOf(MediaIds.episode("x"), "", ""), mirror.currentTimeline.mediaIds())
+        val secondQueue = FakeReceiverQueue(receiverItems(second))
+        mirror.attach(secondQueue)
+        secondQueue.deliver()
+        assertEquals(episodes("x", "y", "z"), mirror.currentTimeline.mediaIds())
     }
 
     @Test
-    fun twoAppendsBeforeTheReceiverAnswersKeepTheirOrder() {
-        // Both resolve against the confirmed three-item queue, so both append.
-        val sent = items("a", "b", "c")
-        val queue = sentQueue(sent)
-        val raw = receiver(sent, known = setOf(0))
-        queue.fill(raw)
+    fun aTimelineChangeAsksForTheNewItems() {
+        val queue = items("a", "b")
+        val cast = FakeCastPlayer(receiver(queue, known = setOf(0, 1)))
+        val mirror = CastQueueMirror(cast.player)
+        val longer = items("a", "b", "x")
+        val receiverQueue = FakeReceiverQueue(receiverItems(longer))
+        mirror.attach(receiverQueue)
+        assertEquals(emptySet<Int>(), receiverQueue.requested)
 
-        queue.add(raw, 3, items("x"))
-        queue.add(raw, 3, items("y"))
+        // Something was appended; the receiver doesn't describe it yet.
+        cast.changeTimeline(receiver(longer, known = setOf(0, 1)))
+        assertEquals(setOf(2), receiverQueue.requested)
+        receiverQueue.deliver()
 
-        val confirmed = ReceiverTimeline(
-            listOf(Slot(100, sent[0]), Slot(101, null), Slot(102, null), Slot(103, null), Slot(104, null)),
-        )
-        assertEquals(episodes("a", "b", "c", "x", "y"), queue.fill(confirmed).mediaIds())
+        assertEquals(episodes("a", "b", "x"), mirror.currentTimeline.mediaIds())
     }
 
     @Test
-    fun twoPlayNextsBeforeTheReceiverAnswersStackBeforeTheSameItem() {
-        // Each is sent as "insert before b": the receiver ends up with a, x, y, b, c.
-        val sent = items("a", "b", "c")
-        val queue = sentQueue(sent)
-        val raw = receiver(sent, known = setOf(0))
-        queue.fill(raw)
+    fun aHandoverTakesWhatTheReceiverStillOwesFromTheQueueSent() {
+        // Disconnecting seconds after connecting: nothing hidden has arrived yet.
+        val queue = items("a", "b", "c", "d")
+        val cast = FakeCastPlayer(receiver(queue, known = setOf(1)))
+        val mirror = CastQueueMirror(cast.player)
+        mirror.setMediaItems(queue, 1, 0)
+        mirror.attach(FakeReceiverQueue(receiverItems(queue)))
 
-        queue.add(raw, 1, items("x"))
-        queue.add(raw, 1, items("y"))
-
-        val confirmed = ReceiverTimeline(
-            listOf(Slot(100, sent[0]), Slot(103, null), Slot(104, null), Slot(101, null), Slot(102, null)),
-        )
-        assertEquals(episodes("a", "x", "y", "b", "c"), queue.fill(confirmed).mediaIds())
+        assertEquals(false, mirror.isComplete())
+        assertEquals(episodes("a", "b", "c", "d"), mirror.itemsForHandover().map { it.mediaId })
     }
 
     @Test
-    fun aMoveNotYetConfirmedThenAnAddAreBothFollowed() {
-        val sent = items("a", "b", "c", "d", "e")
-        val queue = sentQueue(sent)
-        val raw = receiver(sent, known = setOf(0))
-        queue.fill(raw)
-
-        queue.move(raw, 3, 4, 4)
-        queue.fill(raw) // an ordinary read while the move is in flight
-        queue.add(raw, 5, items("x"))
-
-        val confirmed = ReceiverTimeline(
-            listOf(100, 101, 102, 104, 103, 105).map { Slot(it, if (it == 100) sent[0] else null) },
-        )
-        assertEquals(episodes("a", "b", "c", "e", "d", "x"), queue.fill(confirmed).mediaIds())
-    }
-
-    @Test
-    fun aRejectedMoveDoesNotBlockLaterAdds() {
-        val sent = items("a", "b", "c", "d", "e")
-        val queue = sentQueue(sent)
-        val raw = receiver(sent, known = setOf(0))
-        queue.fill(raw)
-        queue.move(raw, 3, 4, 4) // never applied by the receiver
-        queue.fill(raw)
-
-        queue.add(raw, 5, items("x"))
-        val confirmed = ReceiverTimeline((100..105).map { Slot(it, if (it == 100) sent[0] else null) })
-        assertEquals(episodes("a", "b", "c", "d", "e", "x"), queue.fill(confirmed).mediaIds())
-    }
-
-    @Test
-    fun pendingInsertsFollowAConfirmedMove() {
-        // Move d to the front, then insert x before b and y before d, all in flight.
+    fun aHandoverAfterAMoveNeitherDuplicatesNorDrops() {
+        // Sent a, b, c, d; b was moved to the end, and d's slot isn't fetched yet.
         val sent = items("a", "b", "c", "d")
-        val queue = sentQueue(sent)
-        val raw = receiver(sent, known = emptySet())
-        queue.fill(raw)
+        val now = listOf(Slot(100, sent[0]), Slot(102, sent[2]), Slot(103, null), Slot(101, sent[1]))
+        val cast = FakeCastPlayer(ReceiverTimeline(now))
+        val mirror = CastQueueMirror(cast.player)
+        mirror.setMediaItems(sent, 0, 0)
+        mirror.attach(FakeReceiverQueue(emptyMap()))
 
-        queue.move(raw, 3, 4, 0)
-        queue.add(raw, 1, items("x"))
-        queue.add(raw, 3, items("y"))
-
-        // The receiver: d, a, b, c; then x before b; then y before d.
-        val confirmed = ReceiverTimeline(listOf(105, 103, 100, 104, 101, 102).map { Slot(it, null) })
-        assertEquals(episodes("y", "d", "a", "x", "b", "c"), queue.fill(confirmed).mediaIds())
+        assertEquals(episodes("a", "c", "d", "b"), mirror.itemsForHandover().map { it.mediaId })
     }
 
     @Test
-    fun anotherSendersReplacementNeverTakesTheRemovedItemsIdentity() {
-        val sent = items("a", "b", "c", "d", "e")
-        val queue = sentQueue(sent)
-        queue.fill(receiver(sent, known = setOf(0, 1)))
-
-        // Someone else swaps hidden d (103) for their own item, id 105.
-        val replaced = ReceiverTimeline(
-            listOf(Slot(100, sent[0]), Slot(101, sent[1]), Slot(102, null), Slot(105, null), Slot(104, null)),
-        )
-        assertEquals(
-            listOf(MediaIds.episode("a"), MediaIds.episode("b"), MediaIds.episode("c"), "", MediaIds.episode("e")),
-            queue.fill(replaced).mediaIds(),
-        )
-    }
-
-    @Test
-    fun anItemFromAnotherSenderIsNeverGivenOurs() {
+    fun aHandoverDoesNotGuessOnceTheQueueChangedLength() {
         val sent = items("a", "b", "c")
-        val queue = sentQueue(sent)
-        queue.fill(receiver(sent, known = setOf(0)))
+        val cast = FakeCastPlayer(receiver(items("a", "b", "c", "x"), known = setOf(0)))
+        val mirror = CastQueueMirror(cast.player)
+        mirror.setMediaItems(sent, 0, 0)
+        mirror.attach(FakeReceiverQueue(emptyMap()))
 
-        // Another sender appends z (103) while nothing of ours is waiting...
-        val withTheirs = ReceiverTimeline((100..103).map { Slot(it, if (it == 100) sent[0] else null) })
-        queue.fill(withTheirs)
-        // ...then we append x, which arrives as 104.
-        queue.add(withTheirs, 4, items("x"))
-        val withOurs = ReceiverTimeline((100..104).map { Slot(it, if (it == 100) sent[0] else null) })
-
-        assertEquals(
-            episodes("a", "b", "c").plus("").plus(MediaIds.episode("x")),
-            queue.fill(withOurs).mediaIds(),
-        )
+        assertEquals(listOf(MediaIds.episode("a"), "", "", ""), mirror.itemsForHandover().map { it.mediaId })
     }
 
     @Test
-    fun aNewQueueDoesNotRelabelTheOldOneStillShowing() {
+    fun aNewQueueForgetsWhatTheOldOnesIdsNamed() {
+        // The receiver may reuse ids for a replacement queue within one session.
         val old = items("a", "b", "c")
-        val queue = sentQueue(old)
-        val oldRaw = receiver(old, known = setOf(0))
-        queue.fill(oldRaw)
+        val cast = FakeCastPlayer(receiver(old, known = setOf(0)))
+        val mirror = CastQueueMirror(cast.player)
+        val receiverQueue = FakeReceiverQueue(receiverItems(old))
+        mirror.attach(receiverQueue)
+        receiverQueue.deliver()
 
         val new = items("x", "y", "z")
-        queue.set(oldRaw, new)
-        // The receiver hasn't loaded the new queue yet: same length, old ids.
-        assertEquals(episodes("a", "b", "c"), queue.fill(oldRaw).mediaIds())
-        // Then it does, under new ids.
-        val loaded = receiver(new, known = setOf(0), uids = listOf(200, 201, 202))
-        assertEquals(episodes("x", "y", "z"), queue.fill(loaded).mediaIds())
-    }
+        mirror.setMediaItems(new, 0, 0)
+        receiverQueue.items = receiverItems(new)
+        cast.changeTimeline(receiver(new, known = setOf(0)))
+        receiverQueue.deliver()
 
-    // ---- keeping the record in step with RemoteCastPlayer ------------------------
-
-    @Test
-    fun anEmptySetIsIgnoredLikeRemoteCastPlayerDoes() {
-        val sent = items("a", "b")
-        val queue = sentQueue(sent)
-        queue.set(Timeline.EMPTY, emptyList())
-        assertEquals(episodes("a", "b"), queue.fill(receiver(sent, known = emptySet())).mediaIds())
+        assertEquals(episodes("x", "y", "z"), mirror.currentTimeline.mediaIds())
     }
 
     @Test
-    fun removeAndReplaceAreRecordedById() {
-        val sent = items("a", "b", "c", "d")
-        val queue = sentQueue(sent)
-        val raw = receiver(sent, known = emptySet())
-        queue.fill(raw)
+    fun aReloadedQueueIsReadAgain() {
+        val old = items("a", "b", "c")
+        val cast = FakeCastPlayer(receiver(old, known = setOf(0)))
+        val mirror = CastQueueMirror(cast.player)
+        val receiverQueue = FakeReceiverQueue(receiverItems(old))
+        mirror.attach(receiverQueue)
+        receiverQueue.deliver()
 
-        queue.remove(raw, 1, 2) // drops b (101)
-        queue.replace(raw, 2, 3, items("x", "y")) // inserts before d (103), drops c (102)
+        val new = items("a", "y", "z")
+        receiverQueue.reload(receiverItems(new))
+        receiverQueue.deliver()
 
-        val confirmed = ReceiverTimeline(listOf(Slot(100, null), Slot(104, null), Slot(105, null), Slot(103, null)))
-        assertEquals(episodes("a", "x", "y", "d"), queue.fill(confirmed).mediaIds())
+        assertEquals(episodes("a", "y", "z"), mirror.currentTimeline.mediaIds())
     }
 
     @Test
-    fun removeClampsToTheEnd() {
-        val sent = items("a", "b", "c")
-        val queue = sentQueue(sent)
-        val raw = receiver(sent, known = emptySet())
-        queue.fill(raw)
-        queue.remove(raw, 1, Int.MAX_VALUE)
-        queue.add(raw, Int.MAX_VALUE, items("x"))
-        val confirmed = ReceiverTimeline(listOf(Slot(100, null), Slot(103, null)))
-        assertEquals(episodes("a", "x"), queue.fill(confirmed).mediaIds())
+    fun aClearedQueueForgetsItsIds() {
+        val old = items("a", "b")
+        val cast = FakeCastPlayer(receiver(old, known = setOf(0)))
+        val mirror = CastQueueMirror(cast.player)
+        val receiverQueue = FakeReceiverQueue(receiverItems(old))
+        mirror.attach(receiverQueue)
+        receiverQueue.deliver()
+
+        cast.changeTimeline(Timeline.EMPTY)
+        val new = items("x", "y")
+        receiverQueue.items = receiverItems(new)
+        cast.changeTimeline(receiver(new, known = setOf(0)))
+        receiverQueue.deliver()
+
+        assertEquals(episodes("x", "y"), mirror.currentTimeline.mediaIds())
+    }
+
+    @Test
+    fun withoutASessionTheTimelineIsLeftAlone() {
+        val raw = receiver(items("a", "b"), known = setOf(0))
+        val mirror = CastQueueMirror(FakeCastPlayer(raw).player)
+        assertSame(raw, mirror.currentTimeline)
     }
 
     // ---- listener wrapping ------------------------------------------------------
@@ -386,10 +432,10 @@ class CastQueueMirrorTest {
     fun theListenerGetsFilledEventsAndEveryOtherEvent() {
         val recorder = Recorder()
         val sent = items("a", "b", "c", "d")
-        val queue = sentQueue(sent)
         val raw = receiver(sent, known = setOf(0))
+        val filled = receiver(sent, known = setOf(0, 1, 2, 3))
         var currentIndex = 0
-        val listener = TimelineFillingListener(recorder, queue::fill, { queue.fill(raw) }, { currentIndex })
+        val listener = TimelineFillingListener(recorder, { filled }, { filled }, { currentIndex })
 
         // Java default methods must reach the delegate, not the interface's no-op.
         listener.onIsPlayingChanged(true)
@@ -413,9 +459,8 @@ class CastQueueMirrorTest {
     fun aPositionWhoseWindowMovedIsLeftAlone() {
         val recorder = Recorder()
         val sent = items("a", "b", "c")
-        val queue = sentQueue(sent)
-        val raw = receiver(sent, known = setOf(0))
-        val listener = TimelineFillingListener(recorder, queue::fill, { queue.fill(raw) }, { 0 })
+        val filled = receiver(sent, known = setOf(0, 1, 2))
+        val listener = TimelineFillingListener(recorder, { it }, { filled }, { 0 })
 
         // Index 2 is no longer the window this position was taken in.
         listener.onPositionDiscontinuity(
@@ -444,13 +489,14 @@ class CastQueueMirrorTest {
             null
         } as Player
         val mirror = CastQueueMirror(castPlayer)
+        val ownListeners = added.size // the mirror's own, registered at construction
         val listener = Recorder()
 
         mirror.addListener(listener)
         mirror.removeListener(listener)
 
-        assertEquals(1, added.size)
-        assertEquals(added, removed)
+        assertEquals(ownListeners + 1, added.size)
+        assertEquals(listOf(added.last()), removed)
     }
 
     @Test

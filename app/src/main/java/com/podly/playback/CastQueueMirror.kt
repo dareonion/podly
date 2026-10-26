@@ -1,8 +1,10 @@
 package com.podly.playback
 
 import androidx.annotation.OptIn
+import androidx.media3.cast.MediaItemConverter
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.DeviceInfo
+import androidx.media3.common.FlagSet
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -18,161 +20,55 @@ import androidx.media3.common.text.Cue
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.source.ForwardingTimeline
+import com.google.android.gms.cast.framework.media.MediaQueue
 import java.util.IdentityHashMap
 
 /**
- * The queue sent to the Cast receiver, so the Cast timeline can say what every
- * item is.
- *
- * Media3's Cast timeline only has MediaItems for the receiver's prefetch window,
- * about the current item and its neighbours; every other item comes back as
- * MediaItem.EMPTY, with no mediaId. Anything that read the queue by mediaId lost
- * those items: handing playback back to the phone kept three episodes of a
- * twenty-episode queue, the saved queue shrank the same way, and Up next showed
- * a few rows whose positions no longer matched the player's indexes.
- *
- * What is filled in is keyed on the receiver's item ids (the timeline's window
- * uids), each matched once to an item that was sent. Changes are recorded the way
- * RemoteCastPlayer sends them, against the queue the receiver last confirmed and
- * by item id ("insert before this item", "remove these"), so the items sent but
- * not yet matched keep the order the receiver will give them. When ids the
- * receiver hasn't been matched to appear, they are paired with those items in
- * order, and only if the counts agree; an id that appeared with nothing waiting
- * came from another sender and is never paired.
+ * The receiver's queue, item by item: what [CastQueueMirror] asks for the items
+ * Media3's Cast timeline leaves out. Behind an interface so tests need no Cast session.
  */
+internal interface ReceiverQueue {
+    /**
+     * The receiver id and item at [index] of the receiver's queue, if the receiver
+     * has sent it; with [fetch], asks the receiver for it when it hasn't.
+     */
+    fun itemAt(index: Int, fetch: Boolean): Pair<Int, MediaItem>?
+
+    /**
+     * Calls [onChanged] whenever requested items arrive, with true when the receiver
+     * reloaded its whole queue (ids already read may now name other items); null stops.
+     */
+    fun setOnChanged(onChanged: ((reloaded: Boolean) -> Unit)?)
+}
+
+/** [ReceiverQueue] over a Cast session's MediaQueue, converted the way Media3 converts the items it does describe. */
 @OptIn(UnstableApi::class)
-internal class SentQueue {
-    /** One item sent to the receiver; [uid] is its receiver id once matched. */
-    private class Entry(val item: MediaItem, var uid: Any? = null)
+internal class MediaQueueSource(
+    private val queue: MediaQueue,
+    private val converter: MediaItemConverter,
+) : ReceiverQueue {
+    private var callback: MediaQueue.Callback? = null
 
-    /** What was sent, in the order the receiver will hold it once it has applied every change. */
-    private val entries = ArrayList<Entry>()
-
-    /** Receiver item id to its MediaItem, matched from [entries] or described by the receiver. */
-    private val byUid = HashMap<Any, MediaItem>()
-
-    /**
-     * Ids never to pair with a sent item: those of a queue a [set] replaces (the
-     * receiver gives the new one fresh ids, but shows the old one for a moment),
-     * and those that appeared while nothing sent was waiting (another sender's).
-     */
-    private val unpairable = HashSet<Any>()
-
-    fun set(confirmed: Timeline, items: List<MediaItem>) {
-        // RemoteCastPlayer ignores an empty list rather than clearing the receiver.
-        if (items.isEmpty()) return
-        (0 until confirmed.windowCount).mapTo(unpairable) { uidAt(confirmed, it) }
-        entries.clear()
-        items.mapTo(entries) { Entry(it) }
+    init {
+        // The whole queue fits, so nothing fetched is evicted before it is read.
+        queue.setCacheCapacity(MAX_CAST_QUEUE_ITEMS * 2)
     }
 
-    /** Before the item at [index] of [confirmed], or appended past its end. */
-    fun add(confirmed: Timeline, index: Int, items: List<MediaItem>) {
-        val anchor = if (index < confirmed.windowCount) uidAt(confirmed, index) else null
-        insertBefore(anchor, items.map { Entry(it) })
+    override fun itemAt(index: Int, fetch: Boolean): Pair<Int, MediaItem>? {
+        val item = runCatching { queue.getItemAtIndex(index, fetch) }.getOrNull() ?: return null
+        // An item another sender queued may carry no MediaInfo; it stays unfilled.
+        val mediaItem = runCatching { converter.toMediaItem(item) }.getOrNull() ?: return null
+        return item.itemId to mediaItem
     }
 
-    fun move(confirmed: Timeline, fromIndex: Int, toIndex: Int, newIndex: Int) {
-        val size = confirmed.windowCount
-        val to = minOf(toIndex, size)
-        val target = minOf(newIndex, size - (to - fromIndex))
-        if (fromIndex >= size || fromIndex == to || fromIndex == target) return
-        val moved = take((fromIndex until to).map { uidAt(confirmed, it) })
-        // Where RemoteCastPlayer re-inserts them: before this item, or at the end.
-        val insertBefore = if (fromIndex < target) target + (to - fromIndex) else target
-        insertBefore(if (insertBefore < size) uidAt(confirmed, insertBefore) else null, moved)
-    }
+    override fun setOnChanged(onChanged: ((reloaded: Boolean) -> Unit)?) {
+        callback?.let(queue::unregisterCallback)
+        callback = onChanged?.let { notify ->
+            object : MediaQueue.Callback() {
+                override fun itemsUpdatedAtIndexes(indexes: IntArray) = notify(false)
 
-    fun remove(confirmed: Timeline, fromIndex: Int, toIndex: Int) {
-        val to = minOf(toIndex, confirmed.windowCount)
-        if (fromIndex >= confirmed.windowCount || fromIndex == to) return
-        take((fromIndex until to).map { uidAt(confirmed, it) })
-    }
-
-    fun replace(confirmed: Timeline, fromIndex: Int, toIndex: Int, items: List<MediaItem>) {
-        if (fromIndex > confirmed.windowCount) return
-        val to = minOf(toIndex, confirmed.windowCount)
-        add(confirmed, to, items)
-        remove(confirmed, fromIndex, to)
-    }
-
-    private fun uidAt(timeline: Timeline, index: Int): Any = timeline.getWindow(index, Timeline.Window()).uid
-
-    /** Takes out the entries matched to [uids]; ids never matched have no entry to take. */
-    private fun take(uids: List<Any>): List<Entry> {
-        val wanted = uids.toHashSet()
-        val taken = entries.filter { it.uid in wanted }
-        entries.removeAll(taken.toSet())
-        return taken
-    }
-
-    private fun insertBefore(anchor: Any?, new: List<Entry>) {
-        val at = anchor?.let { uid -> entries.indexOfFirst { it.uid == uid } } ?: -1
-        // An anchor with no entry (another sender's item) can't be placed; the end
-        // keeps the order among what was sent, which is all the pairing relies on.
-        if (at < 0) entries.addAll(new) else entries.addAll(at, new)
-    }
-
-    /**
-     * [timeline] with every item the receiver hasn't described filled in from
-     * what was sent for its id. An item stays as the receiver gave it when its id
-     * was never matched: another sender's, or one whose pairing was ambiguous.
-     */
-    fun fill(timeline: Timeline): Timeline {
-        learn(timeline)
-        val window = Timeline.Window()
-        val fillable = (0 until timeline.windowCount).any { index ->
-            timeline.getWindow(index, window)
-            window.mediaItem.mediaId.isEmpty() && window.uid in byUid
-        }
-        if (!fillable) return timeline
-        val sent = HashMap(byUid)
-        return object : ForwardingTimeline(timeline) {
-            override fun getWindow(
-                windowIndex: Int,
-                window: Window,
-                defaultPositionProjectionUs: Long,
-            ): Window {
-                super.getWindow(windowIndex, window, defaultPositionProjectionUs)
-                if (window.mediaItem.mediaId.isEmpty()) sent[window.uid]?.let { window.mediaItem = it }
-                return window
-            }
-        }
-    }
-
-    private fun learn(timeline: Timeline) {
-        if (timeline.isEmpty) return
-        val window = Timeline.Window()
-        val uids = (0 until timeline.windowCount).map { index ->
-            timeline.getWindow(index, window)
-            // The receiver's own description wins over anything matched earlier.
-            if (window.mediaItem.mediaId.isNotEmpty()) byUid[window.uid] = window.mediaItem
-            window.uid
-        }
-        val present = uids.toHashSet()
-        byUid.keys.retainAll(present)
-        unpairable.retainAll(present)
-        // Gone from the receiver, so gone from the queue: never freed to pair again,
-        // or another sender's replacement would take its identity.
-        entries.removeAll { it.uid != null && it.uid !in present }
-
-        val matched = entries.mapNotNullTo(HashSet()) { it.uid }
-        val fresh = uids.filter { it !in matched && it !in unpairable }
-        val waiting = entries.filter { it.uid == null }
-        if (waiting.isEmpty()) {
-            unpairable.addAll(fresh)
-            return
-        }
-        // More new ids than items waiting means some are another sender's, and fewer
-        // means the receiver hasn't applied every change yet: pair nothing either way.
-        if (fresh.size != waiting.size) return
-        val agree = fresh.indices.all { index ->
-            byUid[fresh[index]]?.let { it.mediaId == waiting[index].item.mediaId } != false
-        }
-        if (!agree) return
-        fresh.forEachIndexed { index, uid ->
-            waiting[index].uid = uid
-            byUid.putIfAbsent(uid, waiting[index].item)
+                override fun itemsReloaded() = notify(true)
+            }.also(queue::registerCallback)
         }
     }
 }
@@ -329,14 +225,41 @@ internal class TimelineFillingListener(
 }
 
 /**
- * Wraps the Cast player so the session sees the whole queue: records what is
- * sent ([SentQueue]) and fills in the timeline from it. Listeners get the filled
- * timeline too, because MediaSession builds its controllers' timeline from
- * onTimelineChanged's argument rather than from [getCurrentTimeline].
+ * Wraps the Cast player so the session sees the whole queue.
+ *
+ * Media3's Cast timeline only has MediaItems for the receiver's prefetch window,
+ * about the current item and its neighbours; every other item comes back as
+ * MediaItem.EMPTY, with no mediaId. Anything that read the queue by mediaId lost
+ * those items: handing playback back to the phone kept three episodes of a
+ * twenty-episode queue, the saved queue shrank the same way, and Up next showed a
+ * few rows whose positions no longer matched the player's indexes.
+ *
+ * The missing items are asked of the receiver itself ([attach]), kept by receiver
+ * item id for that session only, and filled into the timeline for the getters and
+ * for listener events: MediaSession builds its controllers' timeline from
+ * onTimelineChanged's argument rather than from [getCurrentTimeline]. When items
+ * arrive, listeners are told the timeline changed. Nothing is inferred from what
+ * was sent, which went wrong whenever edits overlapped or the receiver reused ids.
  */
 @OptIn(UnstableApi::class)
 internal class CastQueueMirror(player: Player) : ForwardingPlayer(player) {
-    private val sent = SentQueue()
+    /** The connected session's queue, or null between sessions. */
+    private var receiver: ReceiverQueue? = null
+
+    /** Receiver item id to item, for the attached session. */
+    private val fetched = HashMap<Any, MediaItem>()
+
+    /** How often each receiver id has been asked for, so one that never arrives stops being asked. */
+    private val attempts = HashMap<Any, Int>()
+
+    /** Ids asked for and not answered yet; never more than MediaQueue holds. */
+    private val pending = HashSet<Any>()
+
+    /** Progress ticks [pending] has waited without an answer. */
+    private var unansweredTicks = 0
+
+    /** The queue last sent, standing in for items the receiver still owes at a handover. */
+    private var lastSent: List<MediaItem> = emptyList()
 
     /**
      * The wrapper registered for each listener. ForwardingPlayer finds listeners
@@ -344,7 +267,175 @@ internal class CastQueueMirror(player: Player) : ForwardingPlayer(player) {
      */
     private val wrappers = IdentityHashMap<Player.Listener, TimelineFillingListener>()
 
-    override fun getCurrentTimeline(): Timeline = sent.fill(super.getCurrentTimeline())
+    init {
+        // Ahead of every listener added later, so new items are requested, and
+        // those already fetched are on hand, before anyone reads the timeline.
+        super.addListener(object : Player.Listener {
+            override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                collect(timeline, fetch = true)
+            }
+        })
+    }
+
+    /** Starts filling from [queue], a newly connected session's; null clears. */
+    fun attach(queue: ReceiverQueue?) {
+        detach()
+        receiver = queue ?: return
+        queue.setOnChanged { reloaded ->
+            val forgot = reloaded && forget()
+            // An answer covers the batch asked for, and makes room to ask for the next.
+            pending.clear()
+            unansweredTicks = 0
+            if (collect(rawTimeline(), fetch = true) || forgot) notifyTimelineFilled()
+        }
+        collect(rawTimeline(), fetch = true)
+    }
+
+    /**
+     * Whether every item of the timeline has its mediaId: false while the receiver
+     * still owes some, which a handover must not mistake for items removed.
+     */
+    fun isComplete(): Boolean {
+        val timeline = currentTimeline
+        val window = Timeline.Window()
+        return (0 until timeline.windowCount).none { timeline.getWindow(it, window).mediaItem.mediaId.isEmpty() }
+    }
+
+    /**
+     * Asks again for what the receiver hasn't answered after two calls: MediaQueue
+     * drops a failed fetch without a callback, so nothing else would. Called on
+     * the service's progress tick.
+     */
+    fun retryUnanswered() {
+        if (pending.isEmpty()) return
+        if (++unansweredTicks < 2) return
+        pending.clear()
+        unansweredTicks = 0
+        if (collect(rawTimeline(), fetch = true)) notifyTimelineFilled()
+    }
+
+    /**
+     * The queue to hand back to the phone: the timeline's items, with the ones the
+     * receiver still owes taken from the queue last sent. Only the sent episodes
+     * not already in the timeline are used, in the order they were sent, and only
+     * when they exactly fill the gaps: a move made since can then reorder them but
+     * never duplicate or drop one. Disconnecting seconds after connecting
+     * otherwise dropped every item not yet fetched.
+     */
+    fun itemsForHandover(): List<MediaItem> {
+        val timeline = currentTimeline
+        val window = Timeline.Window()
+        val items = (0 until timeline.windowCount).map { timeline.getWindow(it, window).mediaItem }
+        val gaps = items.count { it.mediaId.isEmpty() }
+        if (gaps == 0) return items
+        val unaccounted = lastSent.toMutableList()
+        for (item in items) {
+            if (item.mediaId.isEmpty()) continue
+            val sent = unaccounted.indexOfFirst { it.mediaId == item.mediaId }
+            if (sent >= 0) unaccounted.removeAt(sent)
+        }
+        if (unaccounted.size != gaps) return items
+        val fill = unaccounted.iterator()
+        return items.map { if (it.mediaId.isEmpty()) fill.next() else it }
+    }
+
+    /** Drops everything read so far; true if there was anything. */
+    private fun forget(): Boolean {
+        val had = fetched.isNotEmpty()
+        fetched.clear()
+        attempts.clear()
+        pending.clear()
+        unansweredTicks = 0
+        return had
+    }
+
+    /** The Cast player's own timeline, before filling. */
+    private fun rawTimeline(): Timeline = super.getCurrentTimeline()
+
+    /** Forgets the session: item ids mean nothing in the next one. */
+    fun detach() {
+        receiver?.setOnChanged(null)
+        receiver = null
+        forget()
+    }
+
+    /**
+     * Keeps what the receiver has sent for [timeline]'s undescribed items, and with
+     * [fetch] asks for up to [FETCH_PAGE] of the rest; true if anything was new.
+     */
+    private fun collect(timeline: Timeline, fetch: Boolean): Boolean {
+        val queue = receiver ?: return false
+        if (timeline.isEmpty) {
+            // A cleared queue: the next one may reuse its ids.
+            forget()
+            return false
+        }
+        val window = Timeline.Window()
+        val present = HashSet<Any>()
+        var learned = false
+        for (index in 0 until timeline.windowCount) {
+            timeline.getWindow(index, window)
+            val uid = window.uid
+            present += uid
+            if (window.mediaItem.mediaId.isNotEmpty() || uid in fetched) continue
+            // MediaQueue keeps at most 20 pending requests and drops the oldest
+            // beyond that, so no more than that are ever outstanding; the rest wait
+            // for the next answer. An id already asked for is not asked, or
+            // counted, again until it is answered or given up on.
+            val ask = fetch && uid !in pending && pending.size < FETCH_PAGE &&
+                attempts.getOrDefault(uid, 0) < MAX_ATTEMPTS
+            val sent = queue.itemAt(index, ask)
+            if (sent == null) {
+                if (ask) {
+                    pending += uid
+                    attempts[uid] = attempts.getOrDefault(uid, 0) + 1
+                }
+                continue
+            }
+            pending -= uid
+            // The receiver's queue and the timeline are read at different moments;
+            // an item is only kept for the id it was sent under.
+            if (sent.first != uid) continue
+            fetched[uid] = sent.second
+            learned = true
+        }
+        fetched.keys.retainAll(present)
+        attempts.keys.retainAll(present)
+        pending.retainAll(present)
+        return learned
+    }
+
+    private fun filled(timeline: Timeline): Timeline {
+        val window = Timeline.Window()
+        val fillable = (0 until timeline.windowCount).any { index ->
+            timeline.getWindow(index, window)
+            window.mediaItem.mediaId.isEmpty() && window.uid in fetched
+        }
+        if (!fillable) return timeline
+        val items = HashMap(fetched)
+        return object : ForwardingTimeline(timeline) {
+            override fun getWindow(
+                windowIndex: Int,
+                window: Window,
+                defaultPositionProjectionUs: Long,
+            ): Window {
+                super.getWindow(windowIndex, window, defaultPositionProjectionUs)
+                if (window.mediaItem.mediaId.isEmpty()) items[window.uid]?.let { window.mediaItem = it }
+                return window
+            }
+        }
+    }
+
+    /** Tells every listener the timeline changed: only now does it name the items just fetched. */
+    private fun notifyTimelineFilled() {
+        val timeline = currentTimeline
+        val listeners = synchronized(wrappers) { wrappers.values.toList() }
+        val events = Player.Events(FlagSet.Builder().add(Player.EVENT_TIMELINE_CHANGED).build())
+        listeners.forEach { it.onTimelineChanged(timeline, Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE) }
+        listeners.forEach { it.onEvents(this, events) }
+    }
+
+    override fun getCurrentTimeline(): Timeline = filled(rawTimeline())
 
     override fun getMediaItemAt(index: Int): MediaItem =
         currentTimeline.getWindow(index, Timeline.Window()).mediaItem
@@ -358,7 +449,7 @@ internal class CastQueueMirror(player: Player) : ForwardingPlayer(player) {
     override fun addListener(listener: Player.Listener) {
         val wrapper = synchronized(wrappers) {
             wrappers.getOrPut(listener) {
-                TimelineFillingListener(listener, sent::fill, ::getCurrentTimeline, ::getCurrentMediaItemIndex)
+                TimelineFillingListener(listener, ::filled, ::getCurrentTimeline, ::getCurrentMediaItemIndex)
             }
         }
         super.addListener(wrapper)
@@ -369,111 +460,59 @@ internal class CastQueueMirror(player: Player) : ForwardingPlayer(player) {
         super.removeListener(wrapper)
     }
 
-    // Every overload is overridden: ForwardingPlayer sends each one straight to the
-    // same overload of the Cast player, so one left out would bypass the record.
-    // Changes are recorded against the timeline the Cast player held when called,
-    // which is the one it resolves indexes against.
+    // A new queue replaces the receiver's, and its ids may repeat the old ones:
+    // what they named before is forgotten, and read again as they come. The queue
+    // itself is kept for itemsForHandover.
 
     override fun setMediaItems(mediaItems: List<MediaItem>) {
-        val confirmed = super.getCurrentTimeline()
+        // RemoteCastPlayer ignores an empty list, so nothing is replaced.
+        if (mediaItems.isNotEmpty()) {
+            forget()
+            lastSent = mediaItems.toList()
+        }
         super.setMediaItems(mediaItems)
-        sent.set(confirmed, mediaItems)
     }
 
     override fun setMediaItems(mediaItems: List<MediaItem>, resetPosition: Boolean) {
-        val confirmed = super.getCurrentTimeline()
+        // RemoteCastPlayer ignores an empty list, so nothing is replaced.
+        if (mediaItems.isNotEmpty()) {
+            forget()
+            lastSent = mediaItems.toList()
+        }
         super.setMediaItems(mediaItems, resetPosition)
-        sent.set(confirmed, mediaItems)
     }
 
     override fun setMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long) {
-        val confirmed = super.getCurrentTimeline()
+        // RemoteCastPlayer ignores an empty list, so nothing is replaced.
+        if (mediaItems.isNotEmpty()) {
+            forget()
+            lastSent = mediaItems.toList()
+        }
         super.setMediaItems(mediaItems, startIndex, startPositionMs)
-        sent.set(confirmed, mediaItems)
     }
 
     override fun setMediaItem(mediaItem: MediaItem) {
-        val confirmed = super.getCurrentTimeline()
+        forget()
         super.setMediaItem(mediaItem)
-        sent.set(confirmed, listOf(mediaItem))
+        lastSent = listOf(mediaItem)
     }
 
     override fun setMediaItem(mediaItem: MediaItem, startPositionMs: Long) {
-        val confirmed = super.getCurrentTimeline()
+        forget()
         super.setMediaItem(mediaItem, startPositionMs)
-        sent.set(confirmed, listOf(mediaItem))
+        lastSent = listOf(mediaItem)
     }
 
     override fun setMediaItem(mediaItem: MediaItem, resetPosition: Boolean) {
-        val confirmed = super.getCurrentTimeline()
+        forget()
         super.setMediaItem(mediaItem, resetPosition)
-        sent.set(confirmed, listOf(mediaItem))
+        lastSent = listOf(mediaItem)
     }
 
-    override fun addMediaItem(mediaItem: MediaItem) {
-        val confirmed = super.getCurrentTimeline()
-        super.addMediaItem(mediaItem)
-        sent.add(confirmed, Int.MAX_VALUE, listOf(mediaItem))
-    }
-
-    override fun addMediaItem(index: Int, mediaItem: MediaItem) {
-        val confirmed = super.getCurrentTimeline()
-        super.addMediaItem(index, mediaItem)
-        sent.add(confirmed, index, listOf(mediaItem))
-    }
-
-    override fun addMediaItems(mediaItems: List<MediaItem>) {
-        val confirmed = super.getCurrentTimeline()
-        super.addMediaItems(mediaItems)
-        sent.add(confirmed, Int.MAX_VALUE, mediaItems)
-    }
-
-    override fun addMediaItems(index: Int, mediaItems: List<MediaItem>) {
-        val confirmed = super.getCurrentTimeline()
-        super.addMediaItems(index, mediaItems)
-        sent.add(confirmed, index, mediaItems)
-    }
-
-    override fun moveMediaItem(currentIndex: Int, newIndex: Int) {
-        val confirmed = super.getCurrentTimeline()
-        super.moveMediaItem(currentIndex, newIndex)
-        sent.move(confirmed, currentIndex, currentIndex + 1, newIndex)
-    }
-
-    override fun moveMediaItems(fromIndex: Int, toIndex: Int, newIndex: Int) {
-        val confirmed = super.getCurrentTimeline()
-        super.moveMediaItems(fromIndex, toIndex, newIndex)
-        sent.move(confirmed, fromIndex, toIndex, newIndex)
-    }
-
-    override fun replaceMediaItem(index: Int, mediaItem: MediaItem) {
-        val confirmed = super.getCurrentTimeline()
-        super.replaceMediaItem(index, mediaItem)
-        sent.replace(confirmed, index, index + 1, listOf(mediaItem))
-    }
-
-    override fun replaceMediaItems(fromIndex: Int, toIndex: Int, mediaItems: List<MediaItem>) {
-        val confirmed = super.getCurrentTimeline()
-        super.replaceMediaItems(fromIndex, toIndex, mediaItems)
-        sent.replace(confirmed, fromIndex, toIndex, mediaItems)
-    }
-
-    override fun removeMediaItem(index: Int) {
-        val confirmed = super.getCurrentTimeline()
-        super.removeMediaItem(index)
-        sent.remove(confirmed, index, index + 1)
-    }
-
-    override fun removeMediaItems(fromIndex: Int, toIndex: Int) {
-        val confirmed = super.getCurrentTimeline()
-        super.removeMediaItems(fromIndex, toIndex)
-        sent.remove(confirmed, fromIndex, toIndex)
-    }
-
-    override fun clearMediaItems() {
-        val confirmed = super.getCurrentTimeline()
-        super.clearMediaItems()
-        sent.remove(confirmed, 0, Int.MAX_VALUE)
+    private companion object {
+        /** MediaQueue's own limit on pending item requests. */
+        const val FETCH_PAGE = 20
+        const val MAX_ATTEMPTS = 3
     }
 }
 
