@@ -71,6 +71,13 @@ class PlaybackService : MediaLibraryService() {
     /** Episode whose saved position is about to be restored; saveProgress must not clobber it. */
     private var pendingResumeEpisodeId: String? = null
 
+    /**
+     * The episode and player position the last progress write recorded, or, for an
+     * episode loaded paused, the position it was loaded at. A paused player is only
+     * saved once it has moved away from this.
+     */
+    private var lastSavedPosition: Pair<String, Long>? = null
+
     private var recoveryJob: Job? = null
     private var recoveryAttempts = 0
 
@@ -409,15 +416,23 @@ class PlaybackService : MediaLibraryService() {
             }
     }
 
-    /** Persists playback position every few seconds so episodes resume where they left off. */
+    /**
+     * Persists playback position every few seconds so episodes resume where they
+     * left off. While paused only once something moved (a seek, here or from another
+     * Cast sender) or a radio pick committed after it ended: re-saving an unchanged
+     * paused position wrote `completed = false` back over "Mark played" on the
+     * loaded episode.
+     */
     private fun startProgressPersistence(player: Player) {
         scope.launch {
             while (isActive) {
                 delay(5_000)
                 val active = activePlayer()
                 recordListeningProgress(active)
-                maybeCommitRadioEpisode(active)
-                saveProgress(active)
+                // A pick committed here may already have ended, and its withheld
+                // completion has no other chance to be written.
+                val committed = maybeCommitRadioEpisode(active)
+                if (active.isPlaying || committed || pausedPositionMoved(active)) saveProgress(active)
             }
         }
         player.addListener(progressListener)
@@ -496,6 +511,11 @@ class PlaybackService : MediaLibraryService() {
             scope.launch {
                 flushListeningSegment()
                 if (player.isPlaying) beginListeningSegment(player)
+                // Saved straight away; if the player is still buffering, mark the
+                // position unsaved so the next tick retries.
+                if (reason == Player.DISCONTINUITY_REASON_SEEK && !player.isPlaying && !saveProgress(player)) {
+                    player.currentEpisodeIdOrNull()?.let { lastSavedPosition = it to UNSAVED_POSITION }
+                }
             }
         }
 
@@ -595,16 +615,20 @@ class PlaybackService : MediaLibraryService() {
         return pending.listenedIncluding(liveListenedMs(pending))
     }
 
-    /** Writes back everything probation withheld, once the pick has clearly been kept. */
-    private suspend fun maybeCommitRadioEpisode(player: Player) {
-        val pending = probation ?: return
+    /**
+     * Writes back everything probation withheld, once the pick has clearly been
+     * kept; true when it committed just now.
+     */
+    private suspend fun maybeCommitRadioEpisode(player: Player): Boolean {
+        val pending = probation ?: return false
         val ended = player.playbackState == Player.STATE_ENDED
-        if (!pending.shouldCommit(liveListenedMs(pending), ended)) return
+        if (!pending.shouldCommit(liveListenedMs(pending), ended)) return false
         probation = null
         val dao = appGraph.database.episodeDao()
         pending.segments.forEach { dao.insertListeningSegment(it) }
         appGraph.radio.onAccepted(pending.profileId, pending.episodeId, pending.listenedMs)
         appGraph.downloader.autoDownloadStartedEpisode(pending.episodeId)
+        return true
     }
 
     private fun Player.currentEpisodeIdOrNull(): String? =
@@ -634,13 +658,31 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private suspend fun saveProgress(player: Player) {
-        if (player.playbackState != Player.STATE_READY && player.playbackState != Player.STATE_ENDED) return
-        val mediaId = player.currentMediaItem?.mediaId ?: return
-        val episodeId = MediaIds.episodeIdOrNull(mediaId) ?: return
+    /**
+     * Whether a paused [player] sits somewhere other than where its episode's
+     * position was last saved. An episode that has had no save yet was just loaded,
+     * at its own saved position, so that only sets the baseline: saving it would
+     * undo a "Mark played" made before the first tick.
+     */
+    private fun pausedPositionMoved(player: Player): Boolean {
+        val episodeId = player.currentEpisodeIdOrNull() ?: return false
+        val now = episodeId to player.currentPosition
+        val last = lastSavedPosition
+        if (last == null || last.first != episodeId) {
+            lastSavedPosition = now
+            return false
+        }
+        return last != now
+    }
+
+    /** Writes the player's position (and completion) for its episode; false when it wrote none. */
+    private suspend fun saveProgress(player: Player): Boolean {
+        if (player.playbackState != Player.STATE_READY && player.playbackState != Player.STATE_ENDED) return false
+        val mediaId = player.currentMediaItem?.mediaId ?: return false
+        val episodeId = MediaIds.episodeIdOrNull(mediaId) ?: return false
         // A queue transition is still restoring this episode's saved position;
         // saving now would overwrite it with ~0.
-        if (episodeId == pendingResumeEpisodeId) return
+        if (episodeId == pendingResumeEpisodeId) return false
         if (isOnProbation(episodeId)) {
             // Withhold the position, but still record duration: it is harmless, and
             // without it the Up next sheet shows 0:00 for every undecided pick.
@@ -650,7 +692,7 @@ class PlaybackService : MediaLibraryService() {
             if (pendingDuration > 0) {
                 appGraph.database.episodeDao().updateDuration(episodeId, pendingDuration)
             }
-            return
+            return false
         }
         val position = player.currentPosition
         val duration = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L
@@ -658,6 +700,8 @@ class PlaybackService : MediaLibraryService() {
         val dao = appGraph.database.episodeDao()
         dao.updateProgress(episodeId, if (completed) 0 else position, completed, System.currentTimeMillis())
         if (duration > 0) dao.updateDuration(episodeId, duration)
+        lastSavedPosition = episodeId to position
+        return true
     }
 
     // ---- radio ---------------------------------------------------------------
@@ -1040,6 +1084,8 @@ class PlaybackService : MediaLibraryService() {
         private const val MIN_LISTEN_SEGMENT_MS = 1_000L
 
         private const val CONTINUOUS_POSITION_TOLERANCE_MS = 12_000L
+        /** Never a real position, so the next paused tick sees the position as moved. */
+        private const val UNSAVED_POSITION = -1L
         private const val TAG = "PodlyPlayback"
         private const val MAX_RECOVERY_ATTEMPTS = 5
         private val RECOVERABLE_ERROR_CODES = setOf(
