@@ -150,8 +150,9 @@ object RecentEpisodeMatcher {
     private fun conflict(a: Set<String>, b: Set<String>) = a.isNotEmpty() && b.isNotEmpty() && a.none { it in b }
 
     // A trailing number may sit before one bracketed aside: (2021), [2021], 【2021】.
+    // The first number is possessive: backing off a digit to get past 集 read 第192集 as 19.
     private val EPISODE_NUMBER = Regex(
-        """(?i)(?:(?<![a-z])(?:ep|e|vol|no)\.?\s?|#\s?|第\s?)(\d+)(?!\s*(?:集|篇|部))""" +
+        """(?i)(?:(?<![a-z])(?:ep|e|vol|no)\.?\s?|#\s?|第\s?)(\d++)(?!\s*(?:集|篇|部))""" +
             """|^\s*(\d+)(?=[\s.、：:]|$)""" +
             """|(?<=\s)(?<!(?:part|pt|pt\.)\s)(\d+)\s*(?:[(\[【][^)\]】]*[)\]】]\s*)?$""",
     )

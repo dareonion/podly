@@ -266,4 +266,12 @@ class RecentEpisodeMatcherTest {
         assertNull(RecentEpisodeMatcher.bestMatch("白色恐怖 2 [2021]", null, listOf(Candidate("白色恐怖 1 [2021]", null, 0))))
         assertNull(RecentEpisodeMatcher.bestMatch("白色恐怖 2 【2021】", null, listOf(Candidate("白色恐怖 1 【2021】", null, 0))))
     }
+
+    @Test
+    fun `a number before 集 is not cut short`() {
+        // Backing off a digit to get past 集 once read 第12集 and 第15集 both as episode 1,
+        // and that shared number carried an episode sharing only 故事 past the bar.
+        assertEquals(emptySet<String>(), RecentEpisodeMatcher.episodeNumbers("第192集 台灣故事"))
+        assertNull(RecentEpisodeMatcher.bestMatch("第12集 台灣故事", null, listOf(Candidate("第15集 日本料理的故事", null, 0))))
+    }
 }
