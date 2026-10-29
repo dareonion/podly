@@ -116,6 +116,7 @@ class PicksImporter(
                 title = p.pick.episodeTitle,
                 publishedApprox = p.pick.publishedApprox,
                 candidates = candidates,
+                showTitle = podcast.title,
             )
             index to match?.let { episodes[it].id }
         }

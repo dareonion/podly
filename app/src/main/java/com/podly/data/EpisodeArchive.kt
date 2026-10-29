@@ -95,8 +95,10 @@ class TaddyArchive(
     }
 
     private fun sameTitle(a: String?, b: String): Boolean {
-        fun norm(s: String) = s.lowercase().replace(Regex("[^a-z0-9]"), "")
-        return a != null && norm(a) == norm(b)
+        // Any script's letters and digits: ASCII-only made every all-Chinese name
+        // equal to every other ("" == "").
+        fun norm(s: String) = s.lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
+        return a != null && norm(b).isNotEmpty() && norm(a) == norm(b)
     }
 }
 

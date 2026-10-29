@@ -426,6 +426,7 @@ class DiscoverViewModel(private val graph: AppGraph) : ViewModel() {
             candidates = episodes.map {
                 RecentEpisodeMatcher.Candidate(it.title, it.description, it.pubDateMs)
             },
+            showTitle = loaded.title,
         )
         if (idx != null) return episodes[idx].id
         // Not in the feed — e.g. a short window like "The Interview" that exposes only its

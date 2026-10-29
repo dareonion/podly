@@ -37,7 +37,8 @@ class ArchiveRescuer(
         val rescued = mutableMapOf<K, String>()
         val toInsert = mutableListOf<EpisodeEntity>()
         for ((key, q) in missing) {
-            val idx = RecentEpisodeMatcher.bestMatch(q.episodeTitle, q.publishedApprox, candidates) ?: continue
+            val idx = RecentEpisodeMatcher.bestMatch(q.episodeTitle, q.publishedApprox, candidates, podcast.title)
+                ?: continue
             val item = items[idx]
             val audioUrl = item.audioUrl ?: continue
             val episode = EpisodeEntity(
