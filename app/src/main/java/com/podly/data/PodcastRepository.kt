@@ -7,6 +7,7 @@ import com.podly.data.db.ListeningSegmentEntity
 import com.podly.data.db.PodcastDao
 import com.podly.data.db.PodcastEpisodeSortOrder
 import com.podly.data.db.PodcastEntity
+import com.podly.data.db.SubscribedPodcast
 import com.podly.data.db.stableId
 import com.podly.network.Http
 import com.podly.network.ItunesApi
@@ -37,6 +38,7 @@ class PodcastRepository(
     private val opmlParser: OpmlParser = OpmlParser(),
 ) {
     fun subscribedPodcasts(): Flow<List<PodcastEntity>> = podcastDao.subscribedPodcasts()
+    fun subscribedWithLastPlayed(): Flow<List<SubscribedPodcast>> = podcastDao.subscribedWithLastPlayed()
     fun podcast(id: String): Flow<PodcastEntity?> = podcastDao.byIdFlow(id)
     fun episodesForPodcast(podcastId: String): Flow<List<EpisodeEntity>> =
         episodeDao.episodesForPodcast(podcastId)

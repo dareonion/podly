@@ -10,6 +10,12 @@ import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
+/** A subscribed show plus when any of its episodes was last played (0 if never), for the podcasts page. */
+data class SubscribedPodcast(
+    @Embedded val podcast: PodcastEntity,
+    val lastPlayedAt: Long,
+)
+
 @Dao
 interface PodcastDao {
     @Query("SELECT * FROM podcasts WHERE subscribed = 1 ORDER BY title COLLATE NOCASE")
@@ -17,6 +23,13 @@ interface PodcastDao {
 
     @Query("SELECT * FROM podcasts WHERE subscribed = 1")
     suspend fun subscribedPodcastsOnce(): List<PodcastEntity>
+
+    @Query(
+        """SELECT p.*, COALESCE((SELECT MAX(e.lastPlayedAt) FROM episodes e WHERE e.podcastId = p.id), 0)
+                  AS lastPlayedAt
+           FROM podcasts p WHERE p.subscribed = 1"""
+    )
+    fun subscribedWithLastPlayed(): Flow<List<SubscribedPodcast>>
 
     @Query("SELECT * FROM podcasts WHERE id = :id")
     suspend fun byId(id: String): PodcastEntity?

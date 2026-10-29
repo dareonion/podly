@@ -1,5 +1,6 @@
 package com.podly.ui.library
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -10,10 +11,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -94,6 +97,7 @@ fun LibraryScreen(
     onOpenPicks: () -> Unit = {},
     onOpenWeekly: () -> Unit = {},
     onOpenPlaylists: () -> Unit = {},
+    onOpenPodcasts: () -> Unit = {},
     onOpenList: (LibraryList) -> Unit = {},
 ) {
     val viewModel = appViewModel { LibraryViewModel(it) }
@@ -116,6 +120,9 @@ fun LibraryScreen(
             item(key = "shortcuts") {
                 LibraryShortcuts(
                     buildList {
+                        // First, so a show you subscribe to is reachable without scrolling
+                        // past Continue listening and then along the carousel.
+                        if (podcasts.isNotEmpty()) add(Shortcut("Podcasts · ${podcasts.size}", Icons.Filled.Podcasts, onOpenPodcasts))
                         if (weeklyCount > 0) add(Shortcut("This week · $weeklyCount", Icons.Filled.DateRange, onOpenWeekly))
                         if (notableCount > 0) add(Shortcut("Notable · $notableCount", Icons.Filled.EmojiEvents, onOpenNotable))
                         // Playlists left the bottom bar; they are one tap from here.
@@ -199,15 +206,18 @@ fun LibraryScreen(
 
 private data class Shortcut(val label: String, val icon: ImageVector, val onClick: () -> Unit)
 
-/** The lists that live beside radio, one tap from the Library: the digest, Notable, playlists. */
+/** The lists that live beside radio, one tap from the Library: your shows, the digest, Notable, playlists. */
 @Composable
 private fun LibraryShortcuts(shortcuts: List<Shortcut>) {
     if (shortcuts.isEmpty()) return
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
+    // A plain scrolling Row, not a keyed LazyRow: chips arrive as their counts load, and a
+    // LazyRow keeps the earlier first chip anchored, leaving one prepended later
+    // (Podcasts) scrolled off to the left.
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(shortcuts, key = { it.label.substringBefore(" ·") }) { shortcut ->
+        shortcuts.forEach { shortcut ->
             AssistChip(
                 onClick = shortcut.onClick,
                 label = { Text(shortcut.label) },

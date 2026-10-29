@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -48,6 +49,7 @@ import com.podly.ui.history.HistoryScreen
 import com.podly.ui.library.EpisodeListScreen
 import com.podly.ui.library.LibraryList
 import com.podly.ui.library.LibraryScreen
+import com.podly.ui.library.PodcastsScreen
 import com.podly.ui.player.MiniPlayer
 import com.podly.ui.player.PlayerScreen
 import com.podly.ui.playlists.PlaylistDetailScreen
@@ -140,7 +142,9 @@ private fun PodlyApp() {
         NavHost(
             navController = navController,
             startDestination = "library",
-            modifier = Modifier.padding(innerPadding),
+            // Consumed so a screen's imePadding() adds only the keyboard height beyond
+            // the bottom bar it already clears, not both.
+            modifier = Modifier.padding(innerPadding).consumeWindowInsets(innerPadding),
         ) {
             composable("library") {
                 LibraryScreen(
@@ -150,7 +154,14 @@ private fun PodlyApp() {
                     onOpenPicks = { navController.navigate("radio_picks") },
                     onOpenWeekly = { navController.navigate("weekly") },
                     onOpenPlaylists = { navController.navigate("playlists") },
+                    onOpenPodcasts = { navController.navigate("podcasts") },
                     onOpenList = { navController.navigate("episodes/${it.route}") },
+                )
+            }
+            composable("podcasts") {
+                PodcastsScreen(
+                    onOpenPodcast = { navController.navigate("podcast/$it") },
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable("episodes/{list}") { entry ->
