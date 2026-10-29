@@ -30,6 +30,8 @@ private data class ItunesEpisodeResult(
     val trackTimeMillis: Long? = null,
     val description: String? = null,
     val artworkUrl600: String? = null,
+    val collectionId: Long? = null,
+    val collectionName: String? = null,
 )
 
 @Serializable
@@ -45,6 +47,9 @@ data class AppleEpisode(
     val durationMs: Long?,
     val description: String?,
     val artworkUrl: String?,
+    /** The show it belongs to; an episode search spans shows. */
+    val collectionId: String? = null,
+    val collectionName: String? = null,
 )
 
 /**
@@ -93,6 +98,12 @@ class ItunesApi {
     suspend fun episodesById(collectionId: String): List<AppleEpisode> =
         parseEpisodes(Http.get("https://itunes.apple.com/lookup?id=$collectionId&entity=podcastEpisode&limit=200"))
 
+    /** Episodes across all shows whose text matches [term], best first. */
+    suspend fun searchEpisodes(term: String): List<AppleEpisode> {
+        val encoded = URLEncoder.encode(term, "UTF-8")
+        return parseEpisodes(Http.get("https://itunes.apple.com/search?media=podcast&entity=podcastEpisode&limit=25&term=$encoded"))
+    }
+
     suspend fun searchPodcasts(term: String): List<PodcastEntity> {
         val encoded = URLEncoder.encode(term, "UTF-8")
         val body = Http.get("https://itunes.apple.com/search?media=podcast&limit=50&term=$encoded")
@@ -126,6 +137,8 @@ class ItunesApi {
                         durationMs = r.trackTimeMillis,
                         description = r.description,
                         artworkUrl = r.artworkUrl600,
+                        collectionId = r.collectionId?.toString(),
+                        collectionName = r.collectionName,
                     )
                 }
 

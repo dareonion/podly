@@ -97,6 +97,12 @@ class PodcastRepository(
         return podcastDao.byId(podcast.id) ?: podcast
     }
 
+    /** The show's row without pulling its feed, which can run to thousands of episodes. */
+    suspend fun addPodcast(podcast: PodcastEntity): PodcastEntity {
+        podcastDao.insertIgnore(podcast)
+        return podcastDao.byId(podcast.id) ?: podcast
+    }
+
     /**
      * @param force skips the conditional GET.
      *

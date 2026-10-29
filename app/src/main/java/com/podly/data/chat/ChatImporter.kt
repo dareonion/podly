@@ -22,7 +22,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.security.MessageDigest
+import java.text.Normalizer
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlin.math.abs
 
@@ -89,6 +91,17 @@ class ChatImporter(
                 synchronized(outcomes) { matched++ }
                 onProgress("Matching shows... $matched of ${groups.size}")
             }
+        }
+        // Episodes still missing under a show name no search found: Apple's episode
+        // search finds them under whatever show carries them. "微笑台灣 Podcast：大陳島
+        // 撤退後，他們去哪了？" is 【微笑台灣Ep.192】 of 聽天下：天下雜誌Podcast, whose segment
+        // 微笑台灣 is, not a show of its own.
+        val searchable = outcomes.indices.filter { i ->
+            outcomes[i] is Outcome.Missed && sourced[i].appleShowId == null && !sourced[i].pick.isShow
+        }
+        if (searchable.isNotEmpty()) {
+            onProgress("Searching Apple for ${searchable.size} more...")
+            gated(searchable) { i -> searchApple(sourced[i])?.let { outcomes[i] = Outcome.Episode(it) } }
         }
 
         val episodes = LinkedHashMap<String, String?>()
@@ -338,6 +351,36 @@ class ChatImporter(
         return rows.associate { (index, row) -> index to row.id }
     }
 
+    /**
+     * The pick's episode from Apple's episode search, added from Apple's record under
+     * its show with the id the show's feed gives it (its GUID), without pulling a feed
+     * that can hold thousands of episodes (聽天下 has 4,840). See [AppleEpisodeSearch]
+     * for what a result must show to count.
+     */
+    private suspend fun searchApple(s: Sourced): String? {
+        val show = s.showTitle ?: return null
+        val core = AppleEpisodeSearch.core(s.episodeTitle, show) ?: return null
+        val results = runCatching { itunes.searchEpisodes(core) }
+            .onFailure { Log.w(TAG, "Apple episode search for $core: ${it.message}") }
+            .getOrNull() ?: return null
+        val hit = AppleEpisodeSearch.pick(results, core, show, s.publishedApprox) ?: return null
+        val showId = hit.collectionId ?: return null
+        val found = runCatching { appleShows.resolve(showId) }.getOrNull()
+        val podcast = podcasts.addPodcast((found as? AppleShow.Found)?.podcast ?: return null)
+        // Already stored (a subscription, an earlier import), perhaps under a GUID the
+        // feed has since rewritten: that row, not a second one.
+        FeedEpisodeMatch.find(
+            episodes = podcasts.episodesForPodcastOnce(podcast.id),
+            title = hit.title,
+            publishedApprox = day(hit.releaseDateMs),
+            showTitle = podcast.title,
+            guid = hit.guid,
+            appleReleaseMs = hit.releaseDateMs,
+        )?.let { return it }
+        val member = IndexedValue(0, s.copy(apple = hit, guid = hit.guid))
+        return fromApple(podcast, listOf(member))[0]
+    }
+
     /** One retry after a pause: dozens of 小宇宙 pages in a row now and then fail one. */
     private suspend fun <T> retrying(block: suspend () -> T): kotlin.Result<T> =
         runCatching { block() }.recoverCatching {
@@ -399,3 +442,160 @@ internal object FeedEpisodeMatch {
         MessageDigest.getInstance("MD5").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
 }
 
+/**
+ * Which result of an Apple episode search is the pick's episode. It is a last resort,
+ * after the show's own feed (or none) failed, and it judges each result alone, without
+ * the feed's other titles that would show its shared words. So a result must carry
+ * the show's name, whole, in its show's name or as the tag its title opens with
+ * (【微笑台灣Ep.192】 in 聽天下：天下雜誌Podcast; "Science explains…" is no tag); its title,
+ * not counting the show's name, must hold every word of the chat's, short ones too (a
+ * sibling "How Steve Jobs built Pixar" is not "…built Apple", nor "…of VR" "…of AI",
+ * nor 【微笑台灣Ep.193】日本… 台灣…), and the same episode and part numbers where both
+ * give any; it must be dated within two days of the chat's date when the link gave one
+ * (a rerun is another episode); it needs a GUID, the id the feed gives the episode;
+ * and the results that pass must be one show's, and one episode unless exactly one is
+ * titled exactly so. Pure, for tests.
+ */
+internal object AppleEpisodeSearch {
+    // Words saying it is a podcast, not which: "微笑台灣 Podcast" is 微笑台灣.
+    private val GENERIC = setOf("podcast", "podcasts", "播客")
+
+    private const val DATE_SLACK_DAYS = 2
+    private const val DAY_MS = 86_400_000L
+
+    private const val CJK = """\p{IsHan}\p{IsHiragana}\p{IsKatakana}\p{IsHangul}"""
+
+    // A run of Chinese, Japanese or Korean; of digits; or of other letters.
+    private val RUN = Regex("[$CJK]+|\\p{N}+|[\\p{L}&&[^$CJK]]+")
+
+    // An episode marker before its number: "Ep268", "Ep.268", "EP 12", "Episode 268",
+    // "Vol. 5", "#123", and "No" and "E" only touching it or with a dot ("No.5", "E913"),
+    // so "No country", "維他命 E：5 個好處" and "Hepatitis E (2024)" keep their word.
+    // Chinese may run straight into it: 微笑台灣Ep.192.
+    private const val MARKER = """(?<![\p{L}&&[^$CJK]])(?:(?:episode|eps|ep|vol)\.?\s?#?|(?:no|e)\.?|#\s?)"""
+    private val MARKED = Regex("(?i)$MARKER(?=\\d)")
+
+    // The numbers saying which episode: after a marker, or 第 (第192集).
+    private val NUMBERED = Regex("(?i)(?:$MARKER|第\\s?)(\\d++)")
+
+    // A leading tag is bracketed, 【微笑台灣Ep.192】, or ends at a separator, 微笑台灣｜….
+    private const val OPEN = "【[「《(（"
+    private const val CLOSE = "】]」》)）"
+    private const val SEPARATORS = ":：|｜-–—·"
+
+    /** The episode's own words, without the chat's show name in front. */
+    fun core(episodeTitle: String, show: String): String? {
+        val title = episodeTitle.trimStart { !it.isLetterOrDigit() }
+        // Only a name set off as a label comes off: "微笑台灣 Podcast：…", "《微笑台灣
+        // Podcast》…", not 故事 from "故事的結局" or "Story" from "Storytelling explained".
+        val after = title.removePrefix(show)
+        val labelled = show.isNotEmpty() && title.startsWith(show) &&
+            after.trimStart().firstOrNull()?.let { it in CLOSE || it in SEPARATORS } == true
+        return (if (labelled) after else title).trimStart { !it.isLetterOrDigit() }.ifBlank { null }
+    }
+
+    fun pick(results: List<AppleEpisode>, core: String, show: String, publishedApprox: String?): AppleEpisode? {
+        val name = name(show).ifEmpty { return null }
+        val wanted = words(core).ifEmpty { return null }
+        val numbers = numbers(core)
+        val parts = RecentEpisodeMatcher.parts(core)
+        val day = publishedApprox?.let { runCatching { LocalDate.parse(it) }.getOrNull() }?.toEpochDay()
+        val hits = results.filter { a ->
+            a.guid != null && a.audioUrl != null && a.collectionId != null &&
+                namesShow(name, a) &&
+                words(a.title, without = name).containsAll(wanted) &&
+                agree(numbers, numbers(a.title)) &&
+                agree(parts, RecentEpisodeMatcher.parts(a.title)) &&
+                (day == null || abs(Math.floorDiv(a.releaseDateMs, DAY_MS) - day) <= DATE_SLACK_DAYS)
+        }
+        if (hits.map { it.collectionId }.distinct().size != 1) return null
+        hits.singleOrNull()?.let { return it }
+        val exact = RecentEpisodeMatcher.normalize(core)
+        return hits.singleOrNull { RecentEpisodeMatcher.normalize(it.title) == exact }
+    }
+
+    /**
+     * Every word, short ones too ("AI" is not "VR"), numbers apart from the letters
+     * around them and without leading zeros, episode markers before a number left out,
+     * and Chinese, Japanese and Korean as character pairs, the way the matcher reads them;
+     * [without] the show's name (normalized), which is no word of the episode's.
+     */
+    internal fun words(s: String, without: String? = null): Set<String> {
+        val text = RecentEpisodeMatcher.normalize(MARKED.replace(Normalizer.normalize(s, Normalizer.Form.NFKC), " "))
+        return buildSet {
+            RUN.findAll(without?.let { withoutName(text, it) } ?: text).forEach { run ->
+                val w = run.value
+                val first = w.codePointAt(0)
+                when {
+                    isCjk(first) -> {
+                        val chars = w.codePoints().toArray().map { String(Character.toChars(it)) }
+                        if (chars.size == 1) add(chars[0]) else chars.zipWithNext { a, b -> add(a + b) }
+                    }
+                    Character.isLetter(first) -> add(w)
+                    else -> add(w.trimStart('0').ifEmpty { "0" })
+                }
+            }
+        }
+    }
+
+    /** The matcher's episode numbers, and any after a marker here or 第: "Episode 268", 第192集. */
+    private fun numbers(s: String): Set<String> =
+        RecentEpisodeMatcher.episodeNumbers(s) +
+            NUMBERED.findAll(Normalizer.normalize(s, Normalizer.Form.NFKC)).map { it.groupValues[1].trimStart('0').ifEmpty { "0" } }
+
+    // Numbers given on both sides must be the same ones: "【微笑台灣Ep.193】Ep.192〈…〉聽眾回應"
+    // answers Ep.192 but is not it.
+    private fun agree(a: Set<String>, b: Set<String>) = a.isEmpty() || b.isEmpty() || a == b
+
+    private fun namesShow(name: String, a: AppleEpisode): Boolean {
+        if (nameAt(name(a.collectionName.orEmpty()), name).isNotEmpty()) return true
+        // The title's tag is the name, perhaps with an episode number: 微笑台灣Ep.192.
+        val tag = leadingTag(a.title) ?: return false
+        val text = RecentEpisodeMatcher.normalize(MARKED.replace(tag, " "))
+        if (!text.startsWith(name) || joins(name.last(), text.getOrNull(name.length))) return false
+        return (words(text.removePrefix(name)) - GENERIC).all { Character.isDigit(it.codePointAt(0)) }
+    }
+
+    private fun leadingTag(title: String): String? {
+        val raw = Normalizer.normalize(title, Normalizer.Form.NFKC).trim()
+        if (raw.isEmpty()) return null
+        if (raw[0] in OPEN) {
+            val end = raw.indexOfAny(CLOSE.toCharArray(), 1)
+            return if (end > 1) raw.substring(1, end) else null
+        }
+        val end = raw.indexOfAny(SEPARATORS.toCharArray())
+        return if (end > 0) raw.substring(0, end) else null
+    }
+
+    private fun name(s: String) =
+        RecentEpisodeMatcher.normalize(s).split(' ').filter { it.isNotEmpty() && it !in GENERIC }.joinToString(" ")
+
+    /** Where [name] stands whole in [text], not inside a longer word ("Café" in "Cafés") or number. */
+    private fun nameAt(text: String, name: String): List<Int> = buildList {
+        var i = text.indexOf(name)
+        while (i >= 0) {
+            if (!joins(name.last(), text.getOrNull(i + name.length)) && !joins(name.first(), text.getOrNull(i - 1))) add(i)
+            i = text.indexOf(name, i + 1)
+        }
+    }
+
+    private fun withoutName(text: String, name: String): String {
+        var out = text
+        nameAt(text, name).asReversed().forEach { i -> out = out.replaceRange(i, minOf(i + name.length, out.length), " ") }
+        return out
+    }
+
+    // Letters and digits run on into one word, except Chinese, Japanese and Korean,
+    // which have no spaces to stop them: 微笑台灣 opens 【微笑台灣Ep.192】.
+    private fun joins(edge: Char, next: Char?) =
+        next != null && edge.isLetterOrDigit() && next.isLetterOrDigit() && !isCjk(edge.code) && !isCjk(next.code)
+
+    private fun isCjk(codePoint: Int) = Character.UnicodeScript.of(codePoint) in CJK_SCRIPTS
+
+    private val CJK_SCRIPTS = setOf(
+        Character.UnicodeScript.HAN,
+        Character.UnicodeScript.HIRAGANA,
+        Character.UnicodeScript.KATAKANA,
+        Character.UnicodeScript.HANGUL,
+    )
+}
