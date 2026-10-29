@@ -4,9 +4,12 @@ import com.podly.data.db.PlaylistSummary
 import com.podly.data.db.EpisodeEntity
 import com.podly.data.db.PlaylistDao
 import com.podly.data.db.PlaylistEntity
+import com.podly.data.db.PlaylistShow
+import com.podly.data.db.PlaylistShowEntity
 import com.podly.data.db.SortMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 
 class PlaylistRepository(private val playlistDao: PlaylistDao) {
 
@@ -41,8 +44,20 @@ class PlaylistRepository(private val playlistDao: PlaylistDao) {
 
     suspend fun delete(id: Long) = playlistDao.deletePlaylist(id)
 
-    suspend fun addEpisode(playlistId: Long, episodeId: String) =
-        playlistDao.addToEnd(playlistId, episodeId)
+    suspend fun addEpisode(playlistId: Long, episodeId: String, note: String? = null) =
+        playlistDao.addToEnd(playlistId, episodeId, note?.trim()?.ifEmpty { null })
+
+    /** Shows the playlist recommends as a whole, in order. */
+    fun shows(playlistId: Long): Flow<List<PlaylistShow>> = playlistDao.shows(playlistId)
+
+    suspend fun addShows(playlistId: Long, shows: List<Pair<String, String?>>) =
+        shows.forEachIndexed { position, (podcastId, note) ->
+            playlistDao.insertShow(PlaylistShowEntity(playlistId, podcastId, position, note?.trim()?.ifEmpty { null }))
+        }
+
+    /** Episode id -> its note, for the rows that have one. */
+    fun notes(playlistId: Long): Flow<Map<String, String>> =
+        playlistDao.notes(playlistId).map { rows -> rows.associate { it.episodeId to it.note } }
 
     suspend fun removeEpisode(playlistId: Long, episodeId: String) =
         playlistDao.removeItem(playlistId, episodeId)

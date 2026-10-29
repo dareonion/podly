@@ -1,5 +1,15 @@
 package com.podly.ui.playlists
 
+import com.podly.data.db.PlaylistShow
+import coil.compose.AsyncImage
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.draw.clip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +72,14 @@ class PlaylistDetailViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val allPlaylists = graph.playlists.playlists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val notes = graph.playlists.notes(playlistId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+    val shows = graph.playlists.shows(playlistId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun subscribe(podcastId: String) = viewModelScope.launch {
+        graph.podcasts.setSubscribed(podcastId, true)
+    }
 
     // Only sets the mode: chrono sorts are applied at read time, so the stored manual
     // order (insertion/import order until the user drags) survives round trips through
@@ -86,13 +105,16 @@ class PlaylistDetailViewModel(
 }
 
 @Composable
-fun PlaylistDetailScreen(playlistId: Long, onOpenEpisode: (String) -> Unit) {
+fun PlaylistDetailScreen(playlistId: Long, onOpenEpisode: (String) -> Unit, onOpenPodcast: (String) -> Unit = {}) {
     val viewModel = appViewModel(key = "playlist_$playlistId") {
         PlaylistDetailViewModel(it, playlistId)
     }
     val playlist by viewModel.playlist.collectAsStateWithLifecycle()
     val episodes by viewModel.episodes.collectAsStateWithLifecycle()
     val allPlaylists by viewModel.allPlaylists.collectAsStateWithLifecycle()
+    val notes by viewModel.notes.collectAsStateWithLifecycle()
+    val shows by viewModel.shows.collectAsStateWithLifecycle()
+    var showsOpen by rememberSaveable { mutableStateOf(false) }
     var episodeForPlaylist by remember { mutableStateOf<EpisodeEntity?>(null) }
     var episodeForDescription by remember { mutableStateOf<EpisodeEntity?>(null) }
     var sortMenuOpen by remember { mutableStateOf(false) }
@@ -103,9 +125,12 @@ fun PlaylistDetailScreen(playlistId: Long, onOpenEpisode: (String) -> Unit) {
     val isManual = playlist?.sortMode == SortMode.MANUAL
 
     val lazyListState = rememberLazyListState()
+    // By key, not list position: the shows section above the episodes is a list item too.
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        localList = localList.toMutableList().apply {
-            add(to.index, removeAt(from.index))
+        val fromIndex = localList.indexOfFirst { it.id == from.key }
+        val toIndex = localList.indexOfFirst { it.id == to.key }
+        if (fromIndex >= 0 && toIndex >= 0) {
+            localList = localList.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
         }
     }
 
@@ -119,7 +144,7 @@ fun PlaylistDetailScreen(playlistId: Long, onOpenEpisode: (String) -> Unit) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(playlist?.name ?: "", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    "${localList.size} episodes",
+                    "${localList.size} episodes" + if (shows.isNotEmpty()) " · ${shows.size} shows" else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -168,6 +193,17 @@ fun PlaylistDetailScreen(playlistId: Long, onOpenEpisode: (String) -> Unit) {
         }
 
         LazyColumn(state = lazyListState, modifier = Modifier.fillMaxSize()) {
+            if (shows.isNotEmpty()) {
+                item(key = "shows") {
+                    PlaylistShowsSection(
+                        shows = shows,
+                        open = showsOpen,
+                        onToggle = { showsOpen = !showsOpen },
+                        onOpen = onOpenPodcast,
+                        onSubscribe = viewModel::subscribe,
+                    )
+                }
+            }
             items(localList, key = { it.id }) { episode ->
                 ReorderableItem(reorderableState, key = episode.id) {
                     EpisodeRow(
@@ -181,6 +217,7 @@ fun PlaylistDetailScreen(playlistId: Long, onOpenEpisode: (String) -> Unit) {
                         onRemoveFromPlaylist = { viewModel.remove(episode.id) },
                         onShowDescription = { episodeForDescription = episode },
                         onOpenDetail = { onOpenEpisode(episode.id) },
+                        note = notes[episode.id],
                         trailingContent = if (isManual) {
                             {
                                 IconButton(
@@ -244,3 +281,77 @@ fun PlaylistDetailScreen(playlistId: Long, onOpenEpisode: (String) -> Unit) {
         }
     }
 }
+
+/**
+ * The shows a chat recommends as a whole, folded away above its episodes: a header
+ * with the count, and when open a row per show to open it or subscribe from here.
+ */
+@Composable
+private fun PlaylistShowsSection(
+    shows: List<PlaylistShow>,
+    open: Boolean,
+    onToggle: () -> Unit,
+    onOpen: (String) -> Unit,
+    onSubscribe: (String) -> Unit,
+) {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Shows from this chat · ${shows.size}",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                if (open) "Hide shows" else "Show shows",
+            )
+        }
+        if (open) {
+            shows.forEach { show ->
+                val podcast = show.podcast
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpen(podcast.id) }
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AsyncImage(
+                        model = podcast.artworkUrl,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
+                    )
+                    Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                        Text(podcast.title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        show.note?.let {
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (podcast.subscribed) {
+                        Text(
+                            "Subscribed",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        OutlinedButton(onClick = { onSubscribe(podcast.id) }) { Text("Subscribe") }
+                    }
+                }
+            }
+            HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+}
+

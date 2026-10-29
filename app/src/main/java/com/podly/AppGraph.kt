@@ -13,6 +13,7 @@ import com.podly.data.PodcastIndexFeedDirectory
 import com.podly.data.AppleShowResolver
 import com.podly.data.CachedArchive
 import com.podly.data.PicksImporter
+import com.podly.data.chat.ChatImporter
 import com.podly.data.PodcastIndexArchive
 import com.podly.data.TaddyArchive
 import com.podly.network.TaddyApi
@@ -30,6 +31,7 @@ import com.podly.network.RemoteRecsApi
 import com.podly.network.ai.AiRecommender
 import com.podly.playback.PlayerConnection
 import com.podly.ui.UiMessages
+import com.podly.ui.playlists.ChatImportRunner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -73,6 +75,12 @@ class AppGraph(private val context: Context) {
             .map { CachedArchive(it, log = { msg -> Log.i("EpisodeArchive", msg) }) },
     )
     val picksImporter: PicksImporter = PicksImporter(podcasts, playlists, picksRescuer)
+    /** ChatGPT recommendation chats → playlists; runs in [applicationScope]. */
+    val chatImports: ChatImportRunner = ChatImportRunner(
+        ChatImporter(podcasts, playlists, appleShows, picksRescuer),
+        applicationScope,
+        messages,
+    )
     val aiRecommender: AiRecommender =
         AiRecommender(settings, database.podcastDao(), database.episodeDao())
     // Recent-episode + acclaimed lists are pre-generated server-side and fetched as static JSON.

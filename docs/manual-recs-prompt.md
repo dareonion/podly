@@ -7,6 +7,12 @@ app (make sure web search is available), copy the JSON it returns, then in Podly
 against each show's feed, and picks that have rolled off a short feed are recovered
 through the Taddy/PodcastIndex keys in Settings → Services & keys.
 
+An ordinary recommendations chat no longer needs this prompt: share it from the ChatGPT
+app to Podly, or paste its share link into **Import picks → From a ChatGPT chat**, and
+its episodes become a playlist (with each pick's reason) and the shows it recommends are
+listed with it. This prompt is still the way to get a dated, ranked list of recent
+episodes.
+
 Tips:
 
 - Swap the window in the first line ("the past 2 weeks" / "the past month" /

@@ -14,11 +14,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ListeningSegmentEntity::class,
         PlaylistEntity::class,
         PlaylistItemEntity::class,
+        PlaylistShowEntity::class,
         RadioPoolEntity::class,
         RadioFeedbackEntity::class,
         PodcastCategoryEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class PodlyDatabase : RoomDatabase() {
@@ -150,11 +151,24 @@ abstract class PodlyDatabase : RoomDatabase() {
             }
         }
 
+        /** Imported picks keep their reasons on the playlist row; chat imports keep the shows they recommend. */
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE playlist_items ADD COLUMN note TEXT")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `playlist_shows` (`playlistId` INTEGER NOT NULL, " +
+                        "`podcastId` TEXT NOT NULL, `position` INTEGER NOT NULL, `note` TEXT, " +
+                        "PRIMARY KEY(`playlistId`, `podcastId`))",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_playlist_shows_podcastId` ON `playlist_shows` (`podcastId`)")
+            }
+        }
+
         internal val MIGRATIONS =
             arrayOf(
                 MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
                 MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-                MIGRATION_8_9,
+                MIGRATION_8_9, MIGRATION_9_10,
             )
 
         fun build(context: Context): PodlyDatabase =

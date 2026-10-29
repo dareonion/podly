@@ -52,6 +52,8 @@ class PodcastRepository(
     fun listeningSegments(): Flow<List<ListeningSegmentEntity>> = episodeDao.listeningSegments()
 
     suspend fun search(term: String): List<PodcastEntity> = itunesApi.searchPodcasts(term)
+    suspend fun allPodcastsOnce(): List<PodcastEntity> = podcastDao.allPodcastsOnce()
+    suspend fun episodesByIds(ids: List<String>): List<EpisodeEntity> = episodeDao.byIds(ids)
 
     /** Re-reads one episode's feed, ignoring cache validators, to refresh its notes. */
     suspend fun reloadNotes(episodeId: String) {

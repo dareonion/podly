@@ -24,6 +24,10 @@ interface PodcastDao {
     @Query("SELECT * FROM podcasts WHERE subscribed = 1")
     suspend fun subscribedPodcastsOnce(): List<PodcastEntity>
 
+    /** Subscribed first, for picking among same-named shows. */
+    @Query("SELECT * FROM podcasts ORDER BY subscribed DESC")
+    suspend fun allPodcastsOnce(): List<PodcastEntity>
+
     @Query(
         """SELECT p.*, COALESCE((SELECT MAX(e.lastPlayedAt) FROM episodes e WHERE e.podcastId = p.id), 0)
                   AS lastPlayedAt
@@ -139,6 +143,10 @@ interface PodcastDao {
     suspend fun setEpisodeSortOrder(id: String, sortOrder: PodcastEpisodeSortOrder)
 
     /**
+     * So are shows a playlist refers to, through an episode or as a recommended
+     * show: an imported playlist's unsubscribed shows kept their episodes but lost
+     * their artwork and feed whenever any other show was unsubscribed.
+     *
      * Radio pool shows are spared too: without that clause, unsubscribing any show
      * deletes every unsubscribed podcast the pool depends on, leaving its episodes
      * playable but stripped of feedUrl, artwork and author.
@@ -148,7 +156,10 @@ interface PodcastDao {
            AND id NOT IN (SELECT DISTINCT podcastId FROM episodes
                           WHERE inLibrary = 1 OR downloadStatus != 'NONE' OR playbackPositionMs > 0)
            AND id NOT IN (SELECT DISTINCT e.podcastId FROM episodes e
-                          JOIN radio_pool r ON r.episodeId = e.id)"""
+                          JOIN radio_pool r ON r.episodeId = e.id)
+           AND id NOT IN (SELECT DISTINCT e.podcastId FROM episodes e
+                          JOIN playlist_items pi ON pi.episodeId = e.id)
+           AND id NOT IN (SELECT podcastId FROM playlist_shows)"""
     )
     suspend fun pruneOrphans()
 
@@ -343,6 +354,15 @@ interface EpisodeDao {
     suspend fun insertListeningSegment(segment: ListeningSegmentEntity)
 }
 
+/** An imported pick's reason, keyed by the episode it sits beside. */
+data class PlaylistItemNote(val episodeId: String, val note: String)
+
+/** A show a playlist recommends, with the chat's reason. */
+data class PlaylistShow(
+    @Embedded val podcast: PodcastEntity,
+    val note: String?,
+)
+
 /** A playlist plus how many episodes are in it, for the list screen. */
 data class PlaylistSummary(
     @Embedded val playlist: PlaylistEntity,
@@ -410,20 +430,38 @@ interface PlaylistDao {
     suspend fun maxPosition(playlistId: Long): Int
 
     @Transaction
-    suspend fun addToEnd(playlistId: Long, episodeId: String) {
-        insertItem(PlaylistItemEntity(playlistId, episodeId, maxPosition(playlistId) + 1))
+    suspend fun addToEnd(playlistId: Long, episodeId: String, note: String? = null) {
+        insertItem(PlaylistItemEntity(playlistId, episodeId, maxPosition(playlistId) + 1, note))
     }
 
+    @Query("UPDATE playlist_items SET manualPosition = :position WHERE playlistId = :playlistId AND episodeId = :episodeId")
+    suspend fun setPosition(playlistId: Long, episodeId: String, position: Int)
+
+    // Positions only: rebuilding whole rows for an @Update would wipe their notes.
     @Transaction
     suspend fun reorder(playlistId: Long, orderedEpisodeIds: List<String>) {
-        updateItems(orderedEpisodeIds.mapIndexed { index, episodeId ->
-            PlaylistItemEntity(playlistId, episodeId, index)
-        })
+        orderedEpisodeIds.forEachIndexed { index, episodeId -> setPosition(playlistId, episodeId, index) }
     }
+
+    @Query("SELECT episodeId, note FROM playlist_items WHERE playlistId = :playlistId AND note IS NOT NULL")
+    fun notes(playlistId: Long): Flow<List<PlaylistItemNote>>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertShow(show: PlaylistShowEntity)
+
+    @Query(
+        """SELECT p.*, s.note AS note FROM playlist_shows s JOIN podcasts p ON p.id = s.podcastId
+           WHERE s.playlistId = :playlistId ORDER BY s.position"""
+    )
+    fun shows(playlistId: Long): Flow<List<PlaylistShow>>
+
+    @Query("DELETE FROM playlist_shows WHERE playlistId = :playlistId")
+    suspend fun deleteShows(playlistId: Long)
 
     @Transaction
     suspend fun deletePlaylist(id: Long) {
         deleteItems(id)
+        deleteShows(id)
         delete(id)
     }
 }

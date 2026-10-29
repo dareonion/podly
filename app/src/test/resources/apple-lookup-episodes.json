@@ -1,0 +1,107 @@
+{
+ "resultCount": 3,
+ "results": [
+  {
+   "wrapperType": "track",
+   "kind": "podcast",
+   "collectionId": 1553424581,
+   "trackId": 1553424581,
+   "artistName": "范琪斐",
+   "collectionName": "說故事的人",
+   "trackName": "說故事的人",
+   "collectionCensoredName": "說故事的人",
+   "trackCensoredName": "說故事的人",
+   "collectionViewUrl": "https://podcasts.apple.com/us/podcast/%E8%AA%AA%E6%95%85%E4%BA%8B%E7%9A%84%E4%BA%BA/id1553424581?uo=4",
+   "feedUrl": "https://anchor.fm/s/4bbcf5d4/podcast/rss",
+   "trackViewUrl": "https://podcasts.apple.com/us/podcast/%E8%AA%AA%E6%95%85%E4%BA%8B%E7%9A%84%E4%BA%BA/id1553424581?uo=4",
+   "artworkUrl30": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts125/v4/40/1b/11/401b1197-b8bf-12a1-49af-ec6f2aa2a811/mza_2760552231001360978.jpg/30x30bb.jpg",
+   "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts125/v4/40/1b/11/401b1197-b8bf-12a1-49af-ec6f2aa2a811/mza_2760552231001360978.jpg/60x60bb.jpg",
+   "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts125/v4/40/1b/11/401b1197-b8bf-12a1-49af-ec6f2aa2a811/mza_2760552231001360978.jpg/100x100bb.jpg",
+   "collectionPrice": 0.0,
+   "trackPrice": 0.0,
+   "collectionHdPrice": 0,
+   "releaseDate": "2023-12-10T20:55:00Z",
+   "collectionExplicitness": "notExplicit",
+   "trackExplicitness": "cleaned",
+   "trackCount": 27,
+   "trackTimeMillis": 3480,
+   "country": "USA",
+   "currency": "USD",
+   "primaryGenreName": "Society & Culture",
+   "contentAdvisoryRating": "Clean",
+   "artworkUrl600": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts125/v4/40/1b/11/401b1197-b8bf-12a1-49af-ec6f2aa2a811/mza_2760552231001360978.jpg/600x600bb.jpg",
+   "genreIds": [
+    "1324",
+    "26"
+   ],
+   "genres": [
+    "Society & Culture",
+    "Podcasts"
+   ]
+  },
+  {
+   "episodeUrl": "https://anchor.fm/s/4bbcf5d4/podcast/play/34497778/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2021-4-30%2Ffa31cdb2-9c5a-6d98-99f9-026fc616895c.mp3",
+   "artworkUrl600": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts115/v4/c9/70/e1/c970e1b2-63c0-dc0d-422d-38fd418c73e1/mza_17883366597474633427.jpg/600x600bb.jpg",
+   "artistIds": [],
+   "previewUrl": "https://anchor.fm/s/4bbcf5d4/podcast/play/34497778/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2021-4-30%2Ffa31cdb2-9c5a-6d98-99f9-026fc616895c.mp3",
+   "genres": [
+    {
+     "name": "Society & Culture",
+     "id": "1324"
+    }
+   ],
+   "releaseDate": "2021-05-30T22:00:00Z",
+   "trackId": 1000523583667,
+   "trackName": "逃亡的人",
+   "feedUrl": "https://anchor.fm/s/4bbcf5d4/podcast/rss",
+   "kind": "podcast-episode",
+   "wrapperType": "podcastEpisode",
+   "description": "林榮基，香港銅鑼灣書店店長，2015年與其他四名員工及股東在中國「被失蹤」，八個月後，他召開記者會向大家說明真相，並於2019年來到台灣；任瑞婷，秋雨聖約教會基督徒，由於在中國受到宗教迫害，一家六口在2019年決定離開中國來到台灣。\n\n---\n\n主持：范琪斐\n\n企劃：林瑞珠\n\n導演／剪輯：王伯安\n\n執行製作：張燕玲\n\n混音：趙人儁",
+   "country": "USA",
+   "collectionViewUrl": "https://itunes.apple.com/us/podcast/%E8%AA%AA%E6%95%85%E4%BA%8B%E7%9A%84%E4%BA%BA/id1553424581?mt=2&uo=4",
+   "trackViewUrl": "https://podcasts.apple.com/us/podcast/%E9%80%83%E4%BA%A1%E7%9A%84%E4%BA%BA/id1553424581?i=1000523583667&uo=4",
+   "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts115/v4/c9/70/e1/c970e1b2-63c0-dc0d-422d-38fd418c73e1/mza_17883366597474633427.jpg/60x60bb.jpg",
+   "trackTimeMillis": 2673000,
+   "contentAdvisoryRating": "Clean",
+   "episodeFileExtension": "mp3",
+   "episodeContentType": "audio",
+   "artworkUrl160": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts115/v4/c9/70/e1/c970e1b2-63c0-dc0d-422d-38fd418c73e1/mza_17883366597474633427.jpg/160x160bb.jpg",
+   "collectionId": 1553424581,
+   "collectionName": "說故事的人",
+   "closedCaptioning": "none",
+   "episodeGuid": "244628c4-c300-4e98-a06d-0ae5f1b75165"
+  },
+  {
+   "episodeUrl": "https://anchor.fm/s/4bbcf5d4/podcast/play/79743082/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2023-11-8%2F0a4768ec-f562-42dc-1e8e-88d33cf42de9.mp3",
+   "artworkUrl600": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/7c/45/d8/7c45d8ac-2063-2124-27f4-8c3b778b4a3e/mza_16382343318357333516.jpg/600x600bb.jpg",
+   "artistIds": [],
+   "previewUrl": "https://anchor.fm/s/4bbcf5d4/podcast/play/79743082/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2023-11-8%2F0a4768ec-f562-42dc-1e8e-88d33cf42de9.mp3",
+   "genres": [
+    {
+     "name": "Society & Culture",
+     "id": "1324"
+    }
+   ],
+   "releaseDate": "2023-12-10T20:55:00Z",
+   "trackId": 1000638111772,
+   "trackName": "一生只做一件事",
+   "feedUrl": "https://anchor.fm/s/4bbcf5d4/podcast/rss",
+   "kind": "podcast-episode",
+   "wrapperType": "podcastEpisode",
+   "description": "從賣小籠包的學徒到打造出台灣第一瓶拿到世界冠軍的葡萄酒，陳千浩的釀酒人生，未完待續⋯⋯\n\n還記得阿草嗎？就是我們節目第一季中，那個與養父母分別了60年的補教名師王明智，這麼多年後，他終於找到人了。\n\n—\n\n主持：范琪斐\n\n統籌製作：陳彥豪\n\n企劃：唐鎮宇、林瑞珠\n\n剪輯：陳彥豪\n\n混音：朱智暘",
+   "country": "USA",
+   "collectionViewUrl": "https://itunes.apple.com/us/podcast/%E8%AA%AA%E6%95%85%E4%BA%8B%E7%9A%84%E4%BA%BA/id1553424581?mt=2&uo=4",
+   "trackViewUrl": "https://podcasts.apple.com/us/podcast/%E4%B8%80%E7%94%9F%E5%8F%AA%E5%81%9A%E4%B8%80%E4%BB%B6%E4%BA%8B/id1553424581?i=1000638111772&uo=4",
+   "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/7c/45/d8/7c45d8ac-2063-2124-27f4-8c3b778b4a3e/mza_16382343318357333516.jpg/60x60bb.jpg",
+   "trackTimeMillis": 3480000,
+   "contentAdvisoryRating": "Clean",
+   "episodeFileExtension": "mp3",
+   "episodeContentType": "audio",
+   "artworkUrl160": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/7c/45/d8/7c45d8ac-2063-2124-27f4-8c3b778b4a3e/mza_16382343318357333516.jpg/160x160bb.jpg",
+   "collectionId": 1553424581,
+   "collectionName": "說故事的人",
+   "closedCaptioning": "none",
+   "episodeGuid": "ba4fb6f4-3172-43ab-a2ca-5377214b3251"
+  }
+ ]
+}

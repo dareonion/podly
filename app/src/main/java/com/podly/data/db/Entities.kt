@@ -201,4 +201,19 @@ data class PlaylistItemEntity(
     val playlistId: Long,
     val episodeId: String,
     val manualPosition: Int,
+    /** Why it was picked (an imported pick's reason), shown under the row; null for most. */
+    val note: String? = null,
+)
+
+/** A show a playlist recommends as a whole (a chat import's "try this show"), in the chat's order. */
+@Entity(
+    tableName = "playlist_shows",
+    primaryKeys = ["playlistId", "podcastId"],
+    indices = [Index("podcastId")],
+)
+data class PlaylistShowEntity(
+    val playlistId: Long,
+    val podcastId: String,
+    val position: Int,
+    val note: String? = null,
 )

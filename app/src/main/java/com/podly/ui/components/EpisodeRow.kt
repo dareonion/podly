@@ -65,6 +65,7 @@ fun EpisodeRow(
     onShowDescription: (() -> Unit)? = null,
     onOpenDetail: (() -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
+    note: String? = null,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val hasDescription = plainDescription(episode.description) != null
@@ -122,6 +123,15 @@ fun EpisodeRow(
                         maxLines = 1,
                     )
                 }
+            }
+            if (note != null) {
+                Text(
+                    note,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
             }
             val duration = episode.durationMs ?: 0
             if (!episode.completed && episode.playbackPositionMs > 0 && duration > 0) {

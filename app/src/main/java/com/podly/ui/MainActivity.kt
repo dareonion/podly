@@ -3,6 +3,7 @@ package com.podly.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -26,6 +27,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -80,6 +82,8 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         requestNotificationPermission()
+        // Only a fresh launch: a recreated activity's intent was handled the first time.
+        if (savedInstanceState == null) offerShared(intent)
         setContent {
             PodlyTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -87,6 +91,19 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        offerShared(intent)
+    }
+
+    /** Text shared from another app (a ChatGPT chat's link) goes to the chat import. */
+    private fun offerShared(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() } ?: return
+        appGraph.chatImports.offerShared(text)
     }
 
     private fun requestNotificationPermission() {
@@ -107,6 +124,13 @@ private fun PodlyApp() {
 
     val snackbarHostState = remember { SnackbarHostState() }
     val messages = LocalContext.current.appGraph.messages
+    val shared by LocalContext.current.appGraph.chatImports.shared.collectAsStateWithLifecycle()
+    // The import dialog lives on the Playlists page, which takes the shared text.
+    LaunchedEffect(shared) {
+        if (shared != null && navController.currentDestination?.route != "playlists") {
+            navController.navigate("playlists") { launchSingleTop = true }
+        }
+    }
     LaunchedEffect(Unit) {
         messages.messages.collect { snackbarHostState.showSnackbar(it) }
     }
@@ -202,6 +226,7 @@ private fun PodlyApp() {
                 PlaylistDetailScreen(
                     playlistId,
                     onOpenEpisode = { navController.navigate("episode/$it") },
+                    onOpenPodcast = { navController.navigate("podcast/$it") },
                 )
             }
             composable("episode/{episodeId}") { entry ->

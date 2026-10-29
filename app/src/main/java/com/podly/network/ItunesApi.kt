@@ -19,6 +19,34 @@ private data class ItunesResult(
     val genres: List<String> = emptyList(),
 )
 
+@Serializable
+private data class ItunesEpisodeResult(
+    val wrapperType: String? = null,
+    val trackId: Long? = null,
+    val trackName: String? = null,
+    val releaseDate: String? = null,
+    val episodeGuid: String? = null,
+    val episodeUrl: String? = null,
+    val trackTimeMillis: Long? = null,
+    val description: String? = null,
+    val artworkUrl600: String? = null,
+)
+
+@Serializable
+private data class ItunesEpisodeResponse(val results: List<ItunesEpisodeResult> = emptyList())
+
+/** One episode from Apple's lookup, which carries the feed item's GUID and audio. */
+data class AppleEpisode(
+    val trackId: String,
+    val title: String,
+    val releaseDateMs: Long,
+    val guid: String?,
+    val audioUrl: String?,
+    val durationMs: Long?,
+    val description: String?,
+    val artworkUrl: String?,
+)
+
 /**
  * What Apple's directory says about one show. [feedUrl] is null when Apple lists
  * the show but does not publish its feed — School's In (Stanford) is one: its
@@ -57,6 +85,14 @@ class ItunesApi {
     suspend fun listingById(collectionId: String): AppleListing? =
         parseListing(Http.get("https://itunes.apple.com/lookup?id=$collectionId&entity=podcast"))
 
+    /**
+     * A show's newest episodes as Apple lists them (at most 200). Looking up an
+     * episode's own id (`?i=` in a share link) returns nothing; it has to be found
+     * among its show's.
+     */
+    suspend fun episodesById(collectionId: String): List<AppleEpisode> =
+        parseEpisodes(Http.get("https://itunes.apple.com/lookup?id=$collectionId&entity=podcastEpisode&limit=200"))
+
     suspend fun searchPodcasts(term: String): List<PodcastEntity> {
         val encoded = URLEncoder.encode(term, "UTF-8")
         val body = Http.get("https://itunes.apple.com/search?media=podcast&limit=50&term=$encoded")
@@ -76,6 +112,23 @@ class ItunesApi {
     }
 
     companion object {
+        fun parseEpisodes(body: String): List<AppleEpisode> =
+            Http.json.decodeFromString<ItunesEpisodeResponse>(body).results
+                .filter { it.wrapperType == "podcastEpisode" }
+                .mapNotNull { r ->
+                    AppleEpisode(
+                        trackId = r.trackId?.toString() ?: return@mapNotNull null,
+                        title = r.trackName ?: return@mapNotNull null,
+                        releaseDateMs = r.releaseDate
+                            ?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() } ?: 0,
+                        guid = r.episodeGuid?.ifBlank { null },
+                        audioUrl = r.episodeUrl?.ifBlank { null },
+                        durationMs = r.trackTimeMillis,
+                        description = r.description,
+                        artworkUrl = r.artworkUrl600,
+                    )
+                }
+
         /** The first show in a lookup body, whether or not Apple shares its feed. */
         fun parseListing(body: String): AppleListing? =
             Http.json.decodeFromString<ItunesSearchResponse>(body).results

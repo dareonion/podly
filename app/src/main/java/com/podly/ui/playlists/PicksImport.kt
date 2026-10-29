@@ -16,16 +16,20 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.podly.AppGraph
+import com.podly.appGraph
 import com.podly.data.PicksImportFile
 import com.podly.data.PicksImportResult
 import com.podly.network.Http
@@ -95,6 +99,22 @@ fun PicksImportButton(onStatus: (String) -> Unit) {
     var pasting by remember { mutableStateOf(false) }
     var pasted by remember { mutableStateOf("") }
     var history by remember { mutableStateOf<List<PicksImportViewModel.PasteEntry>>(emptyList()) }
+    val chatImports = context.appGraph.chatImports
+    // Saveable: a shared chat is taken from the runner when the dialog opens, so a
+    // rotation must not lose it before Import.
+    var chatOpen by rememberSaveable { mutableStateOf(false) }
+    var chatText by rememberSaveable { mutableStateOf("") }
+    val chatRunning by chatImports.running.collectAsStateWithLifecycle()
+    val chatStatus by chatImports.status.collectAsStateWithLifecycle()
+    val shared by chatImports.shared.collectAsStateWithLifecycle()
+    LaunchedEffect(chatStatus) { chatStatus?.let(onStatus) }
+    // Shared from ChatGPT: open the dialog with it, and let the user press Import.
+    LaunchedEffect(shared) {
+        chatImports.takeShared()?.let {
+            chatText = it
+            chatOpen = true
+        }
+    }
 
     // Shared by the file-import and paste paths; readText runs on IO.
     fun runImport(readText: suspend () -> String) {
@@ -145,6 +165,14 @@ fun PicksImportButton(onStatus: (String) -> Unit) {
                 },
             )
             DropdownMenuItem(
+                text = { Text("From a ChatGPT chat") },
+                onClick = {
+                    menuOpen = false
+                    chatText = ""
+                    chatOpen = true
+                },
+            )
+            DropdownMenuItem(
                 text = { Text("Paste JSON") },
                 onClick = {
                     menuOpen = false
@@ -154,6 +182,19 @@ fun PicksImportButton(onStatus: (String) -> Unit) {
                 },
             )
         }
+    }
+
+    if (chatOpen) {
+        ChatImportDialog(
+            text = chatText,
+            running = chatRunning,
+            onTextChange = { chatText = it },
+            onImport = {
+                chatOpen = false
+                chatImports.start(chatText)
+            },
+            onDismiss = { chatOpen = false },
+        )
     }
 
     if (pasting) {

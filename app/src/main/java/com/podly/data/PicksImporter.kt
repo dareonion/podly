@@ -57,7 +57,10 @@ class PicksImporter(
                 .awaitAll()
         }.flatten().sortedBy { (index, _) -> index }
 
-        val matchedIds = matches.mapNotNull { (_, id) -> id }.distinct()
+        // A pick that resolves to an episode already listed keeps the first pick's reason.
+        val matched = matches.mapNotNull { (index, id) -> id?.let { it to file.picks[index].pick.reason } }
+            .distinctBy { (id, _) -> id }
+        val matchedIds = matched.map { (id, _) -> id }
         require(matchedIds.isNotEmpty()) {
             "Couldn't match any of these picks to a podcast feed."
         }
@@ -66,7 +69,7 @@ class PicksImporter(
 
         val name = file.name?.takeIf { it.isNotBlank() } ?: fallbackName
         val playlistId = playlists.create(name)
-        matchedIds.forEach { playlists.addEpisode(playlistId, it) }
+        matched.forEach { (id, reason) -> playlists.addEpisode(playlistId, id, reason) }
         return PicksImportResult(playlistId, name, matchedIds.size, file.picks.size, missed)
     }
 
