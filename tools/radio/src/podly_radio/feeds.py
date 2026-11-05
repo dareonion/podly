@@ -37,6 +37,8 @@ class ParsedEpisode:
     pub_date_ms: int | None
     duration_ms: int | None
     image_url: str | None
+    # Full app-precedence notes, separate from radio's first-found description.
+    show_notes: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +152,7 @@ def parse_feed(xml: bytes) -> ParsedFeed:
 
 def _parse_item(item: etree._Element) -> ParsedEpisode | None:
     title = guid = description = None
+    notes_by_tag: dict[str, str | None] = {}
     audio_url = audio_type = pub_date = duration = image = None
 
     for element in item.iter():
@@ -161,6 +164,8 @@ def _parse_item(item: etree._Element) -> ParsedEpisode | None:
         elif tag in ("description", "itunes:summary", "content:encoded"):
             if description is None:
                 description = _text(element)
+            if notes_by_tag.get(tag) is None:
+                notes_by_tag[tag] = _text(element)
         elif tag == "enclosure":
             url = element.get("url")
             kind = element.get("type") or ""
@@ -187,4 +192,9 @@ def _parse_item(item: etree._Element) -> ParsedEpisode | None:
         pub_date_ms=parse_pub_date(pub_date),
         duration_ms=parse_duration(duration),
         image_url=image,
+        show_notes=(
+            notes_by_tag.get("content:encoded")
+            or notes_by_tag.get("description")
+            or notes_by_tag.get("itunes:summary")
+        ),
     )

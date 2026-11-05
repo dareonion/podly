@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) and other coding age
 
 ## Project
 
-Podly — a native Android podcast player (Kotlin, Jetpack Compose, Media3) with Android Auto and Chromecast support. Two Gradle modules: the `app` Android module (package `com.podly`) and a JVM-only `generator` module that pre-computes AI recommendation JSON in CI. Separately, `tools/radio` (Python, `uv`) builds the radio pools, Notable list and weekly digest on this Linux box's systemd user timers and commits them to `site/`. `site/` is published to GitHub Pages at dareonion.github.io/podly, and the app just downloads the static files.
+Podly — a native Android podcast player (Kotlin, Jetpack Compose, Media3) with Android Auto and Chromecast support. Two Gradle modules: the `app` Android module (package `com.podly`) and a JVM-only `generator` module that pre-computes AI recommendation JSON in CI. Separately, `tools/radio` (Python, `uv`) builds the radio pools, Notable list and weekly digest on this Linux box's systemd user timers and commits them to `site/`. `tools/radio` also provides `podly-transcripts`, a local whisper.cpp + Codex CLI for private Mandarin transcripts; its audio, work and serving files live in `~/.local/share/podly-transcripts` (override with `PODLY_TRANSCRIPTS_DIR`), and transcripts are never published to `site/`. `site/` is published to GitHub Pages at dareonion.github.io/podly, and the app just downloads the static files.
 
 ## Commands
 
@@ -22,7 +22,11 @@ Gradle needs JDK 21. Machine-specific JDK paths live in `~/.gradle/gradle.proper
 ./gradlew connectedDebugAndroidTest   # on-device tests against the attached phone (see Gotchas)
 adb install -r app/build/outputs/apk/debug/app-debug.apk        # install to device
 CI=true ./gradlew assembleDebug  # compile as CI does: Kotlin warnings become errors
-(cd tools/radio && uv run ruff check . && uv run pytest -q)     # radio tools: lint + tests
+(cd tools/radio && uv run ruff check . && uv run pytest -q)     # radio + transcripts: lint/tests
+(cd tools/radio && uv run podly-transcripts list "SHOW")       # feed URL, Apple URL or show name
+(cd tools/radio && uv run podly-transcripts run "SHOW" latest:1) # private local transcript
+(cd tools/radio && uv run podly-transcripts index)             # rebuild private serving files
+(cd tools/radio && PORT=8016 uv run podly-transcripts serve)   # loopback; front with tailscale serve --https=8016
 ```
 
 CI: `.github/workflows/android.yml` runs the build, Android Lint (`lintDebug` — pre-existing issues are grandfathered in `app/lint-baseline.xml`, and any new warning or error fails; the "newer version available" checks are disabled because they change with upstream releases rather than the code), plus all unit tests on every push/PR to main. With `CI` set, Kotlin compiler warnings are errors in both modules, so fix a warning or suppress it at the call site with a reason. `radio.yml` runs `ruff check` and pytest on `tools/radio` when it changes; ruff is pinned in `uv.lock` because each release changes the default rule set, and the formatter is deliberately not used. Pushes to main also publish the debug APK to the rolling `latest` GitHub release (stable URL: `releases/latest/download/podly-debug.apk`). `pages.yml` deploys the committed `site/` tree on every push to main that touches it. `recommendations.yml` (the `generator` job, which spends API credits) is dispatch-only: its weekly cron is off by choice, and its output is lost at the next `site/` push unless committed back (see the workflow's header).
