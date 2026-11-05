@@ -165,6 +165,8 @@ def test_failed_whisper_marker_is_not_reused(tmp_path, monkeypatch):
     (work / "audio.mp3").write_bytes(b"audio")
     (work / "whisper.srt").write_text("partial")
     write_json(work / "whisper-state.json", {"different": True})
+    write_json(work / "loop-repair.json", {"version": 1, "repairs": []})
+    (work / "whisper.looped.srt").write_text("old evidence")
     monkeypatch.setattr(pipeline, "measure_duration", lambda _: 2000)
     def fail(*args):
         raise RuntimeError("failed")
@@ -173,4 +175,139 @@ def test_failed_whisper_marker_is_not_reused(tmp_path, monkeypatch):
         pipeline.run_episode(client, tmp_path, "https://feed", feed, episode,
                              "simplified", Path("/whisper"), "model", 3)
     assert not (work / "whisper-state.json").exists()
+    # A new Whisper pass invalidates the loop check made on the old SRT.
+    assert not (work / "loop-repair.json").exists()
+    assert not (work / "whisper.looped.srt").exists()
     assert not (work / "transcript.json").exists()
+
+
+def _srt(*rows):
+    from podly_radio.transcripts.text import Segment, srt_text
+    return srt_text([Segment(a, b, t) for a, b, t in rows])
+
+
+def _loop_rows():
+    rows = [(k * 5000, k * 5000 + 4000, f"正常{k}") for k in range(20)]
+    rows += [(100000 + k * 2000, 101000 + k * 2000, "對,我們知道她的經歷") for k in range(30)]
+    rows += [(200000 + k * 5000, 204000 + k * 5000, f"后来{k}") for k in range(20)]
+    return rows
+
+
+def test_repair_loops_splices_fresh_text_once_and_keeps_evidence(tmp_path, monkeypatch):
+    from podly_radio.transcripts.text import Segment, parse_srt
+    (tmp_path / "whisper.srt").write_text(_srt(*_loop_rows()), encoding="utf-8")
+    original = (tmp_path / "whisper.srt").read_bytes()
+    calls = []
+
+    def fake_span(audio, work, whisper_dir, show, script, start_ms, end_ms):
+        calls.append((start_ms, end_ms))
+        return [Segment(start_ms + 1000, start_ms + 3000, "I actually got some question"),
+                Segment(end_ms - 3000, end_ms - 1000, "that's crazy")]
+
+    monkeypatch.setattr(pipeline, "transcribe_span", fake_span)
+    pipeline.repair_loops(Path("a.mp3"), tmp_path, Path("/w"), "show", "traditional", "ep")
+    # Loop 100-159 s; padded window 70-189 s, so 正常14-19 go and the silence is included.
+    assert calls == [(70000, 189000)]
+    texts = [s.text for s in parse_srt((tmp_path / "whisper.srt").read_text(encoding="utf-8"))]
+    assert texts == [f"正常{k}" for k in range(14)] + [
+        "I actually got some question", "that's crazy"] + [f"后来{k}" for k in range(20)]
+    assert (tmp_path / "whisper.looped.srt").read_bytes() == original
+    state = read_json(tmp_path / "loop-repair.json")
+    assert state["repairs"] == [{"loopsMs": [[100000, 159000]], "audioMs": [70000, 189000],
+                                 "segmentsBefore": 36, "segmentsAfter": 2, "freshLooped": False}]
+    assert state["collapsedAfterSplice"] is False
+    pipeline.repair_loops(Path("a.mp3"), tmp_path, Path("/w"), "show", "traditional", "ep")
+    assert len(calls) == 1  # recorded, not repeated
+
+
+def test_repair_loops_redoes_after_a_crash_before_the_srt_was_replaced(tmp_path, monkeypatch):
+    from podly_radio.transcripts.text import Segment
+    (tmp_path / "whisper.srt").write_text(_srt(*_loop_rows()), encoding="utf-8")
+    # The record was written but the SRT never replaced: its hash names the repaired text.
+    write_json(tmp_path / "loop-repair.json", {"version": 1, "repairs": [], "srtSha256": "0" * 64})
+    calls = []
+    monkeypatch.setattr(pipeline, "transcribe_span",
+                        lambda *a: calls.append(a[-2:]) or [Segment(a[-2], a[-2] + 500, "fresh")])
+    pipeline.repair_loops(Path("a.mp3"), tmp_path, Path("/w"), "show", "traditional", "ep")
+    assert calls == [(70000, 189000)]
+    assert "對,我們知道她的經歷" not in (tmp_path / "whisper.srt").read_text(encoding="utf-8")
+
+
+def test_repair_loops_keeps_window_speech_when_the_rerun_finds_nothing(tmp_path, monkeypatch):
+    from podly_radio.transcripts.text import parse_srt
+    (tmp_path / "whisper.srt").write_text(_srt(*_loop_rows()), encoding="utf-8")
+    monkeypatch.setattr(pipeline, "transcribe_span", lambda *a: [])
+    pipeline.repair_loops(Path("a.mp3"), tmp_path, Path("/w"), "show", "traditional", "ep")
+    texts = [s.text for s in parse_srt((tmp_path / "whisper.srt").read_text(encoding="utf-8"))]
+    assert texts.count("對,我們知道她的經歷") == 1
+    assert [t for t in texts if t.startswith("正常")] == [f"正常{k}" for k in range(20)]
+
+
+def test_repair_loops_folds_a_run_formed_across_the_splice(tmp_path, monkeypatch):
+    from podly_radio.transcripts.text import Segment, parse_srt
+    rows = [(k * 2000, k * 2000 + 1000, "循环") for k in range(10)]
+    rows += [(100000 + k * 2000, 101000 + k * 2000, "重复") for k in range(7)]
+    (tmp_path / "whisper.srt").write_text(_srt(*rows), encoding="utf-8")
+    # The rerun ends with 7 copies of the line the kept text starts with: 14 in a row.
+    monkeypatch.setattr(pipeline, "transcribe_span", lambda *a: [
+        Segment(50000 + k * 2000, 51000 + k * 2000, "重复") for k in range(7)])
+    pipeline.repair_loops(Path("a.mp3"), tmp_path, Path("/w"), "show", "traditional", "ep")
+    texts = [s.text for s in parse_srt((tmp_path / "whisper.srt").read_text(encoding="utf-8"))]
+    assert texts == ["重复"]
+    assert read_json(tmp_path / "loop-repair.json")["collapsedAfterSplice"] is True
+
+
+def test_repair_loops_without_loops_only_records_the_check(tmp_path, monkeypatch):
+    (tmp_path / "whisper.srt").write_text(_srt((0, 1000, "甲"), (2000, 3000, "乙")), encoding="utf-8")
+    before = (tmp_path / "whisper.srt").read_bytes()
+    monkeypatch.setattr(pipeline, "transcribe_span", lambda *a: pytest.fail("no loop"))
+    pipeline.repair_loops(Path("a.mp3"), tmp_path, Path("/w"), "show", "simplified", "ep")
+    state = read_json(tmp_path / "loop-repair.json")
+    assert state["repairs"] == [] and state["collapsedAfterSplice"] is False
+    assert (tmp_path / "whisper.srt").read_bytes() == before
+    assert not (tmp_path / "whisper.looped.srt").exists()
+
+
+def test_transcribe_span_offsets_clips_and_survives_bad_bytes_and_cues(tmp_path, monkeypatch):
+    def fake_run(args, **kwargs):
+        if args[0] != "ffmpeg":
+            srt = ("1\n00:00:01,000 --> 00:00:02,000\nyeah \xe4\xb8 ok\n\n"
+                   "2\n00:00:05,000 --> 00:00:04,000\nreversed\n\n"
+                   "3\n00:00:06,000 --> 00:00:07,000\n\xe4\xb8\n\n"
+                   "4\n00:00:09,000 --> 00:00:12,000\nend\n").encode("latin-1")
+            Path(args[args.index("-of") + 1] + ".srt").write_bytes(srt)
+            assert "-mc" in args and args[args.index("-mc") + 1] == "0"
+            assert "--carry-initial-prompt" not in args
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fake_run)
+    out = pipeline.transcribe_span(Path("a.mp3"), tmp_path, Path("/w"), "show", "traditional",
+                                   60000, 70000)
+    # The broken bytes vanish, the reversed and emptied cues are dropped, the rest stays.
+    assert [(s.start_ms, s.end_ms, s.text) for s in out] == [(61000, 62000, "yeah  ok"),
+                                                              (69000, 70000, "end")]
+    assert not (tmp_path / "loop.srt").exists()
+
+
+def test_repair_loops_merges_windows_that_one_expansion_joins(tmp_path, monkeypatch):
+    from podly_radio.transcripts.text import Segment, parse_srt
+    # A 90-180 s cue overlaps two separate loops; both windows must become one.
+    rows = [(0, 1000, "开头"), (90000, 180000, "长句")]
+    rows += [(100000 + k * 1500, 101000 + k * 1500, "环一") for k in range(10)]
+    rows += [(180000 + k * 1500, 181000 + k * 1500, "环二") for k in range(10)]
+    rows += [(300000, 301000, "结尾")]
+    (tmp_path / "whisper.srt").write_text(_srt(*rows), encoding="utf-8")
+    calls = []
+
+    def fake_span(audio, work, whisper_dir, show, script, start_ms, end_ms):
+        calls.append((start_ms, end_ms))
+        return [Segment(start_ms + 500, start_ms + 1500, "新的")]
+
+    monkeypatch.setattr(pipeline, "transcribe_span", fake_span)
+    pipeline.repair_loops(Path("a.mp3"), tmp_path, Path("/w"), "show", "traditional", "ep")
+    # Loop one pads back to 70 s; loop two pads on to 224.5 s; one window covers both.
+    assert calls == [(70000, 224500)]
+    texts = [s.text for s in parse_srt((tmp_path / "whisper.srt").read_text(encoding="utf-8"))]
+    assert texts == ["开头", "新的", "结尾"]
+    assert read_json(tmp_path / "loop-repair.json")["repairs"][0]["loopsMs"] == [
+        [100000, 114500], [180000, 194500]]

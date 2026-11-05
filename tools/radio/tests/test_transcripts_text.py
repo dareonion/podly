@@ -13,9 +13,13 @@ from podly_radio.transcripts.text import (
     check,
     chunk_segments,
     chunk_text,
+    collapse_loops,
+    find_loops,
     legacy_starts,
+    loop_window,
     parse_srt,
     parse_timestamp,
+    srt_text,
     timestamp,
     vtt_bytes,
     wrap_cue,
@@ -193,3 +197,69 @@ def test_check_rejects_a_deleted_paragraph_absorbed_by_its_neighbour():
     result = raw_result(segments)
     del result["paragraphs"][4]  # overall coverage stays at 90%
     assert "keeps only" in check(result, segments)
+
+
+def _run(start_s, text, n, step_s=2):
+    return [Segment((start_s + k * step_s) * 1000, (start_s + k * step_s + 1) * 1000, text)
+            for k in range(n)]
+
+
+def test_find_loops_needs_eight_in_a_row_and_ignores_punctuation():
+    real = _run(0, "太可爱了。", 5) + _run(20, "没见着", 4)
+    assert find_loops(real) == []
+    looped = _run(0, "前面", 1) + _run(10, "對,我們知道她的經歷", 4) + _run(18, "對，我們知道她的經歷。", 4)
+    assert find_loops(looped) == [(10000, 25000)]
+
+
+def test_find_loops_joins_runs_a_minute_apart_but_not_further():
+    near = _run(0, "甲乙", 8) + _run(20, "插话", 1) + _run(70, "甲乙", 8)
+    assert find_loops(near) == [(0, 85000)]
+    far = _run(0, "甲乙", 8) + _run(200, "甲乙丙", 8)
+    assert find_loops(far) == [(0, 15000), (200000, 215000)]
+
+
+def test_loop_window_pads_into_neighbours_and_silence():
+    segments = _run(0, "前", 20, step_s=5) + _run(100, "环", 10) + _run(130, "后", 20, step_s=5)
+    first, last, start, end = loop_window(segments, (100000, 119000))
+    # Padded span 70-149 s: 前14 (70-71 s) through 后3 (145-146 s) are replaced; the audio
+    # runs from the padding's start to just before 后4 (150 s) or the padding's end.
+    assert segments[first] == Segment(70000, 71000, "前") and segments[first - 1].end_ms == 66000
+    assert segments[last - 1] == Segment(145000, 146000, "后") and segments[last].start_ms == 150000
+    assert (start, end) == (70000, 149000)
+    # A silent gap after the loop is still re-transcribed up to the padding.
+    gap = _run(100, "环", 10) + _run(200, "后", 3)
+    assert loop_window(gap, (100000, 119000))[2:] == (70000, 149000)
+
+
+def test_loop_window_takes_cues_overlapping_its_edges():
+    segments = [Segment(0, 69500, "长前"), *_run(100, "环", 9),
+                Segment(140000, 160000, "跨界"), Segment(150000, 170000, "重叠"),
+                Segment(175000, 176000, "后")]
+    first, last, start, end = loop_window(segments, (100000, 117000))
+    # 长前 ends at 69.5 s, before the padded span opens at 70 s, so it stays; 重叠 starts
+    # after the span closes (146 s) but overlaps 跨界, so it goes too.
+    assert segments[first].text == "环" and segments[last - 1].text == "重叠"
+    assert (start, end) == (70000, 170000)
+    straddle = [Segment(60000, 80000, "跨前"), *_run(100, "环", 9), Segment(200000, 201000, "后")]
+    first, last, start, end = loop_window(straddle, (100000, 117000))
+    assert straddle[first].text == "跨前" and start == 60000
+
+
+def test_collapse_loops_folds_a_run_that_survives_retranscription():
+    fresh = _run(0, "yeah", 3) + _run(10, "同一句", 9) + _run(40, "after", 1)
+    out = collapse_loops(fresh)
+    assert [s.text for s in out] == ["yeah"] * 3 + ["同一句", "after"]
+    assert out[3] == Segment(10000, 27000, "同一句")
+
+
+def test_srt_text_round_trips():
+    segments = [Segment(1000, 2500, "甲"), Segment(3723004, 3724005, "Open Mic 乙")]
+    assert parse_srt(srt_text(segments)) == segments
+
+
+def test_loop_window_takes_any_earlier_cue_reaching_in():
+    segments = [Segment(20000, 65000, "长"), Segment(40000, 50000, "短"),
+                Segment(60000, 80000, "接"), *_run(100, "环", 8), Segment(300000, 301000, "后")]
+    first, last, start, end = loop_window(segments, (100000, 115000))
+    # 接 starts the window at 60 s, and 长 (20-65 s) reaches into it, so 长 and 短 go too.
+    assert (first, last, start, end) == (0, 11, 20000, 145000)

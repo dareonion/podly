@@ -23,6 +23,13 @@ ALIGN_MIN_RATIO = 0.5
 # lines the paragraph silently absorbed (similarity alone scores that 0.67). On the same
 # data one paragraph fell below 0.7 (the 0.21 one above); the next lowest kept 0.76.
 ALIGN_MIN_KEPT = 0.7
+# Whisper repetition loops: a decoder fed its own output can lock onto one line. On KK Show
+# 384 (2026-11-05) one line ran 477 times over twelve minutes of English; the longest run of
+# a repeated line in seven checked episodes' real speech was 5. Runs this close merge, and
+# the span re-transcribed is padded on both sides to take in the lead-in.
+LOOP_MIN_REPEATS = 8
+LOOP_JOIN_MS = 60_000
+LOOP_PAD_MS = 30_000
 
 
 @dataclass(frozen=True)
@@ -30,6 +37,82 @@ class Segment:
     start_ms: int
     end_ms: int
     text: str
+
+
+def find_loops(segments: list[Segment]) -> list[tuple[int, int]]:
+    """(start_ms, end_ms) of each stretch where one line repeats LOOP_MIN_REPEATS+ times in a row."""
+    spans: list[tuple[int, int]] = []
+    i = 0
+    while i < len(segments):
+        key = _content(segments[i].text)
+        j = i
+        while j + 1 < len(segments) and _content(segments[j + 1].text) == key:
+            j += 1
+        if key and j - i + 1 >= LOOP_MIN_REPEATS:
+            start, end = segments[i].start_ms, segments[j].end_ms
+            if spans and start - spans[-1][1] <= LOOP_JOIN_MS:
+                spans[-1] = (spans[-1][0], max(spans[-1][1], end))
+            else:
+                spans.append((start, end))
+        i = j + 1
+    return spans
+
+
+def loop_window(segments: list[Segment], span: tuple[int, int]) -> tuple[int, int, int, int]:
+    """Indexes [first, last) of the segments to replace and the audio range to re-transcribe.
+
+    Every segment overlapping the padded span is replaced, plus anything overlapping those,
+    so no kept segment shares time with the window. The audio reaches into the padding even
+    where no segment lies (silence costs nothing), up to the neighbours that stay.
+    """
+    low, high = span[0] - LOOP_PAD_MS, span[1] + LOOP_PAD_MS
+    inside = [k for k, s in enumerate(segments) if s.end_ms > low and s.start_ms < high]
+    first, last = inside[0], inside[-1] + 1
+    while True:
+        start = min(s.start_ms for s in segments[first:last])
+        end = max(s.end_ms for s in segments[first:last])
+        grew = False
+        # Any earlier segment can reach in (starts are ordered, ends are not); later ones
+        # start in order, so the next one is the only one to check.
+        reaching = next((k for k in range(first) if segments[k].end_ms > start), None)
+        if reaching is not None:
+            first, grew = reaching, True
+        if last < len(segments) and segments[last].start_ms < end:
+            last, grew = last + 1, True
+        if not grew:
+            break
+    before = max((s.end_ms for s in segments[:first]), default=0)
+    audio_start = max(before, min(low, start))
+    audio_end = max(high, end)
+    if last < len(segments):
+        audio_end = min(segments[last].start_ms, audio_end)
+    return first, last, audio_start, audio_end
+
+
+def collapse_loops(segments: list[Segment]) -> list[Segment]:
+    """Fold any run that still repeats into one segment covering its time."""
+    out: list[Segment] = []
+    i = 0
+    while i < len(segments):
+        key = _content(segments[i].text)
+        j = i
+        while j + 1 < len(segments) and _content(segments[j + 1].text) == key:
+            j += 1
+        if key and j - i + 1 >= LOOP_MIN_REPEATS:
+            out.append(Segment(segments[i].start_ms, segments[j].end_ms, segments[i].text))
+        else:
+            out.extend(segments[i:j + 1])
+        i = j + 1
+    return out
+
+
+def srt_text(segments: list[Segment]) -> str:
+    def stamp(ms: int) -> str:
+        return timestamp(ms).replace(".", ",")
+    return "".join(
+        f"{n}\n{stamp(s.start_ms)} --> {stamp(s.end_ms)}\n{s.text}\n\n"
+        for n, s in enumerate(segments, 1)
+    )
 
 
 def timestamp(ms: int, *, milliseconds: bool = True) -> str:

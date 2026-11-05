@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import math
 import re
 import shutil
@@ -26,7 +27,17 @@ from .storage import (
     save_transcript,
     write_json,
 )
-from .text import check, chunk_segments, legacy_starts, parse_srt
+from .text import (
+    Segment,
+    check,
+    chunk_segments,
+    collapse_loops,
+    find_loops,
+    legacy_starts,
+    loop_window,
+    parse_srt,
+    srt_text,
+)
 
 LEGACY_FEED = "https://proxy.wavpub.com/jokes-aside.xml"
 LEGACY_OUT = Path.home() / "gitrepo/transcribe/out/jokes-aside"
@@ -98,6 +109,118 @@ def transcribe(audio: Path, work: Path, whisper_dir: Path, show: str, script: st
         wav.unlink(missing_ok=True)
 
 
+LOOP_REPAIR_VERSION = 1
+
+
+def transcribe_span(
+    audio: Path, work: Path, whisper_dir: Path, show: str, script: str, start_ms: int, end_ms: int,
+) -> list[Segment]:
+    """Whisper on one stretch with no carried context, which breaks a repetition loop."""
+    # Not named audio.*: download() and the readers take the first audio.* as the episode.
+    wav, out = work / "loop.16k.wav", work / "loop"
+    try:
+        with (work / "whisper.log").open("ab") as lg:
+            subprocess.run(
+                ["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", f"{start_ms / 1000:.3f}",
+                 "-t", f"{(end_ms - start_ms) / 1000:.3f}", "-i", str(audio),
+                 "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", str(wav)],
+                stdin=subprocess.DEVNULL, stdout=lg, stderr=subprocess.STDOUT, check=True,
+            )
+            subprocess.run(
+                [str(whisper_dir / "build/bin/whisper-cli"),
+                 "-m", str(whisper_dir / "models/ggml-large-v3-turbo.bin"), "-f", str(wav),
+                 "-l", "zh", "--vad", "-vm", str(whisper_dir / "models/ggml-silero-v6.2.0.bin"),
+                 "-t", "4", "-bs", "5", "-mc", "0", "--prompt", whisper_prompt(show, script),
+                 "-osrt", "-of", str(out)],
+                stdin=subprocess.DEVNULL, stdout=lg, stderr=subprocess.STDOUT, check=True,
+            )
+        # whisper.cpp can split a multi-byte character across tokens (seen on this clip).
+        text = out.with_suffix(".srt").read_bytes().decode("utf-8", errors="replace")
+        text = text.replace("\ufffd", "")
+        # Cue by cue: one malformed cue must not throw away the rest of the window.
+        found, dropped = [], 0
+        for block in re.split(r"\n\s*\n", text.strip()):
+            try:
+                found.extend(parse_srt(block))
+            except ValueError:
+                dropped += 1
+        if dropped:
+            log(f"loop re-transcription {start_ms // 1000}-{end_ms // 1000}s: "
+                f"dropped {dropped} malformed cue(s)")
+        found.sort(key=lambda s: s.start_ms)
+        return [Segment(s.start_ms + start_ms, min(s.end_ms + start_ms, end_ms), s.text)
+                for s in found if s.start_ms + start_ms < end_ms]
+    finally:
+        wav.unlink(missing_ok=True)
+        out.with_suffix(".srt").unlink(missing_ok=True)
+
+
+def repair_loops(
+    audio: Path, work: Path, whisper_dir: Path, show: str, script: str, title: str,
+) -> None:
+    """Re-transcribe each Whisper repetition loop and splice it into whisper.srt (once).
+
+    The record (with the repaired SRT's hash) is written before the SRT is replaced, so a
+    crash in between is seen on resume as a mismatch and the repair is simply redone.
+    """
+    state_path = work / "loop-repair.json"
+    srt = work / "whisper.srt"
+    current = srt.read_bytes()
+    if state_path.exists():
+        state = read_json(state_path)
+        if (state.get("version") == LOOP_REPAIR_VERSION
+                and state.get("srtSha256") == hashlib.sha256(current).hexdigest()):
+            return
+    segments = parse_srt(current.decode("utf-8"))
+    spans = find_loops(segments)
+    # Windows come from the original transcript and are merged before any splice, so one
+    # window's expansion can never leave another pointing at text already replaced.
+    windows: list[dict] = []
+    for span in spans:
+        first, last, start_ms, end_ms = loop_window(segments, span)
+        window = {"loops": [list(span)], "first": first, "last": last, "audio": [start_ms, end_ms]}
+        while windows and (window["first"] < windows[-1]["last"]
+                           or window["audio"][0] < windows[-1]["audio"][1]):
+            prior = windows.pop()
+            window = {"loops": prior["loops"] + window["loops"],
+                      "first": min(prior["first"], window["first"]),
+                      "last": max(prior["last"], window["last"]),
+                      "audio": [min(prior["audio"][0], window["audio"][0]),
+                                max(prior["audio"][1], window["audio"][1])]}
+        windows.append(window)
+    repairs = []
+    # Last window first, so earlier indexes stay valid while splicing.
+    for window in reversed(windows):
+        first, last, (start_ms, end_ms) = window["first"], window["last"], window["audio"]
+        fresh = transcribe_span(audio, work, whisper_dir, show, script, start_ms, end_ms)
+        fresh_looped = bool(find_loops(fresh))
+        if not fresh:
+            # Nothing usable came back: keep the window's own speech, loop folded to one line.
+            fresh = collapse_loops(segments[first:last])
+        repairs.append({"loopsMs": window["loops"], "audioMs": [start_ms, end_ms],
+                        "segmentsBefore": last - first, "segmentsAfter": len(fresh),
+                        "freshLooped": fresh_looped})
+        log(f"{title} Whisper loop {start_ms // 1000}-{end_ms // 1000}s re-transcribed: "
+            f"{last - first} -> {len(fresh)} segments")
+        segments = segments[:first] + fresh + segments[last:]
+    # A run can also form across a splice boundary, or survive in the fresh text.
+    collapsed = bool(spans) and bool(find_loops(segments))
+    if collapsed:
+        segments = collapse_loops(segments)
+        log(f"{title} Whisper loop still present after re-transcription; folded to one line")
+    text = srt_text(segments).encode() if spans else current
+    if spans:
+        parse_srt(text.decode())  # starts still ordered, nothing empty
+        looped = work / "whisper.looped.srt"
+        if not looped.exists():
+            atomic_bytes(looped, current)
+    write_json(state_path, {"version": LOOP_REPAIR_VERSION, "repairs": repairs[::-1],
+                            "collapsedAfterSplice": collapsed,
+                            "srtSha256": hashlib.sha256(text).hexdigest()})
+    if spans:
+        atomic_bytes(srt, text)
+
+
 def run_episode(
     client: httpx.Client, root: Path, feed_url: str, feed: ParsedFeed, episode: ParsedEpisode,
     script: str, whisper_dir: Path, model: str, concurrency: int, *, redo: bool = False,
@@ -128,10 +251,14 @@ def run_episode(
             reusable = read_json(marker) == state
         if not reusable:
             marker.unlink(missing_ok=True)
+            # A fresh whisper.srt needs its own loop check; the old evidence no longer applies.
+            (work / "loop-repair.json").unlink(missing_ok=True)
+            (work / "whisper.looped.srt").unlink(missing_ok=True)
             transcribe(audio, work, whisper_dir, show, script)
             parse_srt((work / "whisper.srt").read_text(encoding="utf-8"))
             write_json(marker, state)
         log(f"{episode.title} whisper done{' (cached)' if reusable else ''}")
+        repair_loops(audio, work, whisper_dir, show, script, episode.title)
         segments = parse_srt((work / "whisper.srt").read_text(encoding="utf-8"))
         notes = (f"Show: {show}\n\nShow description:\n{feed.description or ''}\n\n"
                  f"Episode: {episode.title}\n\nEpisode notes:\n{episode.show_notes or ''}\n")

@@ -34,6 +34,16 @@ schema, script, model and show notes. Failed corrections retry once, then preser
 Whisper text with a recorded warning. This character-count heuristic cannot prove
 that a correction is accurate.
 
+Whisper can lock into a repetition loop, most likely on long stretches of other languages:
+on KK Show 384 (2026-11-05) one line ran 477 times over a 12-minute English interview, the
+fix-up rightly dropped it, the kept-characters guard refused that, and the loop was
+published. After every Whisper pass, 8+ identical lines in a row (runs under a minute
+apart merged) are re-transcribed with no carried context (`-mc 0`, which transcribed that
+interview properly) over a window padded 30 s to whole segments, and spliced into
+`whisper.srt`. Anything still looping is folded into one line. The original stays in
+`whisper.looped.srt` and `loop-repair.json` records the windows, so it runs once per Whisper
+pass. Real speech repeated a line at most 5 times in a row in the seven episodes checked.
+
 Data lives outside git in `$PODLY_TRANSCRIPTS_DIR`, default
 `~/.local/share/podly-transcripts`:
 
@@ -43,6 +53,7 @@ work/<episode_id>/
   audio.<ext>                  retained original audio
   whisper.{srt,txt,json,log}    raw transcript and log
   whisper-state.json           marker for a completed Whisper invocation
+  whisper.looped.srt, loop-repair.json   pre-repair SRT and the loop windows re-transcribed
   chunks/<k>/                  chunk/before/shownotes, brief, schema, logs, checked JSON
   transcript.json              authoritative transcript
   transcript.md, changes.md    derived readable transcript and corrections
