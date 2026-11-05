@@ -13,6 +13,10 @@ import kotlinx.coroutines.flow.map
 enum class AiProvider { CLAUDE, OPENAI }
 
 data class Settings(
+    val transcriptServer: String = "",
+    /** Canonical origin + directory last applied, retained when the setting changes. */
+    val transcriptAppliedServer: String = "",
+    val transcriptPendingServer: String = "",
     val aiProvider: AiProvider = AiProvider.CLAUDE,
     val anthropicApiKey: String = "",
     val openAiApiKey: String = "",
@@ -35,6 +39,9 @@ private val Context.dataStore by preferencesDataStore(name = "settings")
 class SettingsRepository(private val context: Context) {
 
     private object Keys {
+        val TRANSCRIPT_SERVER = stringPreferencesKey("transcript_server")
+        val TRANSCRIPT_APPLIED_SERVER = stringPreferencesKey("transcript_applied_server")
+        val TRANSCRIPT_PENDING_SERVER = stringPreferencesKey("transcript_pending_server")
         val AI_PROVIDER = stringPreferencesKey("ai_provider")
         val ANTHROPIC_KEY = stringPreferencesKey("anthropic_api_key")
         val OPENAI_KEY = stringPreferencesKey("openai_api_key")
@@ -52,6 +59,9 @@ class SettingsRepository(private val context: Context) {
 
     val settings: Flow<Settings> = context.dataStore.data.map { prefs ->
         Settings(
+            transcriptServer = prefs[Keys.TRANSCRIPT_SERVER] ?: "",
+            transcriptAppliedServer = prefs[Keys.TRANSCRIPT_APPLIED_SERVER] ?: "",
+            transcriptPendingServer = prefs[Keys.TRANSCRIPT_PENDING_SERVER] ?: "",
             aiProvider = prefs[Keys.AI_PROVIDER]?.let { runCatching { AiProvider.valueOf(it) }.getOrNull() }
                 ?: AiProvider.CLAUDE,
             anthropicApiKey = prefs[Keys.ANTHROPIC_KEY] ?: "",
@@ -68,6 +78,18 @@ class SettingsRepository(private val context: Context) {
             autoDownloadStarted = prefs[Keys.AUTO_DOWNLOAD_STARTED] ?: true,
         )
     }
+
+    suspend fun setTranscriptServer(url: String) =
+        context.dataStore.edit { it[Keys.TRANSCRIPT_SERVER] = url.trim() }
+
+    internal suspend fun beginTranscriptApply(server: String) =
+        context.dataStore.edit { it[Keys.TRANSCRIPT_PENDING_SERVER] = server }
+
+    internal suspend fun finishTranscriptApply(server: String) =
+        context.dataStore.edit {
+            it[Keys.TRANSCRIPT_APPLIED_SERVER] = server
+            it.remove(Keys.TRANSCRIPT_PENDING_SERVER)
+        }
 
     suspend fun current(): Settings = settings.first()
 

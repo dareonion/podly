@@ -44,13 +44,19 @@ import androidx.lifecycle.viewModelScope
 import com.podly.AppGraph
 import com.podly.data.TranscriptCueLookup
 import com.podly.data.TranscriptRepository
+import com.podly.data.transcriptTimingDiffers
 import com.podly.network.TranscriptCue
 import com.podly.ui.appViewModel
 import com.podly.ui.util.formatPosition
 import com.podly.ui.util.friendlyError
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class TranscriptViewModel(
@@ -58,11 +64,22 @@ class TranscriptViewModel(
     private val episodeId: String,
 ) : ViewModel() {
     val player = graph.player
+    val index = graph.transcriptIndex.snapshot
+    val episode = graph.podcasts.episode(episodeId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     private val _state = MutableStateFlow<TranscriptRepository.Result?>(null)
     val state: StateFlow<TranscriptRepository.Result?> = _state
 
     init {
-        viewModelScope.launch { _state.value = graph.transcripts.transcript(episodeId) }
+        viewModelScope.launch {
+            graph.podcasts.episode(episodeId)
+                .map { it?.transcriptUrl to it?.transcriptType }
+                .distinctUntilChanged()
+                .collectLatest {
+                    _state.value = null
+                    _state.value = graph.transcripts.transcript(episodeId)
+                }
+        }
     }
 
     /** Reading another episode must never start playback or seek the loaded one. */
@@ -73,8 +90,10 @@ class TranscriptViewModel(
 
 @Composable
 fun TranscriptScreen(episodeId: String, onBack: () -> Unit) {
-    val viewModel = appViewModel { TranscriptViewModel(it, episodeId) }
+    val viewModel = appViewModel(key = "transcript_$episodeId") { TranscriptViewModel(it, episodeId) }
     val result by viewModel.state.collectAsStateWithLifecycle()
+    val episode by viewModel.episode.collectAsStateWithLifecycle()
+    val index by viewModel.index.collectAsStateWithLifecycle()
     val playerState by viewModel.player.state.collectAsStateWithLifecycle()
     val loaded = playerState.episodeId == episodeId
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -89,6 +108,8 @@ fun TranscriptScreen(episodeId: String, onBack: () -> Unit) {
             }
         }
     }
+    val serverEntry = index?.entries?.get(episodeId)?.takeIf { it.url == episode?.transcriptUrl }
+    val knownDuration = if (loaded) playerState.durationMs else episode?.durationMs
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -97,6 +118,9 @@ fun TranscriptScreen(episodeId: String, onBack: () -> Unit) {
         ) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
             Text("Transcript", style = MaterialTheme.typography.titleMedium)
+        }
+        if (transcriptTimingDiffers(serverEntry?.durationMs, knownDuration)) {
+            Message("Timed against a different copy of the audio; lines may be early or late.")
         }
 
         when (val state = result) {

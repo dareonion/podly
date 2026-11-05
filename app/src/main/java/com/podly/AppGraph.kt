@@ -19,6 +19,7 @@ import com.podly.data.TaddyArchive
 import com.podly.network.TaddyApi
 import com.podly.data.PlaybackStateStore
 import com.podly.data.PlaylistRepository
+import com.podly.data.TranscriptIndex
 import com.podly.data.TranscriptRepository
 import com.podly.data.PodcastRepository
 import com.podly.data.SettingsRepository
@@ -35,6 +36,7 @@ import com.podly.ui.playlists.ChatImportRunner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Hand-rolled dependency graph; one instance lives on [PodlyApp].
@@ -49,8 +51,11 @@ class AppGraph(private val context: Context) {
     val database: PodlyDatabase = PodlyDatabase.build(context)
     val settings: SettingsRepository = SettingsRepository(context)
     val playbackState: PlaybackStateStore = PlaybackStateStore(context)
+    val transcriptIndex = TranscriptIndex(database.episodeDao(), settings)
     val podcasts: PodcastRepository =
-        PodcastRepository(database.podcastDao(), database.episodeDao())
+        PodcastRepository(database.podcastDao(), database.episodeDao(), afterEpisodeRefresh = {
+            applicationScope.launch { transcriptIndex.sync() }
+        })
     val playlists: PlaylistRepository = PlaylistRepository(database.playlistDao())
     val transcripts: TranscriptRepository =
         TranscriptRepository(database.episodeDao(), context.cacheDir)

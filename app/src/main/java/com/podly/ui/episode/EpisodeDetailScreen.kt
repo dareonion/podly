@@ -92,6 +92,14 @@ class EpisodeDetailViewModel(
 ) : ViewModel() {
     val actions = EpisodeActions(graph, viewModelScope)
 
+    init {
+        graph.applicationScope.launch {
+            if (graph.podcasts.episodeById(episodeId)?.transcriptUrl == null) {
+                graph.transcriptIndex.applyToEpisode(episodeId)
+            }
+        }
+    }
+
     // A plain nullable can't tell "not loaded yet" from "no such episode", so a
     // deleted or stale-back-stack episode used to spin forever.
     val episode: StateFlow<EpisodeLoad> = graph.podcasts.episode(episodeId)

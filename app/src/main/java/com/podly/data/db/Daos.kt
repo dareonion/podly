@@ -225,6 +225,16 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE id = :id")
     suspend fun byId(id: String): EpisodeEntity?
 
+    @Query("SELECT * FROM episodes WHERE transcriptUrl IS NOT NULL")
+    suspend fun withTranscripts(): List<EpisodeEntity>
+
+    /** Don't overwrite a feed transcript written since the caller read this row. */
+    @Query(
+        """UPDATE episodes SET transcriptUrl = :url, transcriptType = :type
+           WHERE id = :id AND transcriptUrl IS :expectedUrl""",
+    )
+    suspend fun replaceTranscript(id: String, expectedUrl: String?, url: String?, type: String?): Int
+
     @Query("SELECT * FROM episodes WHERE id IN (:ids)")
     suspend fun byIds(ids: List<String>): List<EpisodeEntity>
 

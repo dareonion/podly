@@ -12,6 +12,7 @@ class PodlyApp : Application() {
     override fun onCreate() {
         super.onCreate()
         graph = AppGraph(this)
+        graph.transcriptIndex.start(graph.applicationScope)
         FeedRefreshWorker.schedule(this)
         RadioPoolWorker.schedule(this)
     }

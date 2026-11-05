@@ -36,6 +36,7 @@ class PodcastRepository(
     private val itunesApi: ItunesApi = ItunesApi(),
     private val rssParser: RssParser = RssParser(),
     private val opmlParser: OpmlParser = OpmlParser(),
+    private val afterEpisodeRefresh: () -> Unit = {},
 ) {
     fun subscribedPodcasts(): Flow<List<PodcastEntity>> = podcastDao.subscribedPodcasts()
     fun subscribedWithLastPlayed(): Flow<List<SubscribedPodcast>> = podcastDao.subscribedWithLastPlayed()
@@ -117,7 +118,10 @@ class PodcastRepository(
         } else {
             Http.getConditional(podcast.feedUrl, podcast.etag, podcast.lastModified)
         }
-        if (response.notModified) return
+        if (response.notModified) {
+            afterEpisodeRefresh()
+            return
+        }
         val feed = rssParser.parse(StringReader(response.body!!))
         podcastDao.updateMetadata(
             id = podcast.id,
@@ -127,6 +131,7 @@ class PodcastRepository(
             description = feed.description ?: podcast.description,
         )
         episodeDao.upsertFromFeed(feed.toEpisodeEntities(podcast))
+        afterEpisodeRefresh()
         storeCategories(podcast, feed.categories)
         // Stored last: a failed parse/insert must refetch next time, not 304-skip.
         podcastDao.updateCacheValidators(podcast.id, response.etag, response.lastModified)
@@ -265,8 +270,10 @@ class PodcastRepository(
     suspend fun episodeById(id: String): EpisodeEntity? = episodeDao.byId(id)
 
     /** Inserts episodes from a non-feed source (e.g. PodcastIndex) with feed-refresh semantics. */
-    suspend fun insertEpisodes(episodes: List<EpisodeEntity>) =
+    suspend fun insertEpisodes(episodes: List<EpisodeEntity>) {
         episodeDao.upsertFromFeed(episodes)
+        afterEpisodeRefresh()
+    }
 
     companion object {
         /** Feed-fetch concurrency, shared with [PicksImporter]. */

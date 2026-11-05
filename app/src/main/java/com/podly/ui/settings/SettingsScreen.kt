@@ -65,6 +65,12 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
     val settings = graph.settings.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Settings())
 
+    val transcriptStatus = graph.transcriptIndex.status
+    fun setTranscriptServer(url: String) = graph.applicationScope.launch {
+        graph.settings.setTranscriptServer(url)
+    }
+    fun syncTranscripts() = graph.applicationScope.launch { graph.transcriptIndex.sync(force = true) }
+
     fun setProvider(provider: AiProvider) = viewModelScope.launch { graph.settings.setAiProvider(provider) }
     fun setAnthropicKey(key: String) = viewModelScope.launch { graph.settings.setAnthropicApiKey(key) }
     fun setOpenAiKey(key: String) = viewModelScope.launch { graph.settings.setOpenAiApiKey(key) }
@@ -126,6 +132,8 @@ fun SettingsScreen() {
     val scope = rememberCoroutineScope()
     val viewModel = appViewModel { SettingsViewModel(it) }
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val transcriptStatus by viewModel.transcriptStatus.collectAsStateWithLifecycle()
+    var transcriptServer by remember(settings.transcriptServer) { mutableStateOf(settings.transcriptServer) }
 
     // Each draft reloads only when its own stored value changes. Keyed on the whole
     // Settings object, as these once were, any toggle or chip tap reset every field and
@@ -296,6 +304,41 @@ fun SettingsScreen() {
                 checked = settings.autoDownloadStarted,
                 onCheckedChange = viewModel::setAutoDownloadStarted,
             )
+        }
+
+        HorizontalDivider()
+
+        Text("Transcripts", style = MaterialTheme.typography.titleMedium)
+        OutlinedTextField(
+            value = transcriptServer,
+            onValueChange = { transcriptServer = it },
+            label = { Text("Transcript server") },
+            supportingText = { Text("Server URL for locally generated transcripts. Leave empty to turn off.") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            when {
+                transcriptStatus.error != null -> "Last error: ${transcriptStatus.error}"
+                transcriptStatus.syncing -> "Syncing transcripts…"
+                settings.transcriptServer.isBlank() -> "Off"
+                transcriptStatus.lastSyncMs != null -> {
+                    val time = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+                        .format(java.util.Date(checkNotNull(transcriptStatus.lastSyncMs)))
+                    "Last sync: $time · ${transcriptStatus.matched} matched · ${transcriptStatus.missing} not in library"
+                }
+                else -> "Not synced yet"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { viewModel.setTranscriptServer(transcriptServer) }) { Text("Save server") }
+            TextButton(
+                onClick = viewModel::syncTranscripts,
+                enabled = settings.transcriptServer.isNotBlank() && !transcriptStatus.syncing,
+            ) { Text("Sync now") }
         }
 
         HorizontalDivider()
