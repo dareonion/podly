@@ -108,9 +108,14 @@ class WeeklyViewModel(private val graph: AppGraph) : ViewModel() {
 
     init {
         viewModelScope.launch {
+            // The cached index fills the week menu at once, but nothing is selected
+            // from it: its newest issue is the newest as of the last visit, which can
+            // be weeks old, and refresh() keeps whatever is selected. Selecting it here
+            // opened "This week" on Oct 5-11 in mid-November. Until the fresh index
+            // arrives (or offline) the week the pool worker synced is shown.
             val cached = graph.weekly.cachedIssues()
             if (cached.isNotEmpty()) {
-                _state.update { it.copy(issues = cached, selectedId = cached.first().id) }
+                _state.update { it.copy(issues = cached) }
             }
             refresh()
         }
@@ -280,7 +285,9 @@ private fun WeeklyHeader(
             Box {
                 TextButton(
                     onClick = { pickingWeek = true },
-                    enabled = state.issues.size > 1,
+                    // With nothing selected yet (the index still loading, or offline) even
+                    // a single cached week has to be pickable from here.
+                    enabled = state.issues.size > 1 || (state.issues.isNotEmpty() && state.selectedId == null),
                 ) { Text(state.selected?.label ?: "This week") }
                 DropdownMenu(expanded = pickingWeek, onDismissRequest = { pickingWeek = false }) {
                     state.issues.forEach { issue ->
