@@ -205,8 +205,10 @@ fun EpisodeRow(
                         onClick = { menuOpen = false; graph.queueEpisode(episode.id, playNext = false) },
                     )
                 }
+                // Not "Remove from library": a subscribed show's episodes are in the
+                // library anyway, so un-saving one of them removes nothing.
                 DropdownMenuItem(
-                    text = { Text(if (episode.inLibrary) "Remove from library" else "Save to library") },
+                    text = { Text(if (episode.inLibrary) "Unsave episode" else "Save episode") },
                     leadingIcon = {
                         Icon(
                             if (episode.inLibrary) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
