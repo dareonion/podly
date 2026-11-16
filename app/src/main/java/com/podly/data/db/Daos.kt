@@ -210,6 +210,13 @@ interface EpisodeDao {
     )
     suspend fun libraryEpisodesOnce(): List<EpisodeEntity>
 
+    /** How many rows [libraryEpisodes] holds, without loading them: the Library's All episodes row. */
+    @Query(
+        """SELECT COUNT(*) FROM episodes e JOIN podcasts p ON e.podcastId = p.id
+           WHERE e.inLibrary = 1 OR p.subscribed = 1"""
+    )
+    fun libraryEpisodeCount(): Flow<Int>
+
     @Query("SELECT * FROM episodes WHERE downloadStatus = 'DONE' ORDER BY pubDateMs DESC")
     fun downloadedEpisodes(): Flow<List<EpisodeEntity>>
 

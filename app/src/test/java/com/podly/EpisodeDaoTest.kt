@@ -88,6 +88,30 @@ class EpisodeDaoTest {
         assertEquals(mapOf("heard" to 900L, "never" to 0L), shows)
     }
 
+    @Test
+    fun libraryEpisodeCount_countsSubscribedShowsAndSavedEpisodesOnce() = runBlocking {
+        val podcasts = db.podcastDao()
+        podcasts.insertIgnore(podcast("subscribed", subscribed = true))
+        podcasts.insertIgnore(podcast("other", subscribed = false))
+        val dao = db.episodeDao()
+        dao.insertIgnore(
+            listOf(
+                episode("sub-only", positionMs = 0, lastPlayedAt = 0).copy(podcastId = "subscribed"),
+                episode("sub-and-saved", positionMs = 0, lastPlayedAt = 0)
+                    .copy(podcastId = "subscribed", inLibrary = true),
+                episode("saved-only", positionMs = 0, lastPlayedAt = 0)
+                    .copy(podcastId = "other", inLibrary = true),
+                episode("neither", positionMs = 0, lastPlayedAt = 0).copy(podcastId = "other"),
+            )
+        )
+
+        assertEquals(
+            listOf("saved-only", "sub-and-saved", "sub-only"),
+            dao.libraryEpisodes().first().map { it.id }.sorted(),
+        )
+        assertEquals(3, dao.libraryEpisodeCount().first())
+    }
+
     private fun podcast(id: String, subscribed: Boolean) = PodcastEntity(
         id = id,
         title = id,

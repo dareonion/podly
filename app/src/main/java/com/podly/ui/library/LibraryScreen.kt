@@ -1,7 +1,9 @@
 package com.podly.ui.library
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +15,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.EmojiEvents
@@ -32,12 +36,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.podly.AppGraph
 import com.podly.data.db.EpisodeEntity
+import com.podly.data.db.PodcastEntity
 import com.podly.radio.RadioProfiles
 import com.podly.ui.radio.RadioCard
 import com.podly.ui.EpisodeActions
@@ -55,8 +61,11 @@ import kotlinx.coroutines.launch
 
 class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
     val actions = EpisodeActions(graph, viewModelScope)
-    val podcasts = graph.podcasts.subscribedPodcasts()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    /** Null until the first read, so the page doesn't flash "No subscriptions yet". */
+    val podcasts: StateFlow<List<PodcastEntity>?> = graph.podcasts.subscribedPodcasts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val episodeCount: StateFlow<Int?> = graph.podcasts.libraryEpisodeCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     val continueListening = graph.podcasts.continueListening()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val playlists = graph.playlists.playlists()
@@ -102,6 +111,7 @@ fun LibraryScreen(
 ) {
     val viewModel = appViewModel { LibraryViewModel(it) }
     val podcasts by viewModel.podcasts.collectAsStateWithLifecycle()
+    val episodeCount by viewModel.episodeCount.collectAsStateWithLifecycle()
     val continueListening by viewModel.continueListening.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val weeklyCount by viewModel.weeklyCount.collectAsStateWithLifecycle()
@@ -117,12 +127,34 @@ fun LibraryScreen(
     ) {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             item(key = "radio") { RadioCard(onOpenPicks = onOpenPicks) }
+            // The two whole collections, as rows that read as places to go. As a chip
+            // among the curated lists, and an "All episodes" link beside a heading that
+            // said Podcasts, both were found only by hunting.
+            item(key = "collections") {
+                Column {
+                    CollectionRow(
+                        icon = Icons.Filled.Podcasts,
+                        title = "Your podcasts",
+                        detail = when (val shows = podcasts?.size) {
+                            null -> "Shows you subscribe to"
+                            0 -> "No subscriptions yet"
+                            1 -> "1 show"
+                            else -> "$shows shows"
+                        },
+                        onClick = onOpenPodcasts,
+                    )
+                    CollectionRow(
+                        icon = Icons.AutoMirrored.Filled.List,
+                        title = "All episodes",
+                        detail = episodeCount?.let { "%,d from your shows and saved episodes".format(it) }
+                            ?: "From your shows and saved episodes",
+                        onClick = { onOpenList(LibraryList.ALL) },
+                    )
+                }
+            }
             item(key = "shortcuts") {
                 LibraryShortcuts(
                     buildList {
-                        // First, so a show you subscribe to is reachable without scrolling
-                        // past Continue listening and then along the carousel.
-                        if (podcasts.isNotEmpty()) add(Shortcut("Podcasts · ${podcasts.size}", Icons.Filled.Podcasts, onOpenPodcasts))
                         if (weeklyCount > 0) add(Shortcut("This week · $weeklyCount", Icons.Filled.DateRange, onOpenWeekly))
                         if (notableCount > 0) add(Shortcut("Notable · $notableCount", Icons.Filled.EmojiEvents, onOpenNotable))
                         // Playlists left the bottom bar; they are one tap from here.
@@ -156,11 +188,18 @@ fun LibraryScreen(
                     )
                 }
             }
+            val shows = podcasts
             item {
-                SectionHeader("Podcasts", action = "All episodes", onAction = { onOpenList(LibraryList.ALL) })
+                SectionHeader(
+                    "Podcasts",
+                    action = "See all".takeIf { !shows.isNullOrEmpty() },
+                    onAction = onOpenPodcasts,
+                )
             }
             item {
-                if (podcasts.isEmpty()) {
+                if (shows == null) {
+                    // Still loading: say nothing rather than "no subscriptions".
+                } else if (shows.isEmpty()) {
                     Text(
                         "No subscriptions yet. Find podcasts in Discover.",
                         style = MaterialTheme.typography.bodyMedium,
@@ -169,7 +208,7 @@ fun LibraryScreen(
                     )
                 } else {
                     LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
-                        items(podcasts, key = { it.id }) { podcast ->
+                        items(shows, key = { it.id }) { podcast ->
                             PodcastCard(podcast.title, podcast.artworkUrl) { onOpenPodcast(podcast.id) }
                         }
                     }
@@ -206,7 +245,39 @@ fun LibraryScreen(
 
 private data class Shortcut(val label: String, val icon: ImageVector, val onClick: () -> Unit)
 
-/** The lists that live beside radio, one tap from the Library: your shows, the digest, Notable, playlists. */
+/**
+ * A whole collection (your podcasts, all episodes) as a full-width row with a
+ * chevron, so it reads as somewhere to go rather than a filter or a suggestion.
+ */
+@Composable
+private fun CollectionRow(icon: ImageVector, title: String, detail: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+        Column(modifier = Modifier.weight(1f).padding(start = 16.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** The curated lists that live beside radio, one tap from the Library: the digest, Notable, playlists. */
 @Composable
 private fun LibraryShortcuts(shortcuts: List<Shortcut>) {
     if (shortcuts.isEmpty()) return
