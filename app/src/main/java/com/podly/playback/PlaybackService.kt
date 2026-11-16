@@ -268,10 +268,9 @@ class PlaybackService : MediaLibraryService() {
 
         if (episodeIds.all { it == null }) return
         scope.launch {
-            val dao = appGraph.database.episodeDao()
             // Recounted around anything that can't be carried across, so the episode
             // that was current stays current.
-            val (episodes, safeIndex) = compactAt(episodeIds.map { id -> id?.let { dao.byId(it) } }, index)
+            val (episodes, safeIndex) = compactAt(episodesInOrder(episodeIds), index)
             if (episodes.isEmpty()) return@launch
             val resolved = episodes.map { MediaItemFactory.playable(it, forCast = toCast) }
             // Same 512 KB Cast message ceiling as onSetMediaItems.
@@ -292,6 +291,10 @@ class PlaybackService : MediaLibraryService() {
             }
         }
     }
+
+    /** The episodes for [ids], in order, null where missing; in batches (see lookUpInOrder). */
+    private suspend fun episodesInOrder(ids: List<String?>): List<EpisodeEntity?> =
+        lookUpInOrder(ids, EpisodeEntity::id) { appGraph.podcasts.episodesByIds(it) }
 
     /** The player currently driving the session (local, or the Cast player). */
     private fun activePlayer(): Player = activePlayerOrNull ?: localPlayer
@@ -1028,17 +1031,18 @@ class PlaybackService : MediaLibraryService() {
             mediaItems: List<MediaItem>,
         ): ListenableFuture<List<MediaItem>> = scope.future {
             queueGeneration.incrementAndGet()
-            val resolved = withContext(Dispatchers.IO) {
+            val episodes = withContext(Dispatchers.IO) {
                 // Radio's own refills call the player directly and never come through
                 // here, so anything added while radio runs is the listener's choice.
                 if (radio != null) {
                     mediaItems.mapNotNullTo(listenerQueued) { MediaIds.episodeIdOrNull(it.mediaId) }
                 }
-                mediaItems.mapNotNull { item -> resolve(item) }
+                episodesInOrder(mediaItems.map { MediaIds.episodeIdOrNull(it.mediaId) }).filterNotNull()
             }
             // See onSetMediaItems.
             queueGeneration.incrementAndGet()
-            resolved
+            val forCast = isCasting()
+            episodes.map { MediaItemFactory.playable(it, forCast) }
         }
 
         override fun onSetMediaItems(
@@ -1049,19 +1053,20 @@ class PlaybackService : MediaLibraryService() {
             startPositionMs: Long,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future {
             queueGeneration.incrementAndGet()
-            val result = withContext(Dispatchers.IO) { resolveQueue(mediaItems, startIndex, startPositionMs) }
-            // Again as it is applied: this future completes on the application thread,
-            // where Media3 applies the result at once, so a resumption that began while
-            // this resolved can't restore over it.
+            val queue = withContext(Dispatchers.IO) { resolveQueue(mediaItems, startIndex, startPositionMs) }
+            // This future completes on the application thread, where Media3 applies the
+            // result at once. So bumped again here, a resumption that began while this
+            // resolved can't restore over it; and the items are built for whichever
+            // player has the session now, as casting may have started or stopped.
             queueGeneration.incrementAndGet()
-            result
+            queue.items(forCast = isCasting())
         }
 
         private suspend fun resolveQueue(
             mediaItems: List<MediaItem>,
             startIndex: Int,
             startPositionMs: Long,
-        ): MediaSession.MediaItemsWithStartPosition {
+        ): ResolvedQueue {
             // Setting a queue from anywhere else is an explicit choice, so it ends the
             // radio session. Without this the session would leak: the hardware skip
             // remap and the withholding of progress would both stay armed over
@@ -1070,27 +1075,15 @@ class PlaybackService : MediaLibraryService() {
                 radio = null
                 scope.launch { stopRadio() }
             }
-            val forCast = isCasting()
-            val resolvedPairs = mediaItems.mapNotNull { item ->
-                val episodeId = MediaIds.episodeIdOrNull(item.mediaId)
-                val episode = episodeId?.let { appGraph.podcasts.episodeById(it) }
-                if (episode != null) MediaItemFactory.playable(episode, forCast) to episode else null
-            }
-            val resolved = resolvedPairs.map { it.first }
-            val safeIndex = startIndex.coerceIn(0, (resolved.size - 1).coerceAtLeast(0))
-            val resumePosition = when {
-                startPositionMs != C.TIME_UNSET && startPositionMs > 0 -> startPositionMs
-                else -> resolvedPairs.getOrNull(safeIndex)?.second
-                    ?.takeIf { !it.completed }?.playbackPositionMs ?: 0L
-            }
-            val (items, index) = if (forCast) castQueueWindow(resolved, safeIndex) else resolved to safeIndex
-            return MediaSession.MediaItemsWithStartPosition(items, index, resumePosition)
-        }
-
-        private suspend fun resolve(item: MediaItem): MediaItem? {
-            val episodeId = MediaIds.episodeIdOrNull(item.mediaId) ?: return null
-            val episode: EpisodeEntity = appGraph.podcasts.episodeById(episodeId) ?: return null
-            return MediaItemFactory.playable(episode, forCast = isCasting())
+            // Recounted around episodes that no longer exist, so the one asked for
+            // still starts.
+            val (episodes, safeIndex) = compactAt(
+                episodesInOrder(mediaItems.map { MediaIds.episodeIdOrNull(it.mediaId) }),
+                startIndex,
+            )
+            // An explicit start position wins; otherwise the episode's saved one.
+            val position = startPositionMs.takeIf { it != C.TIME_UNSET && it > 0 }
+            return ResolvedQueue(episodes, safeIndex, position).prebuild(isCasting())
         }
 
         /**
@@ -1128,19 +1121,13 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
-        private suspend fun savedQueue(): RestoredQueue {
+        private suspend fun savedQueue(): ResolvedQueue {
             val graph = appGraph
             val saved = graph.playbackState.load()
             val episodes: List<EpisodeEntity>
             val startIndex: Int
             if (saved != null) {
-                // In batches: a queue saved from the Library list can run to thousands
-                // of episodes, and one query each took seconds.
-                val byId = saved.episodeIds.distinct()
-                    .chunked(RESUME_LOOKUP_BATCH)
-                    .flatMap { graph.podcasts.episodesByIds(it) }
-                    .associateBy { it.id }
-                episodes = saved.episodeIds.mapNotNull(byId::get)
+                episodes = episodesInOrder(saved.episodeIds).filterNotNull()
                 val savedEpisodeId = saved.episodeIds.getOrNull(saved.currentIndex)
                 startIndex = episodes.indexOfFirst { it.id == savedEpisodeId }.coerceAtLeast(0)
             } else {
@@ -1148,16 +1135,36 @@ class PlaybackService : MediaLibraryService() {
                     .ifEmpty { graph.database.episodeDao().libraryEpisodesOnce().take(1) }
                 startIndex = 0
             }
-            return RestoredQueue(episodes, startIndex)
+            return ResolvedQueue(episodes, startIndex).prebuild(isCasting())
         }
     }
 
-    /** The saved queue, read back for onPlaybackResumption. */
-    private class RestoredQueue(val episodes: List<EpisodeEntity>, val startIndex: Int) {
+    /**
+     * A queue's episodes, looked up off the main thread, to be made into items on it
+     * for the player that has the session by then. [startPositionMs] null means the
+     * current episode's saved position. Items are built ahead, off the main thread,
+     * for the player current at lookup ([prebuild]); thousands of them would stall the
+     * UI. They are built again only if casting started or stopped in between.
+     */
+    private class ResolvedQueue(
+        val episodes: List<EpisodeEntity>,
+        val startIndex: Int,
+        val startPositionMs: Long? = null,
+    ) {
+        private var built: Pair<Boolean, MediaSession.MediaItemsWithStartPosition>? = null
+
+        fun prebuild(forCast: Boolean) = apply { items(forCast) }
+
         fun items(forCast: Boolean): MediaSession.MediaItemsWithStartPosition {
+            built?.takeIf { it.first == forCast }?.let { return it.second }
+            return build(forCast).also { built = forCast to it }
+        }
+
+        private fun build(forCast: Boolean): MediaSession.MediaItemsWithStartPosition {
             if (episodes.isEmpty()) return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L)
             val current = episodes[startIndex]
-            val resumePosition = current.playbackPositionMs.takeIf { !current.completed } ?: 0L
+            val resumePosition = startPositionMs
+                ?: current.playbackPositionMs.takeIf { !current.completed } ?: 0L
             val items = episodes.map { MediaItemFactory.playable(it, forCast) }
             val (window, index) = if (forCast) castQueueWindow(items, startIndex) else items to startIndex
             return MediaSession.MediaItemsWithStartPosition(window, index, resumePosition)
@@ -1170,8 +1177,6 @@ class PlaybackService : MediaLibraryService() {
 
     companion object {
         private const val MAX_BROWSE_CHILDREN = 100
-        /** Episode ids per query when restoring a saved queue (SQLite's variable limit). */
-        private const val RESUME_LOOKUP_BATCH = 500
         private const val MIN_LISTEN_SEGMENT_MS = 1_000L
 
         private const val CONTINUOUS_POSITION_TOLERANCE_MS = 12_000L
