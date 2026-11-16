@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +32,7 @@ import com.podly.ui.util.publishedText
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import com.podly.ui.components.EpisodePlayButton
 
 class NotableViewModel(private val graph: AppGraph) : ViewModel() {
 
@@ -129,9 +129,7 @@ fun NotableScreen(onOpenEpisode: (String) -> Unit, onBack: () -> Unit = {}) {
                         )
                     }
                 }
-                IconButton(onClick = { viewModel.play(entry.episodeId) }) {
-                    Icon(Icons.Filled.PlayArrow, "Play")
-                }
+                EpisodePlayButton(entry.episodeId) { viewModel.play(entry.episodeId) }
             }
         }
     }

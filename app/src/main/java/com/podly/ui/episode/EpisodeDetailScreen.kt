@@ -173,7 +173,9 @@ fun EpisodeDetailScreen(
     }
 
     val isCurrent = playerState.episodeId == ep.id
-    val isPlaying = isCurrent && playerState.isPlaying
+    // As in EpisodePlayButton: buffering towards playback shows Pause, which pauses.
+    val isPlaying = isCurrent &&
+        (playerState.isPlaying || (playerState.isBuffering && playerState.playWhenReady))
     val hasProgress = ep.playbackPositionMs > 0 && !ep.completed
 
     LazyColumn(

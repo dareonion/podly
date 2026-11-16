@@ -21,8 +21,6 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Downloading
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -169,26 +167,11 @@ fun EpisodeRow(
             )
             else -> {}
         }
-        // The row has to know what the player is doing, or the button you just
-        // pressed keeps offering to start what is already playing. Read from the
-        // graph the way MiniPlayer does, so every list that shows a row gets this.
+        // The menu needs to know too: queueing the loaded episode means nothing.
         val graph = LocalContext.current.appGraph
-        val player = graph.player
-        val playback by player.state.collectAsState()
+        val playback by graph.player.state.collectAsState()
         val isCurrent = playback.episodeId == episode.id
-        // Buffering counts as playing: the button must not flick back to "play"
-        // in the second between the tap and the first audio.
-        val playing = isCurrent && (playback.isPlaying || playback.isBuffering)
-        IconButton(
-            // Resume rather than onPlay when this episode is already loaded:
-            // onPlay rebuilds the queue, which would throw away what is queued.
-            onClick = { if (isCurrent) player.togglePlayPause() else onPlay() },
-        ) {
-            Icon(
-                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                if (playing) "Pause" else "Play",
-            )
-        }
+        EpisodePlayButton(episode.id, onPlay)
         IconButton(onClick = { menuOpen = true }) {
             Icon(Icons.Filled.MoreVert, "More")
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {

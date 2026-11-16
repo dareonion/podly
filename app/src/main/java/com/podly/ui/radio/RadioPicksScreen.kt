@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -43,6 +42,7 @@ import com.podly.ui.util.publishedText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import com.podly.ui.components.EpisodePlayButton
 
 class RadioPicksViewModel(private val graph: AppGraph) : ViewModel() {
 
@@ -199,9 +199,7 @@ fun RadioPicksScreen(onOpenEpisode: (String) -> Unit, onBack: () -> Unit = {}) {
                         )
                     }
                 }
-                IconButton(onClick = { viewModel.play(episode.id) }) {
-                    Icon(Icons.Filled.PlayArrow, "Play")
-                }
+                EpisodePlayButton(episode.id) { viewModel.play(episode.id) }
             }
         }
     }

@@ -66,6 +66,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.podly.ui.components.EpisodePlayButton
 
 data class WeeklyUiState(
     /** Newest first. Empty until the index has been read, or when it never could be. */
@@ -420,7 +421,7 @@ private fun DigestEntry(
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            IconButton(onClick = onPlay) { Icon(Icons.Filled.PlayArrow, "Play") }
+            EpisodePlayButton(row.episodeId, onPlay)
             IconButton(onClick = { queueMenuOpen = true }) {
                 Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue")
                 DropdownMenu(expanded = queueMenuOpen, onDismissRequest = { queueMenuOpen = false }) {

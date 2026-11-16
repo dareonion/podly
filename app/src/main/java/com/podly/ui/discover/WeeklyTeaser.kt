@@ -9,10 +9,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
@@ -22,6 +18,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.podly.data.db.DigestRow
+import com.podly.ui.components.EpisodePlayButton
 
 /**
  * The top of the weekly digest, alternating English and Chinese, with a way into
@@ -88,9 +85,7 @@ internal fun LazyListScope.weeklyTeaserSection(
                     )
                 }
             }
-            IconButton(onClick = { onPlay(row.episodeId) }) {
-                Icon(Icons.Filled.PlayArrow, "Play")
-            }
+            EpisodePlayButton(row.episodeId) { onPlay(row.episodeId) }
         }
     }
 }

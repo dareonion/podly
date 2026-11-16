@@ -46,6 +46,8 @@ data class PlayerUiState(
     val artworkUri: String? = null,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
+    /** Playback is requested: with [isBuffering], the episode will play once it has buffered. */
+    val playWhenReady: Boolean = false,
     val durationMs: Long = 0,
     val speed: Float = 1f,
     val seekBackSeconds: Int = 10,
@@ -143,6 +145,7 @@ class PlayerConnection(context: Context) {
             artworkUri = metadata?.artworkUri?.toString(),
             isPlaying = player.isPlaying,
             isBuffering = player.playbackState == Player.STATE_BUFFERING,
+            playWhenReady = player.playWhenReady,
             durationMs = player.duration.coerceAtLeast(0),
             speed = player.playbackParameters.speed,
             queue = queue,
@@ -173,7 +176,11 @@ class PlayerConnection(context: Context) {
 
     fun togglePlayPause() {
         val mediaController = controller ?: return
-        if (mediaController.isPlaying) {
+        // Buffering towards playback counts as playing, or Pause on a stalled stream
+        // would call play() again and change nothing. Not a READY player held back
+        // by a phone call: pausing it there would stop it resuming afterwards.
+        val buffering = mediaController.playbackState == Player.STATE_BUFFERING
+        if (mediaController.isPlaying || (buffering && mediaController.playWhenReady)) {
             mediaController.pause()
         } else {
             // After a playback error the player sits in IDLE; prepare() retries the source.
