@@ -121,6 +121,15 @@ private fun PodlyApp() {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    // The tab whose stack the current page sits in, so it stays highlighted on the pages
+    // opened from it. Every tab is reached by popping back to Library first, so the stack
+    // holds Library and at most one other tab. Asked of getBackStackEntry, which throws
+    // for a route not on the stack, because the stack itself is a restricted API.
+    val owningTab = remember(backStackEntry) {
+        TABS.lastOrNull { tab ->
+            runCatching { navController.getBackStackEntry(tab.route) }.isSuccess
+        }?.route
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val messages = LocalContext.current.appGraph.messages
@@ -145,14 +154,21 @@ private fun PodlyApp() {
                 NavigationBar {
                     TABS.forEach { tab ->
                         NavigationBarItem(
-                            selected = currentRoute == tab.route,
+                            selected = owningTab == tab.route,
                             onClick = {
-                                navController.navigate(tab.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
+                                if (owningTab == tab.route) {
+                                    // Already in this tab: back to its top. navigate() would
+                                    // save and then restore this very stack, leaving you on
+                                    // the page you wanted to leave.
+                                    navController.popBackStack(tab.route, inclusive = false)
+                                } else {
+                                    navController.navigate(tab.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
                                     }
-                                    launchSingleTop = true
-                                    restoreState = true
                                 }
                             },
                             icon = { Icon(tab.icon, tab.label) },
@@ -218,6 +234,7 @@ private fun PodlyApp() {
                 PodcastDetailScreen(
                     podcastId,
                     onOpenEpisode = { navController.navigate("episode/$it") },
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable("playlist/{playlistId}") { entry ->
@@ -227,6 +244,7 @@ private fun PodlyApp() {
                     playlistId,
                     onOpenEpisode = { navController.navigate("episode/$it") },
                     onOpenPodcast = { navController.navigate("podcast/$it") },
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable("episode/{episodeId}") { entry ->
@@ -239,7 +257,10 @@ private fun PodlyApp() {
                 )
             }
             composable("player") {
-                PlayerScreen(onOpenEpisode = { navController.navigate("episode/$it") })
+                PlayerScreen(
+                    onOpenEpisode = { navController.navigate("episode/$it") },
+                    onBack = { navController.popBackStack() },
+                )
             }
             composable("transcript/{episodeId}") { entry ->
                 val episodeId = entry.arguments?.getString("episodeId") ?: return@composable

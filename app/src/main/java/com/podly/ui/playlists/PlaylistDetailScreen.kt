@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DragHandle
@@ -105,7 +106,12 @@ class PlaylistDetailViewModel(
 }
 
 @Composable
-fun PlaylistDetailScreen(playlistId: Long, onOpenEpisode: (String) -> Unit, onOpenPodcast: (String) -> Unit = {}) {
+fun PlaylistDetailScreen(
+    playlistId: Long,
+    onOpenEpisode: (String) -> Unit,
+    onOpenPodcast: (String) -> Unit = {},
+    onBack: () -> Unit = {},
+) {
     val viewModel = appViewModel(key = "playlist_$playlistId") {
         PlaylistDetailViewModel(it, playlistId)
     }
@@ -135,12 +141,13 @@ fun PlaylistDetailScreen(playlistId: Long, onOpenEpisode: (String) -> Unit, onOp
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        // Name on a row of its own with the way back, the controls below it: beside
+        // Play, download and sort the name had a third of the width.
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(end = 16.dp, top = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
             Column(modifier = Modifier.weight(1f)) {
                 Text(playlist?.name ?: "", style = MaterialTheme.typography.titleLarge)
                 Text(
@@ -149,6 +156,13 @@ fun PlaylistDetailScreen(playlistId: Long, onOpenEpisode: (String) -> Unit, onOp
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Button(
                 enabled = localList.isNotEmpty(),
                 onClick = { viewModel.actions.play(localList, 0) },

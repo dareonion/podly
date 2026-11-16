@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -154,6 +155,7 @@ fun EpisodeDetailScreen(
         EpisodeLoad.Loading -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
+                BackButton(onBack, Modifier.align(Alignment.TopStart))
             }
             return
         }
@@ -182,11 +184,12 @@ fun EpisodeDetailScreen(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
+        item(key = "back") { BackButton(onBack) }
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 AsyncImage(
@@ -479,5 +482,13 @@ private fun ActionButton(icon: ImageVector, label: String, onClick: () -> Unit) 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         IconButton(onClick = onClick) { Icon(icon, label) }
         Text(label, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+/** The page's way back, as Your podcasts and the other pages opened from a list have. */
+@Composable
+private fun BackButton(onBack: () -> Unit, modifier: Modifier = Modifier) {
+    IconButton(onClick = onBack, modifier = modifier.padding(top = 4.dp)) {
+        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
     }
 }

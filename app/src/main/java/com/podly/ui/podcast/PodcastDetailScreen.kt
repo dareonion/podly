@@ -14,12 +14,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -195,7 +197,7 @@ class PodcastDetailViewModel(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PodcastDetailScreen(podcastId: String, onOpenEpisode: (String) -> Unit) {
+fun PodcastDetailScreen(podcastId: String, onOpenEpisode: (String) -> Unit, onBack: () -> Unit = {}) {
     val viewModel = appViewModel(key = "podcast_$podcastId") {
         PodcastDetailViewModel(it, podcastId)
     }
@@ -215,8 +217,13 @@ fun PodcastDetailScreen(podcastId: String, onOpenEpisode: (String) -> Unit) {
         modifier = Modifier.fillMaxSize(),
     ) {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
+            item(key = "back") {
+                IconButton(onClick = onBack, modifier = Modifier.padding(top = 4.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                }
+            }
             item {
-                Row(modifier = Modifier.padding(16.dp)) {
+                Row(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
                     AsyncImage(
                         model = podcast?.artworkUrl,
                         contentDescription = null,

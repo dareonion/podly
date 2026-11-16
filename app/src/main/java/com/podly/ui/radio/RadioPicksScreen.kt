@@ -84,11 +84,13 @@ fun RadioPicksScreen(onOpenEpisode: (String) -> Unit, onBack: () -> Unit = {}) {
 
     val items = picks
     if (items == null) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            CircularProgressIndicator()
+        Column(modifier = Modifier.fillMaxSize()) {
+            IconButton(onClick = onBack, modifier = Modifier.padding(top = 4.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+            }
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 24.dp),
+            )
         }
         return
     }
@@ -102,8 +104,6 @@ fun RadioPicksScreen(onOpenEpisode: (String) -> Unit, onBack: () -> Unit = {}) {
                 modifier = Modifier.fillMaxWidth().padding(end = 16.dp, top = 4.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // The bottom bar can't get you out of here: Compose restores the
-                // Library tab's saved back stack, which now has this screen on top.
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Picks for ${profile.displayName}", style = MaterialTheme.typography.titleMedium)

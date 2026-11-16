@@ -252,8 +252,6 @@ private fun WeeklyHeader(
     var pickingWeek by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // The bottom bar can't get you out of here: Compose restores the saved
-            // back stack of whichever tab opened this screen.
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
             Column(modifier = Modifier.weight(1f)) {
                 Text("Best of the week", style = MaterialTheme.typography.titleMedium)

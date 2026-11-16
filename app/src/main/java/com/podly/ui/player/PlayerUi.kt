@@ -2,10 +2,10 @@ package com.podly.ui.player
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -148,7 +149,7 @@ fun MiniPlayer(onOpenPlayer: () -> Unit) {
 }
 
 @Composable
-fun PlayerScreen(onOpenEpisode: (String) -> Unit = {}) {
+fun PlayerScreen(onOpenEpisode: (String) -> Unit = {}, onBack: () -> Unit = {}) {
     val player = LocalContext.current.appGraph.player
     val notesViewModel = appViewModel { PlayerNotesViewModel(it) }
     val state by player.state.collectAsState()
@@ -170,138 +171,153 @@ fun PlayerScreen(onOpenEpisode: (String) -> Unit = {}) {
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        // Artwork, title and show open the episode page: a radio pick otherwise had
-        // no way from here to its notes, transcript, save or download.
-        val openEpisode = Modifier.clickable(enabled = state.episodeId != null) {
-            state.episodeId?.let(onOpenEpisode)
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Down, not back: this puts the player away, and playback carries on.
+        IconButton(onClick = onBack, modifier = Modifier.padding(start = 4.dp, top = 4.dp)) {
+            Icon(Icons.Filled.KeyboardArrowDown, "Hide player")
         }
-        AsyncImage(
-            model = state.artworkUri,
-            contentDescription = "Episode details",
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(20.dp))
-                .then(openEpisode),
-        )
-        Spacer(Modifier.height(24.dp))
-        Text(
-            state.title ?: "Nothing playing",
-            style = MaterialTheme.typography.titleLarge,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = openEpisode,
-        )
-        Text(
-            state.podcastTitle ?: "",
-            modifier = openEpisode,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        state.errorMessage?.let { error ->
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "$error — press play to retry",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-        Spacer(Modifier.height(16.dp))
-
-        val duration = state.durationMs.coerceAtLeast(1)
-        Slider(
-            value = position.coerceIn(0, duration).toFloat(),
-            valueRange = 0f..duration.toFloat(),
-            onValueChange = { scrubbing = true; position = it.toLong() },
-            onValueChangeFinished = {
-                player.seekTo(position)
-                scrubbing = false
-            },
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .weight(1f)
+                .padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
-            Text(formatPosition(position), style = MaterialTheme.typography.bodySmall)
-            Text(formatPosition(state.durationMs), style = MaterialTheme.typography.bodySmall)
-        }
-        Spacer(Modifier.height(8.dp))
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(
-                onClick = player::previousEpisode,
-                enabled = state.hasPreviousEpisode,
-                modifier = Modifier.size(48.dp),
-            ) {
-                Icon(Icons.Filled.SkipPrevious, "Previous episode", modifier = Modifier.size(28.dp))
+            // Artwork, title and show open the episode page: a radio pick otherwise had
+            // no way from here to its notes, transcript, save or download.
+            val openEpisode = Modifier.clickable(enabled = state.episodeId != null) {
+                state.episodeId?.let(onOpenEpisode)
             }
-            IconButton(onClick = player::seekBack, modifier = Modifier.size(64.dp)) {
-                Icon(Icons.Filled.FastRewind, "Seek back", modifier = Modifier.size(36.dp))
-            }
-            IconButton(onClick = player::togglePlayPause, modifier = Modifier.size(80.dp)) {
-                if (state.isBuffering) {
-                    CircularProgressIndicator(modifier = Modifier.size(40.dp))
-                } else {
-                    Icon(
-                        if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        "Play/Pause",
-                        modifier = Modifier.size(48.dp),
+            // Square, but only as big as the height left over, so the hide button above
+            // and a two-line title don't push the controls off this unscrolled page.
+            // With next to no room (landscape, very large text) it is left out: an
+            // aspectRatio given zero height draws a full-width square over the controls.
+            BoxWithConstraints(modifier = Modifier.weight(1f, fill = false)) {
+                val side = minOf(maxWidth, maxHeight)
+                if (side >= 48.dp) {
+                    AsyncImage(
+                        model = state.artworkUri,
+                        contentDescription = "Episode details",
+                        modifier = Modifier
+                            .size(side)
+                            .clip(RoundedCornerShape(20.dp))
+                            .then(openEpisode),
                     )
                 }
             }
-            IconButton(onClick = player::seekForward, modifier = Modifier.size(64.dp)) {
-                Icon(Icons.Filled.FastForward, "Seek forward", modifier = Modifier.size(36.dp))
+            Spacer(Modifier.height(24.dp))
+            Text(
+                state.title ?: "Nothing playing",
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = openEpisode,
+            )
+            Text(
+                state.podcastTitle ?: "",
+                modifier = openEpisode,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            state.errorMessage?.let { error ->
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "$error — press play to retry",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
-            IconButton(
-                onClick = player::nextEpisode,
-                enabled = state.hasNextEpisode,
-                modifier = Modifier.size(48.dp),
+            Spacer(Modifier.height(16.dp))
+
+            val duration = state.durationMs.coerceAtLeast(1)
+            Slider(
+                value = position.coerceIn(0, duration).toFloat(),
+                valueRange = 0f..duration.toFloat(),
+                onValueChange = { scrubbing = true; position = it.toLong() },
+                onValueChangeFinished = {
+                    player.seekTo(position)
+                    scrubbing = false
+                },
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Icon(Icons.Filled.SkipNext, "Next episode", modifier = Modifier.size(28.dp))
+                Text(formatPosition(position), style = MaterialTheme.typography.bodySmall)
+                Text(formatPosition(state.durationMs), style = MaterialTheme.typography.bodySmall)
             }
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // A TextButton, like "Up next" beside it: Material3's IconButton is a
-            // fixed ~40dp circle that clipped this label down to "1.".
-            TextButton(onClick = { speedMenuOpen = true }) {
-                Icon(Icons.Filled.Speed, "Speed")
-                Text(" ${state.speed}x")
-                DropdownMenu(expanded = speedMenuOpen, onDismissRequest = { speedMenuOpen = false }) {
-                    SPEEDS.forEach { speed ->
-                        DropdownMenuItem(
-                            text = { Text("${speed}x") },
-                            onClick = { speedMenuOpen = false; player.setSpeed(speed) },
+            Spacer(Modifier.height(8.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = player::previousEpisode,
+                    enabled = state.hasPreviousEpisode,
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(Icons.Filled.SkipPrevious, "Previous episode", modifier = Modifier.size(28.dp))
+                }
+                IconButton(onClick = player::seekBack, modifier = Modifier.size(64.dp)) {
+                    Icon(Icons.Filled.FastRewind, "Seek back", modifier = Modifier.size(36.dp))
+                }
+                IconButton(onClick = player::togglePlayPause, modifier = Modifier.size(80.dp)) {
+                    if (state.isBuffering) {
+                        CircularProgressIndicator(modifier = Modifier.size(40.dp))
+                    } else {
+                        Icon(
+                            if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            "Play/Pause",
+                            modifier = Modifier.size(48.dp),
                         )
                     }
                 }
-            }
-            if (state.queue.size > 1) {
-                TextButton(onClick = { queueSheetOpen = true }) {
-                    Icon(Icons.AutoMirrored.Filled.QueueMusic, "Up next")
-                    Text(" Up next (${state.queueIndex + 1}/${state.queue.size})")
+                IconButton(onClick = player::seekForward, modifier = Modifier.size(64.dp)) {
+                    Icon(Icons.Filled.FastForward, "Seek forward", modifier = Modifier.size(36.dp))
+                }
+                IconButton(
+                    onClick = player::nextEpisode,
+                    enabled = state.hasNextEpisode,
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(Icons.Filled.SkipNext, "Next episode", modifier = Modifier.size(28.dp))
                 }
             }
-            // No size modifier: the button hides itself until a Cast receiver is
-            // on the network, and a forced size would leave a gap in this row.
-            CastButton()
-        }
-        episode?.let { currentEpisode ->
             Spacer(Modifier.height(8.dp))
-            Button(onClick = { noteDialogOpen = true }) {
-                Icon(Icons.Filled.EditNote, null)
-                Text(" Notes")
-                currentEpisode.userRating?.let { rating ->
-                    Text("  ")
-                    Icon(Icons.Filled.Star, null, modifier = Modifier.size(18.dp))
-                    Text(" $rating/5")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // A TextButton, like "Up next" beside it: Material3's IconButton is a
+                // fixed ~40dp circle that clipped this label down to "1.".
+                TextButton(onClick = { speedMenuOpen = true }) {
+                    Icon(Icons.Filled.Speed, "Speed")
+                    Text(" ${state.speed}x")
+                    DropdownMenu(expanded = speedMenuOpen, onDismissRequest = { speedMenuOpen = false }) {
+                        SPEEDS.forEach { speed ->
+                            DropdownMenuItem(
+                                text = { Text("${speed}x") },
+                                onClick = { speedMenuOpen = false; player.setSpeed(speed) },
+                            )
+                        }
+                    }
+                }
+                if (state.queue.size > 1) {
+                    TextButton(onClick = { queueSheetOpen = true }) {
+                        Icon(Icons.AutoMirrored.Filled.QueueMusic, "Up next")
+                        Text(" Up next (${state.queueIndex + 1}/${state.queue.size})")
+                    }
+                }
+                // No size modifier: the button hides itself until a Cast receiver is
+                // on the network, and a forced size would leave a gap in this row.
+                CastButton()
+            }
+            episode?.let { currentEpisode ->
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = { noteDialogOpen = true }) {
+                    Icon(Icons.Filled.EditNote, null)
+                    Text(" Notes")
+                    currentEpisode.userRating?.let { rating ->
+                        Text("  ")
+                        Icon(Icons.Filled.Star, null, modifier = Modifier.size(18.dp))
+                        Text(" $rating/5")
+                    }
                 }
             }
         }

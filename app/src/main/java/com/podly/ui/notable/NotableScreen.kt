@@ -56,14 +56,19 @@ fun NotableScreen(onOpenEpisode: (String) -> Unit, onBack: () -> Unit = {}) {
     val entries by viewModel.entries.collectAsStateWithLifecycle()
 
     if (entries.isEmpty()) {
-        Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-            Text("Nothing notable yet", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Acclaimed and widely-heard episodes appear here after the next refresh.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp),
-            )
+        Column(modifier = Modifier.fillMaxSize()) {
+            IconButton(onClick = onBack, modifier = Modifier.padding(top = 4.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+            }
+            Column(modifier = Modifier.padding(horizontal = 24.dp)) {
+                Text("Nothing notable yet", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Acclaimed and widely-heard episodes appear here after the next refresh.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
         }
         return
     }
@@ -77,8 +82,6 @@ fun NotableScreen(onOpenEpisode: (String) -> Unit, onBack: () -> Unit = {}) {
                 modifier = Modifier.fillMaxWidth().padding(end = 16.dp, top = 4.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // The bottom bar can't get you out of here: Compose restores the
-                // Library tab's saved back stack, which now has this screen on top.
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 Column {
                     Text("Notable episodes", style = MaterialTheme.typography.titleMedium)
