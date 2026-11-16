@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,7 +70,8 @@ internal fun filterSubscriptions(
     sort: SubscriptionSort,
     collator: Comparator<Any?> = Collator.getInstance(),
 ): List<SubscribedPodcast> {
-    val words = query.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    // javaWhitespace, not \s: it includes the full-width space a Chinese keyboard types.
+    val words = query.trim().split(Regex("\\p{javaWhitespace}+")).filter { it.isNotEmpty() }
     val matching = shows.filter { show ->
         val haystack = "${show.podcast.title} ${show.podcast.author}"
         words.all { haystack.contains(it, ignoreCase = true) }
@@ -96,12 +98,6 @@ class PodcastsViewModel(graph: AppGraph) : ViewModel() {
     /** Null until the first read, so the page doesn't flash "no subscriptions". */
     val shows: StateFlow<List<SubscribedPodcast>?> = graph.podcasts.subscribedWithLastPlayed()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
-    // Compose state rather than a StateFlow: a text field fed through a flow lags a
-    // frame behind the IME, which can break Zhuyin/Pinyin composition. Kept here so a
-    // filter survives opening a show and coming back.
-    var query by mutableStateOf("")
-    var sort by mutableStateOf(SubscriptionSort.TITLE)
 }
 
 /** Every subscribed show, filterable as you type: the way to a show the Library carousel buries. */
@@ -109,10 +105,16 @@ class PodcastsViewModel(graph: AppGraph) : ViewModel() {
 fun PodcastsScreen(onOpenPodcast: (String) -> Unit, onBack: () -> Unit) {
     val viewModel = appViewModel { PodcastsViewModel(it) }
     val shows by viewModel.shows.collectAsStateWithLifecycle()
+    // Compose state rather than a StateFlow: a text field fed through a flow lags a
+    // frame behind the IME, which can break Zhuyin/Pinyin composition. Saveable, so
+    // the filter and sort come back with the scroll position they belong to: after
+    // opening a show, and after Android has reclaimed the process in the background.
+    var query by rememberSaveable { mutableStateOf("") }
+    var sort by rememberSaveable { mutableStateOf(SubscriptionSort.TITLE) }
     val collator = remember { Collator.getInstance() }
     val all = shows ?: emptyList()
-    val visible = remember(all, viewModel.query, viewModel.sort) {
-        filterSubscriptions(all, viewModel.query, viewModel.sort, collator)
+    val visible = remember(all, query, sort) {
+        filterSubscriptions(all, query, sort, collator)
     }
     val focusManager = LocalFocusManager.current
     // A new filter or sort starts from the top. Without this the list keeps the first
@@ -141,17 +143,17 @@ fun PodcastsScreen(onOpenPodcast: (String) -> Unit, onBack: () -> Unit) {
             }
         }
         OutlinedTextField(
-            value = viewModel.query,
+            value = query,
             onValueChange = {
-                viewModel.query = it
+                query = it
                 showFromTop()
             },
             placeholder = { Text("Filter by name or host") },
             leadingIcon = { Icon(Icons.Filled.Search, null) },
             trailingIcon = {
-                if (viewModel.query.isNotEmpty()) {
+                if (query.isNotEmpty()) {
                     IconButton(onClick = {
-                        viewModel.query = ""
+                        query = ""
                         showFromTop()
                     }) { Icon(Icons.Filled.Clear, "Clear filter") }
                 }
@@ -165,14 +167,14 @@ fun PodcastsScreen(onOpenPodcast: (String) -> Unit, onBack: () -> Unit) {
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            SubscriptionSort.entries.forEach { sort ->
+            SubscriptionSort.entries.forEach { option ->
                 FilterChip(
-                    selected = viewModel.sort == sort,
+                    selected = sort == option,
                     onClick = {
-                        viewModel.sort = sort
+                        sort = option
                         showFromTop()
                     },
-                    label = { Text(sort.label) },
+                    label = { Text(option.label) },
                 )
             }
         }
@@ -180,12 +182,12 @@ fun PodcastsScreen(onOpenPodcast: (String) -> Unit, onBack: () -> Unit) {
             when {
                 shows == null -> Unit
                 all.isEmpty() -> item { EmptyNote("No subscriptions yet. Find podcasts in Discover.") }
-                visible.isEmpty() -> item { EmptyNote("No subscribed show matches “${viewModel.query.trim()}”.") }
+                visible.isEmpty() -> item { EmptyNote("No subscribed show matches “${query.trim()}”.") }
             }
             items(visible, key = { it.podcast.id }) { show ->
                 SubscriptionRow(
                     show = show,
-                    showLastPlayed = viewModel.sort == SubscriptionSort.RECENT,
+                    showLastPlayed = sort == SubscriptionSort.RECENT,
                     onClick = { onOpenPodcast(show.podcast.id) },
                 )
             }

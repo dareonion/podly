@@ -68,6 +68,8 @@ class SubscriptionFilterTest {
     fun chineseMatchesOnTheCharactersTyped() {
         assertEquals(listOf("hayden"), ids("中文"))
         assertEquals(emptyList<String>(), ids("中国"))
+        // An ideographic space, as a Chinese keyboard types it, separates words too.
+        assertEquals(listOf("hayden"), ids("海頓\u3000中文"))
     }
 
     @Test
