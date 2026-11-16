@@ -1,5 +1,7 @@
 package com.podly.playback
 
+import androidx.media3.common.MediaItem
+
 /** Well under Cast's 512 KB per-message ceiling even with long titles and artwork URLs. */
 internal const val MAX_CAST_QUEUE_ITEMS = 50
 
@@ -26,4 +28,17 @@ internal fun <T> castQueueWindow(
     val safeIndex = index.coerceIn(0, items.lastIndex)
     val start = (safeIndex - lookback).coerceIn(0, items.size - limit)
     return items.subList(start, start + limit) to (safeIndex - start)
+}
+
+/**
+ * [item] as a Cast device can play it. A Cast device fetches the audio itself and
+ * can't read app-private storage, so a download's file:// URI is swapped for the
+ * stream that MediaItemFactory.playable keeps in the request metadata. An item
+ * with no stream recorded is left as it is.
+ */
+internal fun castPlayable(item: MediaItem): MediaItem {
+    val uri = item.localConfiguration?.uri ?: return item
+    if (uri.scheme == "http" || uri.scheme == "https") return item
+    val stream = item.requestMetadata.mediaUri ?: return item
+    return item.buildUpon().setUri(stream).build()
 }

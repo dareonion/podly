@@ -1,8 +1,10 @@
 package com.podly.playback
 
+import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.media3.cast.MediaItemConverter
 import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.DeviceInfo
 import androidx.media3.common.FlagSet
 import androidx.media3.common.ForwardingPlayer
@@ -240,9 +242,18 @@ internal class TimelineFillingListener(
  * onTimelineChanged's argument rather than from [getCurrentTimeline]. When items
  * arrive, listeners are told the timeline changed. Nothing is inferred from what
  * was sent, which went wrong whenever edits overlapped or the receiver reused ids.
+ *
+ * It is also the last stop before the receiver, so every queue it is handed is
+ * made sendable here: at most [MAX_CAST_QUEUE_ITEMS] items and streams instead of
+ * downloads. Callers trim too, but a result resolved for the local player can
+ * arrive after Cast has taken over: a restored library queue that reached the
+ * Cast player whole overflowed Cast's 512 KB message and crashed the app.
  */
 @OptIn(UnstableApi::class)
-internal class CastQueueMirror(player: Player) : ForwardingPlayer(player) {
+internal class CastQueueMirror(
+    player: Player,
+    private val clock: () -> Long = SystemClock::elapsedRealtime,
+) : ForwardingPlayer(player) {
     /** The connected session's queue, or null between sessions. */
     private var receiver: ReceiverQueue? = null
 
@@ -261,6 +272,16 @@ internal class CastQueueMirror(player: Player) : ForwardingPlayer(player) {
     /** The queue last sent, standing in for items the receiver still owes at a handover. */
     private var lastSent: List<MediaItem> = emptyList()
 
+    /** When a queue was last sent to an empty timeline that hasn't shown it yet; null otherwise. */
+    private var loadSentAtMs: Long? = null
+
+    /**
+     * Play or pause asked for while that load was in flight. RemoteCastPlayer sends
+     * neither without a media status, and the receiver's first status then
+     * overwrites the request, so it is made again once the receiver reports.
+     */
+    private var pendingPlayWhenReady: Boolean? = null
+
     /**
      * The wrapper registered for each listener. ForwardingPlayer finds listeners
      * to remove by identity, so removal must hand back this same instance.
@@ -272,9 +293,59 @@ internal class CastQueueMirror(player: Player) : ForwardingPlayer(player) {
         // those already fetched are on hand, before anyone reads the timeline.
         super.addListener(object : Player.Listener {
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                if (!timeline.isEmpty) {
+                    val sentAt = loadSentAtMs
+                    val wanted = pendingPlayWhenReady
+                    loadSentAtMs = null
+                    pendingPlayWhenReady = null
+                    // The receiver has reported, so a play or pause now reaches it;
+                    // not once the load was given up on, when this queue may be
+                    // another sender's.
+                    if (wanted != null && sentAt != null && clock() - sentAt < LOAD_GRACE_MS &&
+                        super@CastQueueMirror.getPlayWhenReady() != wanted
+                    ) {
+                        super@CastQueueMirror.setPlayWhenReady(wanted)
+                    }
+                }
                 collect(timeline, fetch = true)
             }
         })
+    }
+
+    override fun play() {
+        if (hasLoadInFlight()) pendingPlayWhenReady = true
+        super.play()
+    }
+
+    override fun pause() {
+        if (hasLoadInFlight()) pendingPlayWhenReady = false
+        super.pause()
+    }
+
+    override fun setPlayWhenReady(playWhenReady: Boolean) {
+        if (hasLoadInFlight()) pendingPlayWhenReady = playWhenReady
+        super.setPlayWhenReady(playWhenReady)
+    }
+
+    /**
+     * Whether a queue has been sent that the timeline doesn't show yet. The Cast
+     * player shows a load only once the receiver reports it, so until then the
+     * player reads as empty, and a play() right behind the load looks to Media3
+     * like play on an empty player, which restores the saved queue over it.
+     * Given up after [LOAD_GRACE_MS], so a load the receiver never takes can't
+     * block that restore for good.
+     */
+    fun hasLoadInFlight(): Boolean {
+        val sentAt = loadSentAtMs ?: return false
+        if (!rawTimeline().isEmpty) {
+            loadSentAtMs = null
+            return false
+        }
+        if (clock() - sentAt < LOAD_GRACE_MS) return true
+        // Given up on: a play or pause asked for then is not replayed much later.
+        loadSentAtMs = null
+        pendingPlayWhenReady = null
+        return false
     }
 
     /** Starts filling from [queue], a newly connected session's; null clears. */
@@ -356,6 +427,8 @@ internal class CastQueueMirror(player: Player) : ForwardingPlayer(player) {
     fun detach() {
         receiver?.setOnChanged(null)
         receiver = null
+        loadSentAtMs = null
+        pendingPlayWhenReady = null
         forget()
     }
 
@@ -462,57 +535,97 @@ internal class CastQueueMirror(player: Player) : ForwardingPlayer(player) {
 
     // A new queue replaces the receiver's, and its ids may repeat the old ones:
     // what they named before is forgotten, and read again as they come. The queue
-    // itself is kept for itemsForHandover.
+    // as sent is kept for itemsForHandover. Every setter goes through [sent] or
+    // [castPlayable]: ForwardingPlayer forwards each overload separately, so one
+    // left out would reach RemoteCastPlayer untrimmed.
 
-    override fun setMediaItems(mediaItems: List<MediaItem>) {
+    /** Records [items] as the queue now on its way to the receiver. */
+    private fun sent(items: List<MediaItem>) {
         // RemoteCastPlayer ignores an empty list, so nothing is replaced.
-        if (mediaItems.isNotEmpty()) {
-            forget()
-            lastSent = mediaItems.toList()
-        }
-        super.setMediaItems(mediaItems)
+        if (items.isEmpty()) return
+        forget()
+        lastSent = items.toList()
+        loadSentAtMs = if (rawTimeline().isEmpty) clock() else null
+        if (loadSentAtMs == null) pendingPlayWhenReady = null
     }
 
+    override fun setMediaItems(mediaItems: List<MediaItem>) = setMediaItems(mediaItems, true)
+
     override fun setMediaItems(mediaItems: List<MediaItem>, resetPosition: Boolean) {
-        // RemoteCastPlayer ignores an empty list, so nothing is replaced.
-        if (mediaItems.isNotEmpty()) {
-            forget()
-            lastSent = mediaItems.toList()
+        if (mediaItems.size <= MAX_CAST_QUEUE_ITEMS) {
+            val items = mediaItems.map(::castPlayable)
+            sent(items)
+            super.setMediaItems(items, resetPosition)
+            return
         }
-        super.setMediaItems(mediaItems, resetPosition)
+        // Trimming needs the index to keep, worked out as RemoteCastPlayer would.
+        if (resetPosition) {
+            setMediaItems(mediaItems, 0, C.TIME_UNSET)
+        } else {
+            setMediaItems(mediaItems, currentMediaItemIndex, contentPosition)
+        }
     }
 
     override fun setMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long) {
-        // RemoteCastPlayer ignores an empty list, so nothing is replaced.
-        if (mediaItems.isNotEmpty()) {
-            forget()
-            lastSent = mediaItems.toList()
+        var index = startIndex
+        var position = startPositionMs
+        if (mediaItems.size > MAX_CAST_QUEUE_ITEMS && index == C.INDEX_UNSET) {
+            // RemoteCastPlayer's reading of INDEX_UNSET: stay where playback is.
+            index = currentMediaItemIndex
+            position = currentPosition
         }
-        super.setMediaItems(mediaItems, startIndex, startPositionMs)
+        val (window, windowIndex) = castQueueWindow(mediaItems, index)
+        val items = window.map(::castPlayable)
+        sent(items)
+        super.setMediaItems(items, windowIndex, position)
     }
 
     override fun setMediaItem(mediaItem: MediaItem) {
-        forget()
-        super.setMediaItem(mediaItem)
-        lastSent = listOf(mediaItem)
+        val item = castPlayable(mediaItem)
+        sent(listOf(item))
+        super.setMediaItem(item)
     }
 
     override fun setMediaItem(mediaItem: MediaItem, startPositionMs: Long) {
-        forget()
-        super.setMediaItem(mediaItem, startPositionMs)
-        lastSent = listOf(mediaItem)
+        val item = castPlayable(mediaItem)
+        sent(listOf(item))
+        super.setMediaItem(item, startPositionMs)
     }
 
     override fun setMediaItem(mediaItem: MediaItem, resetPosition: Boolean) {
-        forget()
-        super.setMediaItem(mediaItem, resetPosition)
-        lastSent = listOf(mediaItem)
+        val item = castPlayable(mediaItem)
+        sent(listOf(item))
+        super.setMediaItem(item, resetPosition)
     }
+
+    // Additions go to the receiver as they are; only the URIs need changing. Items
+    // added while casting are not trimmed (Play next, Add to queue and radio
+    // refills add a few at a time).
+
+    override fun addMediaItem(mediaItem: MediaItem) = super.addMediaItem(castPlayable(mediaItem))
+
+    override fun addMediaItem(index: Int, mediaItem: MediaItem) =
+        super.addMediaItem(index, castPlayable(mediaItem))
+
+    override fun addMediaItems(mediaItems: List<MediaItem>) =
+        super.addMediaItems(mediaItems.map(::castPlayable))
+
+    override fun addMediaItems(index: Int, mediaItems: List<MediaItem>) =
+        super.addMediaItems(index, mediaItems.map(::castPlayable))
+
+    override fun replaceMediaItem(index: Int, mediaItem: MediaItem) =
+        super.replaceMediaItem(index, castPlayable(mediaItem))
+
+    override fun replaceMediaItems(fromIndex: Int, toIndex: Int, mediaItems: List<MediaItem>) =
+        super.replaceMediaItems(fromIndex, toIndex, mediaItems.map(::castPlayable))
 
     private companion object {
         /** MediaQueue's own limit on pending item requests. */
         const val FETCH_PAGE = 20
         const val MAX_ATTEMPTS = 3
+
+        /** Long enough for a receiver on slow Wi-Fi to answer a LOAD. */
+        const val LOAD_GRACE_MS = 15_000L
     }
 }
 

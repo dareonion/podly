@@ -47,6 +47,11 @@ object MediaItemFactory {
             // matches what ExoPlayer would infer from the URL anyway.
             .setMimeType(audioMimeType(episode.audioUrl))
             .setMediaMetadata(metadata(episode, isPlayable = true))
+            // The stream, even when the URI is the download: whatever reaches the Cast
+            // player swaps a file:// URI back to it there (castPlayable).
+            .setRequestMetadata(
+                MediaItem.RequestMetadata.Builder().setMediaUri(episode.audioUrl.toUri()).build()
+            )
             .build()
     }
 

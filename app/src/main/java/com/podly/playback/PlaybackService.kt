@@ -55,6 +55,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.resume
 
 /**
@@ -97,6 +98,13 @@ class PlaybackService : MediaLibraryService() {
     // reading session.player there threw and failed the whole session operation.
     @Volatile private var activePlayerOrNull: Player? = null
     @Volatile private var casting = false
+
+    /**
+     * Bumped whenever something other than playback resumption sets the queue. A
+     * resumption that finishes after a bump is dropped rather than replacing the
+     * newer queue (see onPlaybackResumption).
+     */
+    private val queueGeneration = AtomicInteger()
 
     /** Non-null exactly while a radio session owns the queue. */
     @Volatile private var radio: RadioSessionState? = null
@@ -273,6 +281,7 @@ class PlaybackService : MediaLibraryService() {
             // autoplay = its playWhenReady, which a fresh Cast session reports as
             // true, so casting a paused episode started it playing on the receiver.
             target.playWhenReady = wasPlaying
+            queueGeneration.incrementAndGet()
             target.setMediaItems(items, startIndex, position)
             target.prepare()
             if (toCast && episodes.any { MediaItemFactory.localUriOrNull(it) != null }) {
@@ -777,6 +786,7 @@ class PlaybackService : MediaLibraryService() {
         probation = RadioProbation(first.id, profileId)
         appGraph.radioSession.start(profileId)
         publishRadioExtras(profileId)
+        queueGeneration.incrementAndGet()
         player.setMediaItems(window, index, first.playbackPositionMs.takeIf { !first.completed } ?: 0L)
         player.prepare()
         player.play()
@@ -1016,13 +1026,19 @@ class PlaybackService : MediaLibraryService() {
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
             mediaItems: List<MediaItem>,
-        ): ListenableFuture<List<MediaItem>> = scope.future(Dispatchers.IO) {
-            // Radio's own refills call the player directly and never come through
-            // here, so anything added while radio runs is the listener's choice.
-            if (radio != null) {
-                mediaItems.mapNotNullTo(listenerQueued) { MediaIds.episodeIdOrNull(it.mediaId) }
+        ): ListenableFuture<List<MediaItem>> = scope.future {
+            queueGeneration.incrementAndGet()
+            val resolved = withContext(Dispatchers.IO) {
+                // Radio's own refills call the player directly and never come through
+                // here, so anything added while radio runs is the listener's choice.
+                if (radio != null) {
+                    mediaItems.mapNotNullTo(listenerQueued) { MediaIds.episodeIdOrNull(it.mediaId) }
+                }
+                mediaItems.mapNotNull { item -> resolve(item) }
             }
-            mediaItems.mapNotNull { item -> resolve(item) }
+            // See onSetMediaItems.
+            queueGeneration.incrementAndGet()
+            resolved
         }
 
         override fun onSetMediaItems(
@@ -1031,7 +1047,21 @@ class PlaybackService : MediaLibraryService() {
             mediaItems: List<MediaItem>,
             startIndex: Int,
             startPositionMs: Long,
-        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future(Dispatchers.IO) {
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future {
+            queueGeneration.incrementAndGet()
+            val result = withContext(Dispatchers.IO) { resolveQueue(mediaItems, startIndex, startPositionMs) }
+            // Again as it is applied: this future completes on the application thread,
+            // where Media3 applies the result at once, so a resumption that began while
+            // this resolved can't restore over it.
+            queueGeneration.incrementAndGet()
+            result
+        }
+
+        private suspend fun resolveQueue(
+            mediaItems: List<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long,
+        ): MediaSession.MediaItemsWithStartPosition {
             // Setting a queue from anywhere else is an explicit choice, so it ends the
             // radio session. Without this the session would leak: the hardware skip
             // remap and the withholding of progress would both stay armed over
@@ -1054,7 +1084,7 @@ class PlaybackService : MediaLibraryService() {
                     ?.takeIf { !it.completed }?.playbackPositionMs ?: 0L
             }
             val (items, index) = if (forCast) castQueueWindow(resolved, safeIndex) else resolved to safeIndex
-            MediaSession.MediaItemsWithStartPosition(items, index, resumePosition)
+            return MediaSession.MediaItemsWithStartPosition(items, index, resumePosition)
         }
 
         private suspend fun resolve(item: MediaItem): MediaItem? {
@@ -1067,19 +1097,48 @@ class PlaybackService : MediaLibraryService() {
          * Android Auto / system "resume" entry point after process death: restore the
          * last queue and position, falling back to the most recent in-progress episode.
          * The same items come back whether or not [isForPlayback] is set.
+         *
+         * Media3 also calls this on any play request while the player has no current
+         * item. The Cast player reads as empty until the receiver reports a queue just
+         * sent, so tapping an episode while connected to an idle receiver lands here
+         * right behind its own load. Restoring then replaced the episode tapped with the
+         * saved queue, and once crashed the app by sending a whole saved library queue
+         * to the receiver. A failed future makes Media3 skip the restore and just play.
          */
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
             isForPlayback: Boolean,
-        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future(Dispatchers.IO) {
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            // On the application thread here, which the Cast mirror needs.
+            if (isCasting() && castQueue?.hasLoadInFlight() == true) {
+                return Futures.immediateFailedFuture(ResumptionSuperseded())
+            }
+            val generation = queueGeneration.get()
+            // Completes on the application thread, where Media3 applies the result at
+            // once (it posts or runs on that thread), so nothing can set a queue or
+            // switch players between this check and the restore.
+            return scope.future {
+                val saved = withContext(Dispatchers.IO) { savedQueue() }
+                // A queue set meanwhile is newer than the saved one and must stay.
+                if (queueGeneration.get() != generation) throw ResumptionSuperseded()
+                // Built for whichever player has the session now: casting may have
+                // started or stopped during the lookup.
+                saved.items(forCast = isCasting())
+            }
+        }
+
+        private suspend fun savedQueue(): RestoredQueue {
             val graph = appGraph
             val saved = graph.playbackState.load()
             val episodes: List<EpisodeEntity>
             val startIndex: Int
             if (saved != null) {
-                val byId = saved.episodeIds
-                    .mapNotNull { graph.podcasts.episodeById(it) }
+                // In batches: a queue saved from the Library list can run to thousands
+                // of episodes, and one query each took seconds.
+                val byId = saved.episodeIds.distinct()
+                    .chunked(RESUME_LOOKUP_BATCH)
+                    .flatMap { graph.podcasts.episodesByIds(it) }
                     .associateBy { it.id }
                 episodes = saved.episodeIds.mapNotNull(byId::get)
                 val savedEpisodeId = saved.episodeIds.getOrNull(saved.currentIndex)
@@ -1089,21 +1148,30 @@ class PlaybackService : MediaLibraryService() {
                     .ifEmpty { graph.database.episodeDao().libraryEpisodesOnce().take(1) }
                 startIndex = 0
             }
-            if (episodes.isEmpty()) {
-                return@future MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L)
-            }
-            val current = episodes[startIndex]
-            val resumePosition = current.playbackPositionMs.takeIf { !current.completed } ?: 0L
-            MediaSession.MediaItemsWithStartPosition(
-                episodes.map(MediaItemFactory::playable),
-                startIndex,
-                resumePosition,
-            )
+            return RestoredQueue(episodes, startIndex)
         }
     }
 
+    /** The saved queue, read back for onPlaybackResumption. */
+    private class RestoredQueue(val episodes: List<EpisodeEntity>, val startIndex: Int) {
+        fun items(forCast: Boolean): MediaSession.MediaItemsWithStartPosition {
+            if (episodes.isEmpty()) return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L)
+            val current = episodes[startIndex]
+            val resumePosition = current.playbackPositionMs.takeIf { !current.completed } ?: 0L
+            val items = episodes.map { MediaItemFactory.playable(it, forCast) }
+            val (window, index) = if (forCast) castQueueWindow(items, startIndex) else items to startIndex
+            return MediaSession.MediaItemsWithStartPosition(window, index, resumePosition)
+        }
+    }
+
+    /** A playback resumption dropped because a newer queue was set; Media3 then just plays. */
+    private class ResumptionSuperseded :
+        Exception("Not restoring the saved queue: a newer one was set")
+
     companion object {
         private const val MAX_BROWSE_CHILDREN = 100
+        /** Episode ids per query when restoring a saved queue (SQLite's variable limit). */
+        private const val RESUME_LOOKUP_BATCH = 500
         private const val MIN_LISTEN_SEGMENT_MS = 1_000L
 
         private const val CONTINUOUS_POSITION_TOLERANCE_MS = 12_000L

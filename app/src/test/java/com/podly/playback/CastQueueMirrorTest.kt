@@ -1,6 +1,7 @@
 package com.podly.playback
 
 import android.app.Application
+import android.net.Uri
 import androidx.media3.common.AdPlaybackState
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -132,14 +133,30 @@ class CastQueueMirrorTest {
         }
     }
 
-    /** A Cast player reduced to a timeline and its listeners. */
+    /** A Cast player reduced to a timeline and its listeners, recording what it is sent. */
     private class FakeCastPlayer(var timeline: Timeline) {
         val listeners = mutableListOf<Player.Listener>()
+        var currentIndex = 0
+
+        /** The player's own flag, which a receiver status may overwrite. */
+        var playWhenReady = false
+
+        /** Every play (true) or pause (false) that reached the player. */
+        val playRequests = mutableListOf<Boolean>()
+
+        /** Each queue edit that reached the player: method name and arguments. */
+        val sent = mutableListOf<Pair<String, List<Any?>>>()
         val player = Proxy.newProxyInstance(Player::class.java.classLoader, arrayOf(Player::class.java)) { _, method, args ->
             when (method.name) {
                 "getCurrentTimeline" -> timeline
+                "getCurrentMediaItemIndex" -> currentIndex
+                "getPlayWhenReady" -> playWhenReady
+                "play" -> { playWhenReady = true; playRequests += true }
+                "pause" -> { playWhenReady = false; playRequests += false }
+                "setPlayWhenReady" -> { playWhenReady = args[0] as Boolean; playRequests += playWhenReady }
                 "addListener" -> listeners += args[0] as Player.Listener
                 "removeListener" -> listeners -= args[0] as Player.Listener
+                in QUEUE_SETTERS -> sent += method.name to args.toList()
                 else -> when (method.returnType) {
                     Boolean::class.javaPrimitiveType -> false
                     Int::class.javaPrimitiveType -> 0
@@ -539,5 +556,245 @@ class CastQueueMirrorTest {
     fun anUnsetIndexStartsAtTheFront() {
         val (_, index) = compactAt(listOf("a", "b"), index = C.INDEX_UNSET)
         assertEquals(0, index)
+    }
+
+    // ---- what reaches the receiver ------------------------------------------------
+
+    private fun streamUri(id: String) = Uri.parse("https://x.test/$id.mp3")
+
+    /** An item as MediaItemFactory.playable builds it for streaming. */
+    private fun streamed(id: String) = MediaItem.Builder()
+        .setMediaId(MediaIds.episode(id))
+        .setUri(streamUri(id))
+        .setMimeType("audio/mpeg")
+        .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(streamUri(id)).build())
+        .build()
+
+    /** The same, as built for local playback of a download. */
+    private fun downloaded(id: String) = streamed(id).buildUpon().setUri("file:///data/episodes/$id.mp3").build()
+
+    @Suppress("UNCHECKED_CAST")
+    private fun List<Any?>.sentItems() = first { it is List<*> } as List<MediaItem>
+
+    private fun List<MediaItem>.ids() = map { it.mediaId }
+
+    @Test
+    fun aLongQueueReachesTheReceiverTrimmedAroundTheCurrentEpisode() {
+        // A restored Library queue reached the Cast player whole and overflowed
+        // Cast's 512 KB message: the app crashed while the receiver played on.
+        val cast = FakeCastPlayer(Timeline.EMPTY)
+        val mirror = CastQueueMirror(cast.player)
+        val queue = (0 until 120).map { streamed("ep$it") }
+
+        mirror.setMediaItems(queue, 90, 5_000L)
+
+        val (method, args) = cast.sent.single()
+        assertEquals("setMediaItems", method)
+        val items = args.sentItems()
+        assertEquals(MAX_CAST_QUEUE_ITEMS, items.size)
+        assertEquals(MediaIds.episode("ep90"), items[args[1] as Int].mediaId)
+        assertEquals(5_000L, args[2])
+    }
+
+    @Test
+    fun aLongQueueSetFromTheStartIsTrimmedFromTheFront() {
+        val cast = FakeCastPlayer(Timeline.EMPTY)
+        val mirror = CastQueueMirror(cast.player)
+        val queue = (0 until 120).map { streamed("ep$it") }
+
+        mirror.setMediaItems(queue)
+
+        val (_, args) = cast.sent.single()
+        assertEquals(queue.take(MAX_CAST_QUEUE_ITEMS).ids(), args.sentItems().ids())
+        assertEquals(0, args[1])
+    }
+
+    @Test
+    fun aLongQueueWithAnUnsetIndexIsTrimmedAroundWherePlaybackIs() {
+        val cast = FakeCastPlayer(Timeline.EMPTY).apply { currentIndex = 70 }
+        val mirror = CastQueueMirror(cast.player)
+        val queue = (0 until 120).map { streamed("ep$it") }
+
+        mirror.setMediaItems(queue, C.INDEX_UNSET, C.TIME_UNSET)
+
+        val (_, args) = cast.sent.single()
+        assertEquals(MediaIds.episode("ep70"), args.sentItems()[args[1] as Int].mediaId)
+    }
+
+    @Test
+    fun aShortQueueIsSentWhole() {
+        val cast = FakeCastPlayer(Timeline.EMPTY)
+        val mirror = CastQueueMirror(cast.player)
+        val queue = listOf(streamed("a"), streamed("b"))
+
+        mirror.setMediaItems(queue, 1, 0L)
+
+        val (_, args) = cast.sent.single()
+        assertEquals(queue.ids(), args.sentItems().ids())
+        assertEquals(1, args[1])
+    }
+
+    @Test
+    fun aDownloadIsSentAsItsStreamHoweverItArrives() {
+        val cast = FakeCastPlayer(Timeline.EMPTY)
+        val mirror = CastQueueMirror(cast.player)
+
+        mirror.setMediaItems(listOf(downloaded("a"), streamed("b")), 0, 0L)
+        mirror.setMediaItem(downloaded("c"))
+        mirror.addMediaItems(listOf(downloaded("d")))
+        mirror.addMediaItem(0, downloaded("e"))
+        mirror.replaceMediaItem(0, downloaded("f"))
+
+        val uris = cast.sent.flatMap { (_, args) ->
+            args.flatMap { arg ->
+                when (arg) {
+                    is MediaItem -> listOf(arg)
+                    is List<*> -> arg.filterIsInstance<MediaItem>()
+                    else -> emptyList()
+                }
+            }
+        }.map { it.localConfiguration!!.uri.scheme }
+        assertEquals(List(6) { "https" }, uris)
+    }
+
+    @Test
+    fun aDownloadWithNoStreamRecordedIsLeftAlone() {
+        val item = MediaItem.Builder().setMediaId(MediaIds.episode("a")).setUri("file:///x/a.mp3").build()
+        assertSame(item, castPlayable(item))
+    }
+
+    @Test
+    fun aLoadToAnIdleReceiverIsInFlightUntilTheReceiverShowsIt() {
+        val cast = FakeCastPlayer(Timeline.EMPTY)
+        val mirror = CastQueueMirror(cast.player, clock = { 1_000L })
+        assertEquals(false, mirror.hasLoadInFlight())
+
+        val queue = items("a", "b")
+        mirror.setMediaItems(queue, 0, 0L)
+        // What the session asks when play() follows the load: nothing current yet.
+        assertEquals(null, mirror.currentMediaItem)
+        assertEquals(true, mirror.hasLoadInFlight())
+
+        cast.changeTimeline(receiver(queue, known = setOf(0, 1)))
+        assertEquals(false, mirror.hasLoadInFlight())
+    }
+
+    @Test
+    fun aLoadTheReceiverNeverShowsStopsCountingAfterAWhile() {
+        var now = 1_000L
+        val mirror = CastQueueMirror(FakeCastPlayer(Timeline.EMPTY).player, clock = { now })
+        mirror.setMediaItems(items("a"), 0, 0L)
+
+        now += 14_000L
+        assertEquals(true, mirror.hasLoadInFlight())
+        now += 1_000L
+        assertEquals(false, mirror.hasLoadInFlight())
+    }
+
+    @Test
+    fun aLoadToABusyReceiverIsNotInFlight() {
+        // The old queue is still current there, so a play() is no restore request.
+        val cast = FakeCastPlayer(receiver(items("a"), known = setOf(0)))
+        val mirror = CastQueueMirror(cast.player, clock = { 1_000L })
+
+        mirror.setMediaItems(items("b"), 0, 0L)
+
+        assertEquals(false, mirror.hasLoadInFlight())
+    }
+
+    @Test
+    fun aLoadInFlightIsForgottenWithTheSession() {
+        val mirror = CastQueueMirror(FakeCastPlayer(Timeline.EMPTY).player, clock = { 1_000L })
+        mirror.setMediaItems(items("a"), 0, 0L)
+
+        mirror.detach()
+
+        assertEquals(false, mirror.hasLoadInFlight())
+    }
+
+    @Test
+    fun aPlayDuringALoadIsMadeAgainOnceTheReceiverReports() {
+        // RemoteCastPlayer sends no PLAY before the receiver's first status, and that
+        // status then reports the load's autoplay = false: the play was lost.
+        val cast = FakeCastPlayer(Timeline.EMPTY)
+        val mirror = CastQueueMirror(cast.player, clock = { 1_000L })
+        val queue = items("a", "b")
+        mirror.setMediaItems(queue, 0, 0L)
+        mirror.play()
+
+        cast.playWhenReady = false // the receiver's first status
+        cast.changeTimeline(receiver(queue, known = setOf(0, 1)))
+
+        assertEquals(true, cast.playWhenReady)
+        assertEquals(listOf(true, true), cast.playRequests)
+    }
+
+    @Test
+    fun aPauseAfterThatPlayIsWhatTheReceiverGets() {
+        val cast = FakeCastPlayer(Timeline.EMPTY)
+        val mirror = CastQueueMirror(cast.player, clock = { 1_000L })
+        val queue = items("a")
+        mirror.setMediaItems(queue, 0, 0L)
+        mirror.play()
+        mirror.pause()
+
+        cast.playWhenReady = true // loaded with autoplay
+        cast.changeTimeline(receiver(queue, known = setOf(0)))
+
+        assertEquals(false, cast.playWhenReady)
+    }
+
+    @Test
+    fun aPlayWithNoLoadInFlightIsNotRepeated() {
+        val queue = items("a")
+        val cast = FakeCastPlayer(receiver(queue, known = setOf(0)))
+        val mirror = CastQueueMirror(cast.player, clock = { 1_000L })
+        mirror.play()
+
+        cast.playWhenReady = false // paused on the receiver later, from elsewhere
+        cast.changeTimeline(receiver(queue, known = setOf(0)))
+
+        assertEquals(listOf(true), cast.playRequests)
+    }
+
+    @Test
+    fun aPlayDuringALoadGivenUpOnIsNotReplayedLater() {
+        var now = 1_000L
+        val cast = FakeCastPlayer(Timeline.EMPTY)
+        val mirror = CastQueueMirror(cast.player, clock = { now })
+        val queue = items("a")
+        mirror.setMediaItems(queue, 0, 0L)
+        mirror.play()
+
+        // Nothing asks about the load again before a queue shows up, say another
+        // sender's, paused: the stale play must not start it.
+        now += 20_000L
+        cast.playWhenReady = false
+        cast.changeTimeline(receiver(queue, known = setOf(0)))
+
+        assertEquals(listOf(true), cast.playRequests)
+        assertEquals(false, mirror.hasLoadInFlight())
+    }
+
+    @Test
+    fun everyQueueSetterGoesThroughTheMirror() {
+        // ForwardingPlayer forwards each overload on its own; one not overridden
+        // would reach RemoteCastPlayer untrimmed.
+        val missing = Player::class.java.methods
+            .filter { it.name in QUEUE_SETTERS }
+            .filterNot { method ->
+                runCatching {
+                    CastQueueMirror::class.java.getDeclaredMethod(method.name, *method.parameterTypes)
+                }.isSuccess
+            }
+            .map { "${it.name}(${it.parameterTypes.joinToString { type -> type.simpleName }})" }
+        assertEquals(emptyList<String>(), missing)
+    }
+
+    private companion object {
+        val QUEUE_SETTERS = setOf(
+            "setMediaItems", "setMediaItem", "addMediaItems", "addMediaItem",
+            "replaceMediaItems", "replaceMediaItem",
+        )
     }
 }

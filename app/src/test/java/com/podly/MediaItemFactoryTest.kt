@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.podly.data.db.DownloadStatus
 import com.podly.data.db.EpisodeEntity
 import com.podly.playback.MediaItemFactory
+import com.podly.playback.castPlayable
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -35,6 +36,21 @@ class MediaItemFactoryTest {
         // storage, so the cast item must point at the original URL.
         val cast = MediaItemFactory.playable(episode, forCast = true)
         assertEquals(episode.audioUrl, cast.localConfiguration?.uri?.toString())
+    }
+
+    @Test
+    fun aDownloadBuiltForThePhoneStillCastsAsItsStream() {
+        // A queue resolved for local playback can reach the Cast player when casting
+        // starts meanwhile; the Cast boundary swaps the file back to the stream.
+        val file = temporaryFolder.newFile("episode.mp3")
+        val episode = episode(localFilePath = file.absolutePath, status = DownloadStatus.DONE)
+        val local = MediaItemFactory.playable(episode)
+        assertEquals(episode.audioUrl, local.requestMetadata.mediaUri?.toString())
+
+        val cast = castPlayable(local)
+        assertEquals(episode.audioUrl, cast.localConfiguration?.uri?.toString())
+        assertEquals(local.localConfiguration?.mimeType, cast.localConfiguration?.mimeType)
+        assertEquals(local.mediaId, cast.mediaId)
     }
 
     @Test
