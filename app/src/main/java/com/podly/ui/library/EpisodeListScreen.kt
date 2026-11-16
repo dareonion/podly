@@ -4,22 +4,32 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -52,6 +62,20 @@ enum class LibraryList(val route: String, val title: String) {
     }
 }
 
+/**
+ * Narrows [episodes] to those whose title or show name contains every word of [query]
+ * (case-insensitive; a Chinese title matches on the characters typed), keeping their order.
+ */
+internal fun filterEpisodes(episodes: List<EpisodeEntity>, query: String): List<EpisodeEntity> {
+    // javaWhitespace, not \s: it includes the full-width space a Chinese keyboard types.
+    val words = query.trim().split(Regex("\\p{javaWhitespace}+")).filter { it.isNotEmpty() }
+    if (words.isEmpty()) return episodes
+    return episodes.filter { episode ->
+        val haystack = "${episode.title} ${episode.podcastTitle}"
+        words.all { haystack.contains(it, ignoreCase = true) }
+    }
+}
+
 class EpisodeListViewModel(graph: AppGraph, list: LibraryList) : ViewModel() {
     val actions = EpisodeActions(graph, viewModelScope)
     val episodes = when (list) {
@@ -73,36 +97,90 @@ fun EpisodeListScreen(list: LibraryList, onOpenEpisode: (String) -> Unit, onBack
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     var episodeForPlaylist by remember { mutableStateOf<EpisodeEntity?>(null) }
     var episodeForDescription by remember { mutableStateOf<EpisodeEntity?>(null) }
+    // Compose state rather than a StateFlow: a text field fed through a flow lags a
+    // frame behind the IME, which can break Zhuyin/Pinyin composition. Saveable, so
+    // the filter comes back with the scroll position it belongs to: after opening an
+    // episode, and after Android has reclaimed the process in the background.
+    var query by rememberSaveable { mutableStateOf("") }
+    // Thousands of episodes in All episodes; Continue listening is capped at 100 and
+    // needs no filter.
+    val filterable = list == LibraryList.ALL
+    val visible = remember(episodes, query, filterable) {
+        if (filterable) filterEpisodes(episodes, query) else episodes
+    }
+    val focusManager = LocalFocusManager.current
+    // A new filter starts from the top; coming back from an episode keeps the scroll.
+    val listState = rememberLazyListState()
+    val showFromTop = { listState.requestScrollToItem(0) }
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        item(key = "header") {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(end = 16.dp, top = 4.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-                Column {
-                    Text(list.title, style = MaterialTheme.typography.titleMedium)
+    // imePadding keeps the last matches above the keyboard while you type.
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(end = 16.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+            Column {
+                Text(list.title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    when {
+                        visible.size != episodes.size -> "%,d of %,d episodes".format(visible.size, episodes.size)
+                        episodes.size == 1 -> "1 episode"
+                        else -> "%,d episodes".format(episodes.size)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (filterable) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = {
+                    query = it
+                    showFromTop()
+                },
+                placeholder = { Text("Filter by episode or show") },
+                leadingIcon = { Icon(Icons.Filled.Search, null) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = {
+                            query = ""
+                            showFromTop()
+                        }) { Icon(Icons.Filled.Clear, "Clear filter") }
+                    }
+                },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
+            )
+        }
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            if (visible.isEmpty() && episodes.isNotEmpty()) {
+                item(key = "no-match") {
                     Text(
-                        if (episodes.size == 1) "1 episode" else "${episodes.size} episodes",
-                        style = MaterialTheme.typography.bodySmall,
+                        "No episode or show matches “${query.trim()}”.",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp),
                     )
                 }
             }
-        }
-        items(episodes, key = { it.id }) { episode ->
-            EpisodeRow(
-                episode = episode,
-                onPlay = { viewModel.actions.play(episodes, episodes.indexOf(episode)) },
-                onToggleLibrary = { viewModel.actions.toggleLibrary(episode) },
-                onDownload = { viewModel.actions.download(episode) },
-                onRemoveDownload = { viewModel.actions.removeDownload(episode) },
-                onAddToPlaylist = { episodeForPlaylist = episode },
-                onTogglePlayed = { viewModel.actions.togglePlayed(episode) },
-                onShowDescription = { episodeForDescription = episode },
-                onOpenDetail = { onOpenEpisode(episode.id) },
-            )
+            items(visible, key = { it.id }) { episode ->
+                EpisodeRow(
+                    episode = episode,
+                    // The list you see, so a filtered list plays on through its matches.
+                    onPlay = { viewModel.actions.play(visible, visible.indexOf(episode)) },
+                    onToggleLibrary = { viewModel.actions.toggleLibrary(episode) },
+                    onDownload = { viewModel.actions.download(episode) },
+                    onRemoveDownload = { viewModel.actions.removeDownload(episode) },
+                    onAddToPlaylist = { episodeForPlaylist = episode },
+                    onTogglePlayed = { viewModel.actions.togglePlayed(episode) },
+                    onShowDescription = { episodeForDescription = episode },
+                    onOpenDetail = { onOpenEpisode(episode.id) },
+                )
+            }
         }
     }
 
