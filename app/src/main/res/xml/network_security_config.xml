@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Plain http is allowed. Some podcasts still publish audio only over http: BBC's
+  enclosures go through a media selector whose redirect names http even when asked over
+  https, and a few blubrry feeds are http-only. With Android's default of blocking
+  cleartext, those 33 episodes on the phone failed with "Playback failed: Source error"
+  (2026-11-16). Feeds and directory calls still try https first (Http.httpsUpgradeOrNull);
+  this only lets the http fallback, and http audio, through.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <!-- InsecureBaseConfiguration: deliberate, for the reason above. A per-domain list
+         would need every enclosure host and every host they redirect to. -->
+    <base-config cleartextTrafficPermitted="true" tools:ignore="InsecureBaseConfiguration" />
+</network-security-config>

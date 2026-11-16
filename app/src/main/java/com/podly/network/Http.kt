@@ -24,8 +24,9 @@ object Http {
 
     /**
      * The https variant of a cleartext URL, or null if it's already https. Old feeds
-     * (and iTunes search results) are often still registered as http://, which Android
-     * blocks — most of those hosts serve the same content over https.
+     * (and iTunes search results) are often still registered as http://, and most of
+     * those hosts serve the same content over https, so that is tried first. Plain http
+     * is allowed (res/xml/network_security_config.xml) only as the fallback.
      */
     fun httpsUpgradeOrNull(url: String): String? =
         if (url.startsWith("http://", ignoreCase = true)) "https://" + url.substring(7) else null
@@ -35,8 +36,7 @@ object Http {
             try {
                 return getOnce(upgraded, headers)
             } catch (_: IOException) {
-                // Fall through to the original URL: on-device it fails as blocked
-                // cleartext, the accurate error for a genuinely http-only host.
+                // Fall through to the original URL, for a host that only serves http.
             }
         }
         return getOnce(url, headers)
@@ -72,7 +72,7 @@ object Http {
             try {
                 return getConditionalOnce(upgraded, etag, lastModified)
             } catch (_: IOException) {
-                // See get(): report the http-only failure, not the upgrade attempt's.
+                // See get(): fall back to the original URL for an http-only host.
             }
         }
         return getConditionalOnce(url, etag, lastModified)
