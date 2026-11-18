@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) and other coding age
 
 Podly — a native Android podcast player (Kotlin, Jetpack Compose, Media3) with Android Auto and Chromecast support. Two Gradle modules: the `app` Android module (package `com.podly`) and a JVM-only `generator` module that pre-computes AI recommendation JSON in CI. Separately, `tools/radio` (Python, `uv`) builds the radio pools, Notable list and weekly digest on this Linux box's systemd user timers and commits them to `site/`. `tools/radio` also provides `podly-transcripts`, a local whisper.cpp + Codex CLI for private Mandarin transcripts; its audio, work and serving files live in `~/.local/share/podly-transcripts` (override with `PODLY_TRANSCRIPTS_DIR`), and transcripts are never published to `site/`. `site/` is published to GitHub Pages at dareonion.github.io/podly, and the app just downloads the static files.
 
+Hayden's word list and grading content against it (toddler podcasts included) live in `~/gitrepo/toddlerlistening` (Darren, 2026-11-18): grade there, not here. The 17 Nov toddler podcast survey in `~/.local/share/podly-transcripts-toddler/survey-2026-11-17/` predates that choice and used chineselearning's segmenter.
+
 ## Commands
 
 Gradle needs JDK 21. Machine-specific JDK paths live in `~/.gradle/gradle.properties` (`org.gradle.java.home`) — never in the tracked `gradle.properties`:
