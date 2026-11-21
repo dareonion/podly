@@ -92,3 +92,16 @@ internal class CarBrowseTree(
             MediaItemFactory.folder(MediaIds.ROOT, "Podly", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
     }
 }
+
+/**
+ * The [page]th run of [pageSize] items. Media3 rejects a children result longer than
+ * the page size asked for ("Invalid size=…, pageSize=…"), so a browser that pages got
+ * an error instead of the list. An unpaged legacy browser asks for page 0 of
+ * Int.MAX_VALUE.
+ */
+internal fun <T> List<T>.page(page: Int, pageSize: Int): List<T> {
+    if (page < 0 || pageSize <= 0) return emptyList()
+    val from = page.toLong() * pageSize
+    if (from >= size) return emptyList()
+    return subList(from.toInt(), minOf(size.toLong(), from + pageSize).toInt())
+}

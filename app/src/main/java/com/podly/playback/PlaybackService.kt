@@ -1095,7 +1095,7 @@ class PlaybackService : MediaLibraryService() {
             pageSize: Int,
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = scope.future(Dispatchers.IO) {
-            val children = CarBrowseTree(appGraph.database, appGraph.playlists).children(parentId)
+            val children = CarBrowseTree(appGraph.database, appGraph.playlists).children(parentId).page(page, pageSize)
             LibraryResult.ofItemList(ImmutableList.copyOf(children), params)
         }
 

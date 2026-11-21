@@ -155,6 +155,19 @@ class CarBrowseTreeTest {
         assertEquals(emptyList<String>(), ids(MediaIds.PODCAST_PREFIX))
     }
 
+    @Test
+    fun pagesSliceWithoutOverflowing() {
+        val items = (0 until 25).toList()
+        assertEquals((0 until 10).toList(), items.page(0, 10))
+        assertEquals((20 until 25).toList(), items.page(2, 10))
+        assertEquals(emptyList<Int>(), items.page(3, 10))
+        // What an unpaged legacy browser asks for, and a later page of it.
+        assertEquals(items, items.page(0, Int.MAX_VALUE))
+        assertEquals(emptyList<Int>(), items.page(1, Int.MAX_VALUE))
+        assertEquals(emptyList<Int>(), items.page(-1, 10))
+        assertEquals(emptyList<Int>(), items.page(0, 0))
+    }
+
     private fun podcast(
         id: String,
         title: String = id,
