@@ -13,6 +13,16 @@ import kotlinx.coroutines.flow.Flow
 /** An episode's id and whether it is finished, in its show's order: what playing on through a show needs. */
 data class EpisodeProgress(val id: String, val completed: Boolean)
 
+/** A library episode as a search matches it. [subscribed] is its show's. */
+data class EpisodeSearchRow(
+    val id: String,
+    val title: String,
+    val podcastTitle: String,
+    val podcastId: String,
+    val pubDateMs: Long,
+    val subscribed: Boolean,
+)
+
 /** A subscribed show plus when any of its episodes was last played (0 if never), for the podcasts page. */
 data class SubscribedPodcast(
     @Embedded val podcast: PodcastEntity,
@@ -232,6 +242,23 @@ interface EpisodeDao {
                e.id"""
     )
     suspend fun episodeOrderForPodcast(podcastId: String): List<EpisodeProgress>
+
+    /** A show's unfinished episode heard most recently, if any. */
+    @Query(
+        """SELECT id FROM episodes
+           WHERE podcastId = :podcastId AND completed = 0 AND playbackPositionMs > 0
+           ORDER BY lastPlayedAt DESC LIMIT 1"""
+    )
+    suspend fun inProgressEpisodeForPodcast(podcastId: String): String?
+
+    /** Library episodes (subscribed shows' and saved ones) with just what a search matches on. */
+    @Query(
+        """SELECT e.id AS id, e.title AS title, e.podcastTitle AS podcastTitle, e.podcastId AS podcastId,
+                  e.pubDateMs AS pubDateMs, p.subscribed AS subscribed
+           FROM episodes e JOIN podcasts p ON e.podcastId = p.id
+           WHERE e.inLibrary = 1 OR p.subscribed = 1"""
+    )
+    suspend fun librarySearchRows(): List<EpisodeSearchRow>
 
     @Query(
         """SELECT e.* FROM episodes e JOIN podcasts p ON e.podcastId = p.id

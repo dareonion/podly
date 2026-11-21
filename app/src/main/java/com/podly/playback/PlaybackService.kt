@@ -17,6 +17,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Player.PositionInfo
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.util.Util
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -42,6 +43,7 @@ import com.podly.data.db.ListeningSegmentEntity
 import com.podly.network.Http
 import com.podly.radio.RadioProfiles
 import com.podly.ui.MainActivity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -107,6 +109,15 @@ class PlaybackService : MediaLibraryService() {
      * newer queue (see onPlaybackResumption).
      */
     private val queueGeneration = AtomicInteger()
+
+    /**
+     * Counts set requests as they arrive (onSetMediaItems, on the application thread),
+     * and nothing else. A spoken request searches the library before it resolves, and
+     * Media3 applies each request as it completes, so one that finds another set
+     * request arrived after it is dropped. Not [queueGeneration]: that also moves when
+     * an older operation finishes, which would drop the newer request instead.
+     */
+    private val setRequests = AtomicInteger()
 
     /** Non-null exactly while a radio session owns the queue. */
     @Volatile private var radio: RadioSessionState? = null
@@ -1120,6 +1131,44 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
+        /**
+         * Android Auto's search button. The legacy browser gets its results only once
+         * notifySearchResultChanged names its query exactly as sent, so that is called
+         * with the original string, and with a count of 0 when nothing matches or the
+         * search fails, rather than leaving the car waiting.
+         */
+        override fun onSearch(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<Void>> {
+            scope.launch {
+                val count = try {
+                    withContext(Dispatchers.IO) { CarSearch(appGraph.database).results(query).size }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Car search failed", e)
+                    0
+                }
+                session.notifySearchResultChanged(browser, query, count, params)
+            }
+            return Futures.immediateFuture(LibraryResult.ofVoid(params))
+        }
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = scope.future(Dispatchers.IO) {
+            val results = CarSearch(appGraph.database).results(query).page(page, pageSize)
+            LibraryResult.ofItemList(ImmutableList.copyOf(results), params)
+        }
+
         /** Resolves bare mediaIds (from Auto or the in-app UI) into playable items with URIs. */
         override fun onAddMediaItems(
             mediaSession: MediaSession,
@@ -1147,9 +1196,42 @@ class PlaybackService : MediaLibraryService() {
             mediaItems: List<MediaItem>,
             startIndex: Int,
             startPositionMs: Long,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val request = setRequests.incrementAndGet()
+            // "Play Podly" (a spoken request naming nothing): carry on with what is
+            // loaded, or restore the saved queue into an empty player the way
+            // resumption does, guards included. A failed future leaves the queue as it
+            // is; Media3's legacy path does nothing with the failure.
+            // (A prepareFromSearch with no words also lands here and plays; nothing
+            // known sends one.)
+            if (spokenQuery(mediaItems)?.isBlank() == true) {
+                val player = mediaSession.player
+                if (player.currentMediaItem == null) {
+                    return onPlaybackResumption(mediaSession, controller, isForPlayback = true)
+                }
+                // As the play button does: an idle player is prepared and an ended one
+                // starts over, which play() alone would not do.
+                Util.handlePlayButtonAction(player)
+                return Futures.immediateFailedFuture(NothingNewToPlay())
+            }
+            return setMediaItemsAsync(request, mediaItems, startIndex, startPositionMs)
+        }
+
+        private fun setMediaItemsAsync(
+            request: Int,
+            mediaItems: List<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future {
             queueGeneration.incrementAndGet()
-            val queue = withContext(Dispatchers.IO) { resolveQueue(mediaItems, startIndex, startPositionMs) }
+            // A spoken request that another set request overtook while it searched is
+            // dropped, before it ends radio and again before it applies (setRequests).
+            val overtaken: (() -> Boolean)? =
+                if (spokenQuery(mediaItems) != null) ({ setRequests.get() != request }) else null
+            val queue = withContext(Dispatchers.IO) {
+                resolveQueue(mediaItems, startIndex, startPositionMs, overtaken)
+            }
+            if (overtaken?.invoke() == true) throw NothingNewToPlay()
             // This future completes on the application thread, where Media3 applies the
             // result at once. So bumped again here, a resumption that began while this
             // resolved can't restore over it; and the items are built for whichever
@@ -1162,7 +1244,15 @@ class PlaybackService : MediaLibraryService() {
             mediaItems: List<MediaItem>,
             startIndex: Int,
             startPositionMs: Long,
+            overtaken: (() -> Boolean)? = null,
         ): ResolvedQueue {
+            // Every lookup comes first, so a spoken request that matches nothing, or is
+            // overtaken while it searches, leaves radio and the queue as they were.
+            val (ids, index) = requestedIds(mediaItems, startIndex) ?: throw NothingNewToPlay()
+            // Recounted around episodes that no longer exist, so the one asked for
+            // still starts.
+            val (episodes, safeIndex) = compactAt(episodesInOrder(ids), index)
+            if (overtaken?.invoke() == true) throw NothingNewToPlay()
             // Setting a queue from anywhere else is an explicit choice, so it ends the
             // radio session. Without this the session would leak: the hardware skip
             // remap and the withholding of progress would both stay armed over
@@ -1171,21 +1261,22 @@ class PlaybackService : MediaLibraryService() {
                 radio = null
                 scope.launch { stopRadio() }
             }
-            val (ids, index) = requestedIds(mediaItems, startIndex)
-            // Recounted around episodes that no longer exist, so the one asked for
-            // still starts.
-            val (episodes, safeIndex) = compactAt(episodesInOrder(ids), index)
             // An explicit start position wins; otherwise the episode's saved one.
             val position = startPositionMs.takeIf { it != C.TIME_UNSET && it > 0 }
             return ResolvedQueue(episodes, safeIndex, position).prebuild(isCasting())
         }
 
         /**
-         * The episode ids a set request names, and the index to start at. One episode
-         * played from inside its show in Android Auto (a `show-ep/` id) plays on through
-         * the show; anything else is the list as sent.
+         * The episode ids a set request names, and the index to start at; null for a
+         * spoken request that matches nothing. A spoken "play …" goes through
+         * [CarSearch.voiceQueue]; one episode played from inside its show in Android
+         * Auto (a `show-ep/` id) plays on through the show; anything else is the list
+         * as sent. Reads only, so nothing has changed if this returns null.
          */
-        private suspend fun requestedIds(mediaItems: List<MediaItem>, startIndex: Int): Pair<List<String?>, Int> {
+        private suspend fun requestedIds(mediaItems: List<MediaItem>, startIndex: Int): Pair<List<String?>, Int>? {
+            spokenQuery(mediaItems)?.let { query ->
+                return CarSearch(appGraph.database).voiceQueue(query)?.let { it to 0 }
+            }
             val fromShow = mediaItems.singleOrNull()?.let { MediaIds.showEpisodeIdOrNull(it.mediaId) }
             val podcastId = fromShow?.let { appGraph.podcasts.episodeById(it)?.podcastId }
             if (fromShow != null && podcastId != null) {
@@ -1279,6 +1370,18 @@ class PlaybackService : MediaLibraryService() {
             return MediaSession.MediaItemsWithStartPosition(window, index, resumePosition)
         }
     }
+
+    /**
+     * The words of a spoken "play … on Podly", which Media3 hands over as one item with
+     * no media id and the words as its search query; null for any other request.
+     */
+    private fun spokenQuery(mediaItems: List<MediaItem>): String? =
+        mediaItems.singleOrNull()
+            ?.takeIf { MediaIds.episodeIdOrNull(it.mediaId) == null }
+            ?.requestMetadata?.searchQuery
+
+    /** A set request that leaves the queue as it is: a spoken one naming nothing, matching nothing, or overtaken. */
+    private class NothingNewToPlay : Exception("Nothing new to play")
 
     /** A playback resumption dropped because a newer queue was set; Media3 then just plays. */
     private class ResumptionSuperseded :

@@ -1,8 +1,11 @@
 package com.podly.playback
 
+import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
 import android.media.browse.MediaBrowser
+import android.os.Bundle
+import androidx.media3.session.legacy.MediaBrowserCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.util.concurrent.CountDownLatch
@@ -90,6 +93,65 @@ class LegacyBrowserConnectTest {
         assertTrue("no show among the first five has episodes", shows.isEmpty() || opened.any { it.isNotEmpty() })
 
         instrumentation.runOnMainSync { browser.get().disconnect() }
+
+        // Searching for a show's own title finds it, through the legacy search handshake
+        // Android Auto uses: results arrive only once the service notifies for that query.
+        shows.firstOrNull()?.let { show ->
+            val title = show.description.title.toString()
+            assertTrue(
+                "searching \"$title\" did not find it",
+                legacySearch(title).any { it.mediaId == show.mediaId },
+            )
+        }
+    }
+
+    /**
+     * A search through the support-library browser protocol. The platform MediaBrowser
+     * has no search; Media3's copy of the compat browser is library-internal, but it
+     * speaks the same protocol Android Auto does.
+     */
+    @SuppressLint("RestrictedApi")
+    private fun legacySearch(query: String): List<MediaBrowserCompat.MediaItem> {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext.applicationContext
+        val connected = CountDownLatch(1)
+        val browser = AtomicReference<MediaBrowserCompat>()
+        instrumentation.runOnMainSync {
+            val b = MediaBrowserCompat(
+                context,
+                ComponentName(context, PlaybackService::class.java),
+                object : MediaBrowserCompat.ConnectionCallback() {
+                    override fun onConnected() = connected.countDown()
+                    override fun onConnectionFailed() = connected.countDown()
+                },
+                null,
+            )
+            browser.set(b)
+            b.connect()
+        }
+        assertTrue("compat browser did not connect within 10 s", connected.await(10, TimeUnit.SECONDS))
+        assertTrue("compat browser failed to connect", browser.get().isConnected)
+
+        val done = CountDownLatch(1)
+        val found = AtomicReference<List<MediaBrowserCompat.MediaItem>?>(null)
+        instrumentation.runOnMainSync {
+            browser.get().search(
+                query,
+                Bundle.EMPTY,
+                object : MediaBrowserCompat.SearchCallback() {
+                    override fun onSearchResult(query: String, extras: Bundle?, items: List<MediaBrowserCompat.MediaItem>) {
+                        found.set(items.toList())
+                        done.countDown()
+                    }
+                    override fun onError(query: String, extras: Bundle?) = done.countDown()
+                },
+            )
+        }
+        assertTrue("search for \"$query\" did not answer within 10 s", done.await(10, TimeUnit.SECONDS))
+        instrumentation.runOnMainSync { browser.get().disconnect() }
+        val items = found.get()
+        assertNotNull("search for \"$query\" reported an error", items)
+        return items!!
     }
 
     private fun load(browser: MediaBrowser, parentId: String): List<MediaBrowser.MediaItem> {
