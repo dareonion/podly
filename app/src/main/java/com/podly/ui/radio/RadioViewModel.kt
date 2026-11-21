@@ -40,7 +40,7 @@ data class RadioCardState(
     /** Non-null when radio cannot start, and why. */
     val emptyReason: String?
         get() = when {
-            profile.restrictBacklogToSelectedShows && selectedShows.isEmpty() && poolCount == 0 ->
+            profile.restrictToSelectedShows && selectedShows.isEmpty() ->
                 "No shows chosen for ${profile.displayName} yet."
             backlogCount == 0 && poolCount == 0 ->
                 "Everything has been played or was skipped recently."

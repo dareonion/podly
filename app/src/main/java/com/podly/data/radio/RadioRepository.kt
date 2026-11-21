@@ -92,20 +92,21 @@ class RadioRepository(
         random: Random,
     ): List<RadioCandidate> {
         val allowed = profiles.selectedShowsOnce(profile.id)
-        val restrict = profile.restrictBacklogToSelectedShows
-        // A restricted profile with nothing chosen must play nothing at all: that
-        // empty allowlist is the toddler content gate, not an oversight.
+        val restrict = profile.restrictToSelectedShows
+        // A restricted profile with nothing chosen must play nothing at all, pools
+        // included: that empty allowlist is the toddler content gate, not an oversight.
+        if (restrict && allowed.isEmpty()) return emptyList()
+        val args = BacklogArgs(profile, allowed, restrict, nowMs)
         val backlog: List<RadioCandidateRow> =
-            if (restrict && allowed.isEmpty()) {
-                emptyList()
-            } else {
-                val args = BacklogArgs(profile, allowed, restrict, nowMs)
-                (recentBacklog(args) + randomBacklog(args)).distinctBy { it.episodeId }
-            }
+            (recentBacklog(args) + randomBacklog(args)).distinctBy { it.episodeId }
+        // The allowlist binds every pool too. Until 2026-11-17 only the backlog was
+        // filtered, so the toddler's chart pool played regardless of the ticks.
         suspend fun pool(poolId: String) = radioDao.discovery(
             profileId = poolId,
             nowMs = nowMs,
             maxDurationMs = profile.maxDurationMs ?: 0L,
+            restrictShows = if (restrict) 1 else 0,
+            allowedPodcastIds = allowed.toList().ifEmpty { listOf("") },
             limit = PREFILTER_LIMIT,
             excludedCategories = profile.excludedCategories.orNone(),
             ambiguousCategories = profile.ambiguousCategories.orNone(),
@@ -298,7 +299,7 @@ class RadioRepository(
                 profileId = profileId,
                 nowMs = System.currentTimeMillis(),
                 includeUnsubscribed = if (profile.includeUnsubscribed) 1 else 0,
-                restrictShows = if (profile.restrictBacklogToSelectedShows) 1 else 0,
+                restrictShows = if (profile.restrictToSelectedShows) 1 else 0,
                 allowedPodcastIds = allowed.toList().ifEmpty { listOf("") },
                 maxDurationMs = profile.maxDurationMs ?: 0L,
                 excludedCategories = profile.excludedCategories.orNone(),
@@ -308,9 +309,26 @@ class RadioRepository(
         }
     }
 
-    /** Pool size as the card reports it: the profile's own picks plus notable. */
-    fun poolCount(profileId: String): Flow<Int> =
-        radioDao.poolCount(profileId, System.currentTimeMillis())
+    /**
+     * Pool size as the card reports it, counting what the profile may play: within its
+     * length cap and, for a profile restricted to chosen shows, from those shows only.
+     * Ids that are not a profile (Notable, This week) count their whole pool, which is
+     * what their browse screens list. Cooldowns are not counted out.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun poolCount(profileId: String): Flow<Int> {
+        val profile = RadioProfiles.ALL.firstOrNull { it.id == profileId }
+        val restrict = profile?.restrictToSelectedShows == true
+        return profiles.selectedShows(profileId).flatMapLatest { allowed ->
+            radioDao.poolCount(
+                profileId = profileId,
+                nowMs = System.currentTimeMillis(),
+                maxDurationMs = profile?.maxDurationMs ?: 0L,
+                restrictShows = if (restrict) 1 else 0,
+                allowedPodcastIds = allowed.toList().ifEmpty { listOf("") },
+            )
+        }
+    }
 
     private companion object {
         /** How many rows each SQL slice returns before scoring narrows them down. */

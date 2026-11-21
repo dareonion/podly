@@ -630,6 +630,7 @@ interface RadioDao {
              AND e.completed = 0
              AND (r.expiresAt IS NULL OR r.expiresAt > :nowMs)
              AND (:maxDurationMs = 0 OR e.durationMs IS NULL OR e.durationMs <= :maxDurationMs)
+             AND (:restrictShows = 0 OR e.podcastId IN (:allowedPodcastIds))
              AND e.podcastId NOT IN (
                SELECT podcastId FROM podcast_categories WHERE category IN (:excludedCategories)
              )
@@ -645,6 +646,8 @@ interface RadioDao {
         profileId: String,
         nowMs: Long,
         maxDurationMs: Long,
+        restrictShows: Int,
+        allowedPodcastIds: List<String>,
         limit: Int,
         excludedCategories: List<String>,
         ambiguousCategories: List<String>,
@@ -684,9 +687,17 @@ interface RadioDao {
     @Query(
         """SELECT COUNT(*) FROM radio_pool r JOIN episodes e ON e.id = r.episodeId
            WHERE r.profileId = :profileId AND e.completed = 0
-             AND (r.expiresAt IS NULL OR r.expiresAt > :nowMs)"""
+             AND (r.expiresAt IS NULL OR r.expiresAt > :nowMs)
+             AND (:maxDurationMs = 0 OR e.durationMs IS NULL OR e.durationMs <= :maxDurationMs)
+             AND (:restrictShows = 0 OR e.podcastId IN (:allowedPodcastIds))"""
     )
-    fun poolCount(profileId: String, nowMs: Long): Flow<Int>
+    fun poolCount(
+        profileId: String,
+        nowMs: Long,
+        maxDurationMs: Long,
+        restrictShows: Int,
+        allowedPodcastIds: List<String>,
+    ): Flow<Int>
 
     /**
      * Everything in one pool, newest acclaim first, for browsing rather than

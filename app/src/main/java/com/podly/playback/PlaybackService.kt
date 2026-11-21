@@ -49,6 +49,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -177,6 +179,22 @@ class PlaybackService : MediaLibraryService() {
                 player.seekForwardMs = seekForwardMs
                 castPlayer?.seekBackMs = seekBackMs
                 castPlayer?.seekForwardMs = seekForwardMs
+            }
+        }
+        // Unticking a show for a restricted profile while its radio plays removes that
+        // show's picks already queued, not just ones a later refill would fetch.
+        RadioProfiles.ALL.filter { it.restrictToSelectedShows }.forEach { profile ->
+            scope.launch {
+                graph.radioProfiles.selectedShows(profile.id).distinctUntilChanged().drop(1)
+                    .collect { allowed ->
+                        val current = radio
+                        if (current?.profileId == profile.id) {
+                            dropUntickedPicks(current, allowed)
+                            activePlayer().currentEpisodeIdOrNull()
+                                ?.takeIf { it !in listenerQueued }
+                                ?.let { skipIfUnticked(current, it) }
+                        }
+                    }
             }
         }
         session = MediaLibrarySession.Builder(this, player, LibraryCallback())
@@ -533,6 +551,12 @@ class PlaybackService : MediaLibraryService() {
                 appGraph.downloader.deleteCompletedDownloads()
                 if (radio != null) scheduleRadioRefill()
             }
+            val session = radio
+            if (session != null && newEpisodeId != null && newEpisodeId !in listenerQueued &&
+                RadioProfiles.byId(session.profileId).restrictToSelectedShows
+            ) {
+                scope.launch { skipIfUnticked(session, newEpisodeId) }
+            }
         }
 
         override fun onPositionDiscontinuity(
@@ -553,7 +577,17 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
-            scope.launch { snapshotQueue(activePlayer()) }
+            scope.launch {
+                snapshotQueue(activePlayer())
+                // A Cast item can become known only once it is already playing (a
+                // placeholder resolved late), with no transition to run the check.
+                val session = radio
+                if (session != null && RadioProfiles.byId(session.profileId).restrictToSelectedShows) {
+                    activePlayer().currentEpisodeIdOrNull()
+                        ?.takeIf { it !in listenerQueued }
+                        ?.let { skipIfUnticked(session, it) }
+                }
+            }
         }
     }
 
@@ -760,18 +794,33 @@ class PlaybackService : MediaLibraryService() {
      */
     private suspend fun startRadio(profileId: String, firstEpisodeId: String? = null) {
         // Starting on a chosen episode still starts a *session*: the rest of the
-        // queue is the usual picks, so Next keeps working from there.
+        // queue is the usual picks, so Next keeps working from there. The allowlist
+        // binds that chosen episode too: a picks list loaded before its show was
+        // unticked, or a controller's request, must not get round it.
+        val allowed = if (RadioProfiles.byId(profileId).restrictToSelectedShows) {
+            appGraph.radioProfiles.selectedShowsOnce(profileId)
+        } else {
+            null
+        }
         val chosen = firstEpisodeId?.let { appGraph.podcasts.episodeById(it) }
+            ?.takeIf { allowed == null || it.podcastId in allowed }
         val rest = radioItems(
             profileId,
             RADIO_LOOKAHEAD + if (chosen == null) 1 else 0,
             exclude = setOfNotNull(chosen?.id),
         )
-        val built = if (chosen != null) {
-            listOf(MediaItemFactory.playable(chosen, forCast = isCasting()) to chosen) + rest
-        } else {
-            rest
-        }
+        // Rechecked after the lookups above, which suspend, and before the session
+        // changes hands, so a failed start leaves the old session as it was. What can
+        // still slip through in the brief setup below is caught by [skipIfUnticked]
+        // once it becomes current.
+        val built = stillAllowed(
+            profileId,
+            if (chosen != null) {
+                listOf(MediaItemFactory.playable(chosen, forCast = isCasting()) to chosen) + rest
+            } else {
+                rest
+            },
+        )
         if (built.isEmpty()) {
             appGraph.messages.post("Radio has nothing to play for this profile yet.")
             return
@@ -843,6 +892,81 @@ class PlaybackService : MediaLibraryService() {
         )
     }
 
+    /**
+     * The allowlist's last line: a restricted profile's radio never plays a pick from
+     * a show that is not ticked *now*. Checked whenever an episode becomes current, so
+     * it holds however the pick got into the queue: a refill or start that read the
+     * ticks before a change, an earlier pick reached with Previous, a Cast placeholder
+     * resolved late. Episodes the listener queued themselves are theirs to play.
+     */
+    private suspend fun skipIfUnticked(session: RadioSessionState, episodeId: String) {
+        val allowed = appGraph.radioProfiles.selectedShowsOnce(session.profileId)
+        val podcastId = appGraph.podcasts.episodeById(episodeId)?.podcastId ?: return
+        if (podcastId in allowed) return
+        val player = activePlayer()
+        // The lookups suspend: act only if that pick is still the one playing.
+        if (radio !== session || player.currentEpisodeIdOrNull() != episodeId || episodeId in listenerQueued) return
+        if (!player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)) {
+            player.pause()
+            return
+        }
+        val index = player.currentMediaItemIndex
+        if (player.hasNextMediaItem()) {
+            player.seekToNextMediaItem()
+            player.removeMediaItem(index)
+            scheduleRadioRefill()
+        } else {
+            // Nothing after it: drop only this pick, keeping whatever else is queued (the
+            // listener's own additions, earlier picks), and end the session rather than
+            // leave an empty one. stopRadio saves what remains; if nothing does, the
+            // saved queue still names this pick, so it is forgotten for resumption.
+            player.pause()
+            player.removeMediaItem(index)
+            stopRadio()
+            if (player.mediaItemCount == 0) appGraph.playbackState.clearIfContains(episodeId)
+            appGraph.messages.post("Radio stopped: that show is no longer chosen for this profile.")
+        }
+    }
+
+    /** The picks the profile's ticks allow as they are now; all of them when it is unrestricted. */
+    private suspend fun stillAllowed(
+        profileId: String,
+        picks: List<Pair<MediaItem, EpisodeEntity>>,
+    ): List<Pair<MediaItem, EpisodeEntity>> {
+        if (!RadioProfiles.byId(profileId).restrictToSelectedShows) return picks
+        val allowed = appGraph.radioProfiles.selectedShowsOnce(profileId)
+        return picks.filter { it.second.podcastId in allowed }
+    }
+
+    /**
+     * Takes the radio picks of shows just unticked out of the queue already built, on
+     * both sides of the episode playing (earlier picks are reachable with Previous), so
+     * the queue matches the ticks. The episode playing is [skipIfUnticked]'s to judge,
+     * and the listener's own additions stay.
+     */
+    private suspend fun dropUntickedPicks(session: RadioSessionState, allowed: Set<String>) {
+        val player = activePlayer()
+        if (!player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)) return
+        val current = player.currentMediaItemIndex
+        val queued = (0 until player.mediaItemCount)
+            .filter { it != current }
+            .mapNotNull { MediaIds.episodeIdOrNull(player.getMediaItemAt(it).mediaId) }
+            .filterNot { it in listenerQueued }
+        val unticked = queued.filterTo(HashSet()) { id ->
+            appGraph.podcasts.episodeById(id)?.let { it.podcastId !in allowed } ?: false
+        }
+        // The lookups suspend: the session may have changed and the queue moved since.
+        if (radio !== session || unticked.isEmpty()) return
+        val now = activePlayer()
+        for (i in now.mediaItemCount - 1 downTo 0) {
+            if (i == now.currentMediaItemIndex) continue
+            val id = MediaIds.episodeIdOrNull(now.getMediaItemAt(i).mediaId) ?: continue
+            if (id in unticked && id !in listenerQueued) now.removeMediaItem(i)
+        }
+        snapshotQueue(now)
+        scheduleRadioRefill()
+    }
+
     private fun scheduleRadioRefill() {
         if (radio == null || radioRefillJob?.isActive == true) return
         radioRefillJob = scope.launch { refillRadioQueue() }
@@ -858,7 +982,10 @@ class PlaybackService : MediaLibraryService() {
         val queued = (0 until player.mediaItemCount)
             .mapNotNull { MediaIds.episodeIdOrNull(player.getMediaItemAt(it).mediaId) }
             .toSet()
-        val built = radioItems(session.profileId, plan.fetchCount, exclude = queued, recordServes = false)
+        val built = stillAllowed(
+            session.profileId,
+            radioItems(session.profileId, plan.fetchCount, exclude = queued, recordServes = false),
+        )
         // radioItems suspends; a switch to another profile in the meantime replaced
         // the queue, and these picks belong to the session that asked for them.
         if (built.isEmpty() || radio !== session) return

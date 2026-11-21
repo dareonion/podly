@@ -31,11 +31,14 @@ data class RadioProfile(
      */
     val includeNotable: Boolean = true,
     /**
-     * When true, the backlog is limited to shows explicitly chosen for this profile.
-     * The toddler profile ships with this on and an empty allowlist: nothing plays
-     * until a grown-up picks the shows, which is the only content gate that exists.
+     * When true, everything this profile plays — backlog and generated pools alike —
+     * comes from shows explicitly chosen for it. The toddler profile ships with this
+     * on and an empty allowlist: nothing plays until a grown-up picks the shows, which
+     * is the only content gate that exists. Until 2026-11-17 it covered the backlog
+     * only, so the toddler's chart pool (which then held a ghost story and the 三國演義)
+     * played with nothing ticked.
      */
-    val restrictBacklogToSelectedShows: Boolean = false,
+    val restrictToSelectedShows: Boolean = false,
     /**
      * Show genres this profile never plays, lowercased to match `podcast_categories`.
      *
@@ -147,7 +150,7 @@ object RadioProfiles {
         maxDurationMs = 15 * 60_000L,
         discoveryShare = 0.5f,
         includeNotable = false,
-        restrictBacklogToSelectedShows = true,
+        restrictToSelectedShows = true,
     )
 
     val ALL = listOf(YOU, TODDLER_ZH)

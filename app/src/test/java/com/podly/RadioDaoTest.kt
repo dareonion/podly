@@ -9,6 +9,7 @@ import com.podly.data.db.PodcastEntity
 import com.podly.data.db.PodlyDatabase
 import com.podly.data.db.RadioFeedbackEntity
 import com.podly.data.db.RadioPoolEntity
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -112,6 +113,40 @@ class RadioDaoTest {
     }
 
     @Test
+    fun `an allowlist limits the pool and its count to the chosen shows`() = runBlocking {
+        seed()
+        db.radioDao().upsertPool(
+            listOf(
+                RadioPoolEntity(profileId = "toddler_zh", episodeId = "a", priority = 0.5f),
+                RadioPoolEntity(profileId = "toddler_zh", episodeId = "outside", priority = 0.9f),
+            ),
+        )
+        suspend fun pool(restrict: Int, allowed: List<String>) = db.radioDao().discovery(
+            profileId = "toddler_zh", nowMs = now, maxDurationMs = 0,
+            restrictShows = restrict, allowedPodcastIds = allowed, limit = 50,
+            excludedCategories = listOf(NO_CATEGORY), exemptCategories = listOf(NO_CATEGORY),
+            ambiguousCategories = listOf(NO_CATEGORY),
+        ).map { it.episodeId }
+        fun count(restrict: Int, allowed: List<String>) = runBlocking {
+            db.radioDao().poolCount("toddler_zh", now, 0, restrict, allowed).first()
+        }
+
+        assertEquals(listOf("outside", "a"), pool(restrict = 0, allowed = listOf("")))
+        assertEquals(listOf("a"), pool(restrict = 1, allowed = listOf("subbed")))
+        // Nothing chosen is passed as a value no podcast id can equal.
+        assertTrue(pool(restrict = 1, allowed = listOf("")).isEmpty())
+        assertEquals(2, count(restrict = 0, allowed = listOf("")))
+        assertEquals(1, count(restrict = 1, allowed = listOf("subbed")))
+        assertEquals(0, count(restrict = 1, allowed = listOf("")))
+        // The count applies the profile's length cap too: "a" runs 30 minutes, so a
+        // 15-minute profile counts nothing to play rather than offering Start.
+        assertEquals(
+            0,
+            db.radioDao().poolCount("toddler_zh", now, 15 * 60_000L, 1, listOf("subbed")).first(),
+        )
+    }
+
+    @Test
     fun `a live cooldown hides an episode until it expires`() = runBlocking {
         seed()
         db.radioDao().putFeedback(
@@ -144,7 +179,7 @@ class RadioDaoTest {
         )
         val own = db.radioDao()
             .discovery(
-                profileId = "you", nowMs = now, maxDurationMs = 0, limit = 50,
+                profileId = "you", nowMs = now, maxDurationMs = 0, restrictShows = 0, allowedPodcastIds = listOf(""), limit = 50,
                 excludedCategories = listOf(NO_CATEGORY),
                 exemptCategories = listOf(NO_CATEGORY),
                 ambiguousCategories = listOf(NO_CATEGORY),
@@ -152,7 +187,7 @@ class RadioDaoTest {
             .map { it.episodeId }
         val notable = db.radioDao()
             .discovery(
-                profileId = "notable", nowMs = now, maxDurationMs = 0, limit = 50,
+                profileId = "notable", nowMs = now, maxDurationMs = 0, restrictShows = 0, allowedPodcastIds = listOf(""), limit = 50,
                 excludedCategories = listOf(NO_CATEGORY),
                 exemptCategories = listOf(NO_CATEGORY),
                 ambiguousCategories = listOf(NO_CATEGORY),
@@ -174,7 +209,7 @@ class RadioDaoTest {
         )
         val ids = db.radioDao()
             .discovery(
-                profileId = "you", nowMs = now, maxDurationMs = 0, limit = 50,
+                profileId = "you", nowMs = now, maxDurationMs = 0, restrictShows = 0, allowedPodcastIds = listOf(""), limit = 50,
                 excludedCategories = listOf(NO_CATEGORY),
                 exemptCategories = listOf(NO_CATEGORY),
                 ambiguousCategories = listOf(NO_CATEGORY),
@@ -197,7 +232,7 @@ class RadioDaoTest {
         assertTrue("outside" !in backlog(excluded = excluded))
         assertTrue("a" in backlog(excluded = excluded))
         val picks = db.radioDao().discovery(
-            profileId = "you", nowMs = now, maxDurationMs = 0, limit = 50,
+            profileId = "you", nowMs = now, maxDurationMs = 0, restrictShows = 0, allowedPodcastIds = listOf(""), limit = 50,
             excludedCategories = excluded, exemptCategories = listOf(NO_CATEGORY),
             ambiguousCategories = listOf(NO_CATEGORY),
         )

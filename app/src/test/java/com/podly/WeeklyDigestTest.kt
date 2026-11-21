@@ -112,16 +112,39 @@ class WeeklyDigestTest {
         assertTrue(you.none { it.reason == "Last month." })
 
         val toddlerPool = db.radioDao().discovery(
-            profileId = RadioProfiles.TODDLER_ZH.id, nowMs = now, maxDurationMs = 0, limit = 50,
+            profileId = RadioProfiles.TODDLER_ZH.id, nowMs = now, maxDurationMs = 0,
+            restrictShows = 0, allowedPodcastIds = listOf(""), limit = 50,
             excludedCategories = listOf(""), ambiguousCategories = listOf(""),
             exemptCategories = listOf(""),
         )
         // The toddler's own pool row for zh1 is untouched by the digest's copy.
         assertEquals(listOf("Toddler pick"), toddlerPool.map { it.reason })
-        val toddler = radio.recommendations(
-            RadioProfiles.TODDLER_ZH, count = 20, nowMs = now, random = Random(1),
+
+        // A toddler-eligible case, so the assertion below can fail: the show is
+        // ticked, and a short chart pick sits beside an equally short digest pick.
+        val store = RadioProfileStore(ApplicationProvider.getApplicationContext<Application>())
+        db.episodeDao().insertIgnore(
+            listOf(
+                episode("zh-chart", now - day).copy(durationMs = 10 * 60_000L),
+                episode("zh-digest", now - day).copy(durationMs = 10 * 60_000L),
+            ),
         )
-        assertTrue(toddler.none { it.reason in setOf("An interview.", "主持人談城市。") })
+        db.radioDao().upsertPool(
+            listOf(
+                pool(RadioProfiles.TODDLER_ZH.id, "zh-chart", "兒歌榜", 0.6f, "zh-Hant"),
+                pool(RadioProfiles.WEEKLY_ID, "zh-digest", "本週選集", 0.99f, "zh-Hant"),
+            ),
+        )
+        try {
+            store.setSelectedShows(RadioProfiles.TODDLER_ZH.id, setOf("show"))
+            val toddler = radio.recommendations(
+                RadioProfiles.TODDLER_ZH, count = 20, nowMs = now, random = Random(1),
+            )
+            assertTrue(toddler.any { it.reason == "兒歌榜" })
+            assertTrue(toddler.none { it.reason in setOf("An interview.", "主持人談城市。", "本週選集") })
+        } finally {
+            store.setSelectedShows(RadioProfiles.TODDLER_ZH.id, emptySet())
+        }
     }
 
     @Test

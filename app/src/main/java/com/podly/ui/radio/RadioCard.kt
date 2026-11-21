@@ -176,7 +176,7 @@ fun RadioCard(
                 modifier = Modifier.padding(16.dp),
             )
             Text(
-                if (state.profile.restrictBacklogToSelectedShows) {
+                if (state.profile.restrictToSelectedShows) {
                     "This profile only plays the shows you tick here."
                 } else {
                     "Leave everything unticked to draw on your whole library."

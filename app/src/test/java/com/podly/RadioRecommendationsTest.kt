@@ -13,6 +13,7 @@ import com.podly.data.radio.RadioProfileStore
 import com.podly.data.radio.RadioRepository
 import com.podly.network.RemoteRecsApi
 import com.podly.radio.RadioProfiles
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -138,5 +139,47 @@ class RadioRecommendationsTest {
         val second = repo.recommendations(profile, count = 10, nowMs = now, random = Random(1))
         assertTrue(second.none { it.episode.id == victim })
         assertNotNull(db.radioDao().feedback(profile.id, victim))
+    }
+
+    @Test
+    fun `the toddler's pool plays only the ticked shows, and nothing when none are`() = runBlocking {
+        val toddler = RadioProfiles.TODDLER_ZH
+        val store = RadioProfileStore(ApplicationProvider.getApplicationContext<Application>())
+        db.podcastDao().insertIgnore(
+            PodcastEntity(
+                id = "chosen", title = "Chosen show", author = "a",
+                feedUrl = "https://f/chosen", artworkUrl = null, description = null,
+                subscribed = true,
+            ),
+        )
+        // Short enough for the toddler's 15-minute cap, so only the allowlist decides.
+        db.episodeDao().insertIgnore(
+            listOf("kid1" to "chosen", "kid2" to "found").map { (id, show) ->
+                episode(id, show, now - day).copy(durationMs = 10 * 60_000L)
+            },
+        )
+        db.radioDao().upsertPool(
+            listOf("kid1", "kid2").map {
+                RadioPoolEntity(
+                    profileId = toddler.id, episodeId = it, source = RadioSource.CATALOG,
+                    reason = "Chart pick", language = "zh", priority = 1.0f,
+                    // No expiry: poolCount reads the real clock, not this test's `now`.
+                    catalogVersion = 1L, addedAt = now, expiresAt = null,
+                )
+            },
+        )
+        try {
+            store.setSelectedShows(toddler.id, emptySet())
+            assertTrue(repo.recommendations(toddler, count = 10, nowMs = now, random = Random(1)).isEmpty())
+            assertTrue(repo.nextBatch(toddler, count = 5, nowMs = now, random = Random(1)).isEmpty())
+            assertEquals(0, repo.poolCount(toddler.id).first())
+
+            store.setSelectedShows(toddler.id, setOf("chosen"))
+            val picks = repo.recommendations(toddler, count = 10, nowMs = now, random = Random(1))
+            assertEquals(listOf("kid1"), picks.map { it.episode.id })
+            assertEquals(1, repo.poolCount(toddler.id).first())
+        } finally {
+            store.setSelectedShows(toddler.id, emptySet())
+        }
     }
 }

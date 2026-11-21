@@ -29,6 +29,20 @@ class PlaybackStateStore(private val context: Context) {
         }
     }
 
+    /**
+     * Forgets the saved queue if it still holds [episodeId], so resumption cannot
+     * bring that episode back. Checked inside the edit: a queue saved since, without
+     * it, is left alone.
+     */
+    suspend fun clearIfContains(episodeId: String) {
+        context.playbackDataStore.edit { prefs ->
+            if (prefs[Keys.QUEUE_IDS]?.split(SEPARATOR)?.contains(episodeId) == true) {
+                prefs.remove(Keys.QUEUE_IDS)
+                prefs.remove(Keys.QUEUE_INDEX)
+            }
+        }
+    }
+
     suspend fun load(): SavedQueue? {
         val prefs = context.playbackDataStore.data.first()
         val ids = prefs[Keys.QUEUE_IDS]?.split(SEPARATOR)?.filter { it.isNotBlank() }
