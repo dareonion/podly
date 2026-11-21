@@ -66,28 +66,51 @@ class LegacyBrowserConnectTest {
         val root = browser.get().root
         assertEquals(MediaIds.ROOT, root)
 
-        val children = CountDownLatch(1)
+        val rootItems = load(browser.get(), root)
+        // This week appears only once a digest has synced, so it depends on the phone's data.
+        assertEquals(
+            listOf(MediaIds.NODE_CONTINUE, MediaIds.NODE_PODCASTS, MediaIds.NODE_LIBRARY),
+            rootItems.map { it.mediaId }.filter { it != MediaIds.NODE_WEEKLY },
+        )
+        // Android Auto shows four root tabs at most.
+        assertTrue(rootItems.size <= 4)
+        assertTrue(rootItems.all { it.isBrowsable })
+
+        // A show and its episodes, through the same legacy conversion Android Auto gets.
+        val shows = load(browser.get(), MediaIds.NODE_PODCASTS)
+        assertTrue(shows.all { it.isBrowsable && !it.isPlayable && it.mediaId?.startsWith(MediaIds.PODCAST_PREFIX) == true })
+        // Reads the phone's own library, so a show can legitimately be empty (a feed
+        // that never refreshed); some show among the first few should not be.
+        val opened = shows.take(5).map { show ->
+            load(browser.get(), show.mediaId!!).also { episodes ->
+                assertTrue(episodes.all { it.isPlayable && it.mediaId?.startsWith(MediaIds.EPISODE_PREFIX) == true })
+            }
+        }
+        assertTrue("no show among the first five has episodes", shows.isEmpty() || opened.any { it.isNotEmpty() })
+
+        instrumentation.runOnMainSync { browser.get().disconnect() }
+    }
+
+    private fun load(browser: MediaBrowser, parentId: String): List<MediaBrowser.MediaItem> {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val done = CountDownLatch(1)
         val loaded = AtomicReference<List<MediaBrowser.MediaItem>?>(null)
         instrumentation.runOnMainSync {
-            browser.get().subscribe(
-                root,
+            browser.subscribe(
+                parentId,
                 object : MediaBrowser.SubscriptionCallback() {
                     override fun onChildrenLoaded(parentId: String, items: MutableList<MediaBrowser.MediaItem>) {
                         loaded.set(items.toList())
-                        children.countDown()
+                        done.countDown()
                     }
-                    override fun onError(parentId: String) = children.countDown()
+                    override fun onError(parentId: String) = done.countDown()
                 },
             )
         }
-        assertTrue("root children did not load within 10 s", children.await(10, TimeUnit.SECONDS))
+        assertTrue("$parentId children did not load within 10 s", done.await(10, TimeUnit.SECONDS))
+        instrumentation.runOnMainSync { browser.unsubscribe(parentId) }
         val items = loaded.get()
-        assertNotNull("onLoadChildren reported an error", items)
-        assertEquals(
-            listOf(MediaIds.NODE_CONTINUE, MediaIds.NODE_PLAYLISTS, MediaIds.NODE_LIBRARY, MediaIds.NODE_DOWNLOADS),
-            items!!.map { it.mediaId },
-        )
-
-        instrumentation.runOnMainSync { browser.get().disconnect() }
+        assertNotNull("onLoadChildren reported an error for $parentId", items)
+        return items!!
     }
 }

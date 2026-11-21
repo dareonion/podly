@@ -1082,7 +1082,7 @@ class PlaybackService : MediaLibraryService() {
             // covers this on-device.
             Futures.immediateFuture(
                 LibraryResult.ofItem(
-                    MediaItemFactory.folder(MediaIds.ROOT, "Podly", childrenAreEpisodes = false),
+                    CarBrowseTree.root(),
                     params,
                 )
             )
@@ -1095,45 +1095,7 @@ class PlaybackService : MediaLibraryService() {
             pageSize: Int,
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = scope.future(Dispatchers.IO) {
-            val graph = appGraph
-            val children: List<MediaItem> = when {
-                parentId == MediaIds.ROOT -> listOfNotNull(
-                    MediaItemFactory.folder(MediaIds.NODE_CONTINUE, "Continue"),
-                    // Only once a digest has synced: an empty folder in the car reads
-                    // as broken, and there is nothing to do about it from the driver's seat.
-                    MediaItemFactory.folder(MediaIds.NODE_WEEKLY, "This week").takeIf {
-                        graph.database.radioDao().poolEpisodesOnce(RadioProfiles.WEEKLY_ID, 1).isNotEmpty()
-                    },
-                    MediaItemFactory.folder(MediaIds.NODE_PLAYLISTS, "Playlists", childrenAreEpisodes = false),
-                    MediaItemFactory.folder(MediaIds.NODE_LIBRARY, "Library"),
-                    MediaItemFactory.folder(MediaIds.NODE_DOWNLOADS, "Downloads"),
-                )
-                parentId == MediaIds.NODE_WEEKLY ->
-                    graph.database.radioDao().poolEpisodesOnce(RadioProfiles.WEEKLY_ID, MAX_BROWSE_CHILDREN)
-                        .map(MediaItemFactory::browsableEpisode)
-                parentId == MediaIds.NODE_CONTINUE ->
-                    graph.database.episodeDao().continueListeningOnce(MAX_BROWSE_CHILDREN)
-                        .map(MediaItemFactory::browsableEpisode)
-                parentId == MediaIds.NODE_PLAYLISTS ->
-                    graph.database.playlistDao().playlistsOnce()
-                        .take(MAX_BROWSE_CHILDREN)
-                        .map { playlist ->
-                            MediaItemFactory.folder(MediaIds.playlist(playlist.id), playlist.name)
-                        }
-                parentId == MediaIds.NODE_LIBRARY ->
-                    graph.database.episodeDao().libraryEpisodesOnce()
-                        .take(MAX_BROWSE_CHILDREN)
-                        .map(MediaItemFactory::browsableEpisode)
-                parentId == MediaIds.NODE_DOWNLOADS ->
-                    graph.database.episodeDao().downloadedEpisodesOnce()
-                        .take(MAX_BROWSE_CHILDREN)
-                        .map(MediaItemFactory::browsableEpisode)
-                else -> MediaIds.playlistIdOrNull(parentId)?.let { playlistId ->
-                    graph.playlists.sortedEpisodesOnce(playlistId)
-                        .take(MAX_BROWSE_CHILDREN)
-                        .map(MediaItemFactory::browsableEpisode)
-                } ?: emptyList()
-            }
+            val children = CarBrowseTree(appGraph.database, appGraph.playlists).children(parentId)
             LibraryResult.ofItemList(ImmutableList.copyOf(children), params)
         }
 
@@ -1303,7 +1265,6 @@ class PlaybackService : MediaLibraryService() {
         Exception("Not restoring the saved queue: a newer one was set")
 
     companion object {
-        private const val MAX_BROWSE_CHILDREN = 100
         private const val MIN_LISTEN_SEGMENT_MS = 1_000L
 
         private const val CONTINUOUS_POSITION_TOLERANCE_MS = 12_000L

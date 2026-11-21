@@ -35,6 +35,13 @@ interface PodcastDao {
     )
     fun subscribedWithLastPlayed(): Flow<List<SubscribedPodcast>>
 
+    @Query(
+        """SELECT p.*, COALESCE((SELECT MAX(e.lastPlayedAt) FROM episodes e WHERE e.podcastId = p.id), 0)
+                  AS lastPlayedAt
+           FROM podcasts p WHERE p.subscribed = 1"""
+    )
+    suspend fun subscribedWithLastPlayedOnce(): List<SubscribedPodcast>
+
     @Query("SELECT * FROM podcasts WHERE id = :id")
     suspend fun byId(id: String): PodcastEntity?
 
@@ -197,6 +204,19 @@ interface EpisodeDao {
                e.id"""
     )
     suspend fun episodesForPodcastOnce(podcastId: String): List<EpisodeEntity>
+
+    /** The first [limit] of a show's episodes in its own sort order, for the Android Auto browse tree. */
+    @Query(
+        """SELECT e.* FROM episodes e
+           JOIN podcasts p ON p.id = e.podcastId
+           WHERE e.podcastId = :podcastId
+           ORDER BY
+               CASE WHEN p.episodeSortOrder = 'OLDEST_FIRST' THEN e.pubDateMs END ASC,
+               CASE WHEN p.episodeSortOrder = 'NEWEST_FIRST' THEN e.pubDateMs END DESC,
+               e.id
+           LIMIT :limit"""
+    )
+    suspend fun firstEpisodesForPodcast(podcastId: String, limit: Int): List<EpisodeEntity>
 
     @Query(
         """SELECT e.* FROM episodes e JOIN podcasts p ON e.podcastId = p.id
