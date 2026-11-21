@@ -1107,7 +1107,7 @@ class PlaybackService : MediaLibraryService() {
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = scope.future(Dispatchers.IO) {
             val children = CarBrowseTree(appGraph.database, appGraph.playlists).children(parentId).page(page, pageSize)
-            LibraryResult.ofItemList(ImmutableList.copyOf(children), params)
+            LibraryResult.ofItemList(ImmutableList.copyOf(forBrowser(browser, children)), params)
         }
 
         override fun onGetItem(
@@ -1125,7 +1125,7 @@ class PlaybackService : MediaLibraryService() {
                 else -> null
             }
             if (item != null) {
-                LibraryResult.ofItem(item, null)
+                LibraryResult.ofItem(forBrowser(browser, listOf(item)).single(), null)
             } else {
                 LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
             }
@@ -1166,8 +1166,12 @@ class PlaybackService : MediaLibraryService() {
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = scope.future(Dispatchers.IO) {
             val results = CarSearch(appGraph.database).results(query).page(page, pageSize)
-            LibraryResult.ofItemList(ImmutableList.copyOf(results), params)
+            LibraryResult.ofItemList(ImmutableList.copyOf(forBrowser(browser, results)), params)
         }
+
+        /** Browse items as [browser] should get them: see [CarArtwork]. */
+        private fun forBrowser(browser: MediaSession.ControllerInfo, items: List<MediaItem>): List<MediaItem> =
+            CarArtwork.forBrowser(this@PlaybackService, browser.packageName, items)
 
         /** Resolves bare mediaIds (from Auto or the in-app UI) into playable items with URIs. */
         override fun onAddMediaItems(

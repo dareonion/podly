@@ -59,6 +59,13 @@
             </intent-filter>
         </receiver>
 
+        <!-- Tailnet covers for Android Auto, which Tailscale keeps off the tailnet (CarArtwork). -->
+        <provider
+            android:name=".playback.CarArtworkProvider"
+            android:authorities="${applicationId}.artwork"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <service
             android:name=".playback.PlaybackService"
             android:exported="true"
