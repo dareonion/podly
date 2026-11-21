@@ -1104,10 +1104,17 @@ class PlaybackService : MediaLibraryService() {
             browser: MediaSession.ControllerInfo,
             mediaId: String,
         ): ListenableFuture<LibraryResult<MediaItem>> = scope.future(Dispatchers.IO) {
-            val episodeId = MediaIds.episodeIdOrNull(mediaId)
-            val episode = episodeId?.let { appGraph.podcasts.episodeById(it) }
-            if (episode != null) {
-                LibraryResult.ofItem(MediaItemFactory.browsableEpisode(episode), null)
+            val episode = MediaIds.episodeIdOrNull(mediaId)?.let { appGraph.podcasts.episodeById(it) }
+            val podcast = MediaIds.podcastIdOrNull(mediaId)?.let { appGraph.database.podcastDao().byId(it) }
+            // Under the id asked for, so an episode looked up from inside its show still
+            // plays on through it.
+            val item = when {
+                episode != null -> MediaItemFactory.browsableEpisode(episode, mediaId)
+                podcast != null -> MediaItemFactory.podcast(podcast)
+                else -> null
+            }
+            if (item != null) {
+                LibraryResult.ofItem(item, null)
             } else {
                 LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
             }
@@ -1164,15 +1171,28 @@ class PlaybackService : MediaLibraryService() {
                 radio = null
                 scope.launch { stopRadio() }
             }
+            val (ids, index) = requestedIds(mediaItems, startIndex)
             // Recounted around episodes that no longer exist, so the one asked for
             // still starts.
-            val (episodes, safeIndex) = compactAt(
-                episodesInOrder(mediaItems.map { MediaIds.episodeIdOrNull(it.mediaId) }),
-                startIndex,
-            )
+            val (episodes, safeIndex) = compactAt(episodesInOrder(ids), index)
             // An explicit start position wins; otherwise the episode's saved one.
             val position = startPositionMs.takeIf { it != C.TIME_UNSET && it > 0 }
             return ResolvedQueue(episodes, safeIndex, position).prebuild(isCasting())
+        }
+
+        /**
+         * The episode ids a set request names, and the index to start at. One episode
+         * played from inside its show in Android Auto (a `show-ep/` id) plays on through
+         * the show; anything else is the list as sent.
+         */
+        private suspend fun requestedIds(mediaItems: List<MediaItem>, startIndex: Int): Pair<List<String?>, Int> {
+            val fromShow = mediaItems.singleOrNull()?.let { MediaIds.showEpisodeIdOrNull(it.mediaId) }
+            val podcastId = fromShow?.let { appGraph.podcasts.episodeById(it)?.podcastId }
+            if (fromShow != null && podcastId != null) {
+                val order = appGraph.database.episodeDao().episodeOrderForPodcast(podcastId)
+                return continueThroughShow(order, fromShow) to 0
+            }
+            return mediaItems.map { MediaIds.episodeIdOrNull(it.mediaId) } to startIndex
         }
 
         /**

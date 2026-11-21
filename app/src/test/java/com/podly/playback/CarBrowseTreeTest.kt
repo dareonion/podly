@@ -9,6 +9,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.podly.data.PlaylistRepository
 import com.podly.data.db.DownloadStatus
 import com.podly.data.db.EpisodeEntity
+import com.podly.data.db.EpisodeProgress
 import com.podly.data.db.PlaylistEntity
 import com.podly.data.db.PodcastEntity
 import com.podly.data.db.PodcastEpisodeSortOrder
@@ -120,12 +121,29 @@ class CarBrowseTreeTest {
 
         val news = children(MediaIds.podcast("news"))
         assertEquals(CarBrowseTree.MAX_CHILDREN, news.size)
-        assertEquals(MediaIds.episode("news-$many"), news.first().mediaId)
+        // Show-episode ids, so playing one plays on through the show.
+        assertEquals(MediaIds.showEpisode("news-$many"), news.first().mediaId)
         assertTrue(news.all { it.mediaMetadata.isPlayable == true && it.mediaMetadata.isBrowsable == false })
 
         assertEquals(
-            listOf("serial-1", "serial-2", "serial-3").map(MediaIds::episode),
+            listOf("serial-1", "serial-2", "serial-3").map(MediaIds::showEpisode),
             ids(MediaIds.podcast("serial")),
+        )
+    }
+
+    @Test
+    fun showOrderListsIdsAndFinishedFlagsInTheShowsOwnOrder() = runBlocking {
+        db.podcastDao().insertIgnore(podcast("serial", sortOrder = PodcastEpisodeSortOrder.OLDEST_FIRST))
+        db.episodeDao().insertIgnore(
+            listOf(
+                episode("s2", "serial", pubDateMs = 2),
+                episode("s1", "serial", pubDateMs = 1).copy(completed = true),
+                episode("s3", "serial", pubDateMs = 3),
+            )
+        )
+        assertEquals(
+            listOf(EpisodeProgress("s1", true), EpisodeProgress("s2", false), EpisodeProgress("s3", false)),
+            db.episodeDao().episodeOrderForPodcast("serial"),
         )
     }
 

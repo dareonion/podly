@@ -21,12 +21,21 @@ object MediaIds {
     const val PLAYLIST_PREFIX = "playlist/"
     const val PODCAST_PREFIX = "podcast/"
     const val EPISODE_PREFIX = "ep/"
+    /** An episode browsed from inside its show: playing it plays on through the show. */
+    const val SHOW_EPISODE_PREFIX = "show-ep/"
 
     fun episode(id: String) = "$EPISODE_PREFIX$id"
     fun playlist(id: Long) = "$PLAYLIST_PREFIX$id"
     fun podcast(id: String) = "$PODCAST_PREFIX$id"
+    fun showEpisode(episodeId: String) = "$SHOW_EPISODE_PREFIX$episodeId"
+
+    /** The episode either kind of episode id names. */
     fun episodeIdOrNull(mediaId: String): String? =
         mediaId.takeIf { it.startsWith(EPISODE_PREFIX) }?.removePrefix(EPISODE_PREFIX)
+            ?: showEpisodeIdOrNull(mediaId)
+
+    fun showEpisodeIdOrNull(mediaId: String): String? =
+        mediaId.takeIf { it.startsWith(SHOW_EPISODE_PREFIX) }?.removePrefix(SHOW_EPISODE_PREFIX)
     fun playlistIdOrNull(mediaId: String): Long? =
         mediaId.takeIf { it.startsWith(PLAYLIST_PREFIX) }?.removePrefix(PLAYLIST_PREFIX)?.toLongOrNull()
     fun podcastIdOrNull(mediaId: String): String? =
@@ -76,10 +85,13 @@ object MediaItemFactory {
         }
     }
 
-    /** Metadata-only item (no URI) as served to browsers like Android Auto. */
-    fun browsableEpisode(episode: EpisodeEntity): MediaItem =
+    /**
+     * Metadata-only item (no URI) as served to browsers like Android Auto. [mediaId] is
+     * the plain episode id unless the item should play on through its show.
+     */
+    fun browsableEpisode(episode: EpisodeEntity, mediaId: String = MediaIds.episode(episode.id)): MediaItem =
         MediaItem.Builder()
-            .setMediaId(MediaIds.episode(episode.id))
+            .setMediaId(mediaId)
             .setMediaMetadata(metadata(episode, isPlayable = true))
             .build()
 

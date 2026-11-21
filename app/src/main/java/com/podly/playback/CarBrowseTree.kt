@@ -71,10 +71,11 @@ internal class CarBrowseTree(
             val playlistId = MediaIds.playlistIdOrNull(parentId)
             when {
                 // In the show's own sort order, so a serial set to oldest first starts at
-                // its first episode here too.
+                // its first episode here too. Played from here, an episode plays on
+                // through the show (continueThroughShow).
                 podcastId != null ->
                     database.episodeDao().firstEpisodesForPodcast(podcastId, MAX_CHILDREN)
-                        .map(MediaItemFactory::browsableEpisode)
+                        .map { MediaItemFactory.browsableEpisode(it, MediaIds.showEpisode(it.id)) }
                 playlistId != null ->
                     playlists.sortedEpisodesOnce(playlistId)
                         .take(MAX_CHILDREN)

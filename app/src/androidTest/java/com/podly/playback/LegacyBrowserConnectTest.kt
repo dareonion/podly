@@ -83,7 +83,8 @@ class LegacyBrowserConnectTest {
         // that never refreshed); some show among the first few should not be.
         val opened = shows.take(5).map { show ->
             load(browser.get(), show.mediaId!!).also { episodes ->
-                assertTrue(episodes.all { it.isPlayable && it.mediaId?.startsWith(MediaIds.EPISODE_PREFIX) == true })
+                // show-ep/ ids, which play on through the show.
+                assertTrue(episodes.all { it.isPlayable && it.mediaId?.let(MediaIds::showEpisodeIdOrNull) != null })
             }
         }
         assertTrue("no show among the first five has episodes", shows.isEmpty() || opened.any { it.isNotEmpty() })

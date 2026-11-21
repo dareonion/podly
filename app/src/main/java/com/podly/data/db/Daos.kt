@@ -10,6 +10,9 @@ import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
+/** An episode's id and whether it is finished, in its show's order: what playing on through a show needs. */
+data class EpisodeProgress(val id: String, val completed: Boolean)
+
 /** A subscribed show plus when any of its episodes was last played (0 if never), for the podcasts page. */
 data class SubscribedPodcast(
     @Embedded val podcast: PodcastEntity,
@@ -217,6 +220,18 @@ interface EpisodeDao {
            LIMIT :limit"""
     )
     suspend fun firstEpisodesForPodcast(podcastId: String, limit: Int): List<EpisodeEntity>
+
+    /** Every episode of a show in its own sort order, ids and finished flags only. */
+    @Query(
+        """SELECT e.id AS id, e.completed AS completed FROM episodes e
+           JOIN podcasts p ON p.id = e.podcastId
+           WHERE e.podcastId = :podcastId
+           ORDER BY
+               CASE WHEN p.episodeSortOrder = 'OLDEST_FIRST' THEN e.pubDateMs END ASC,
+               CASE WHEN p.episodeSortOrder = 'NEWEST_FIRST' THEN e.pubDateMs END DESC,
+               e.id"""
+    )
+    suspend fun episodeOrderForPodcast(podcastId: String): List<EpisodeProgress>
 
     @Query(
         """SELECT e.* FROM episodes e JOIN podcasts p ON e.podcastId = p.id
